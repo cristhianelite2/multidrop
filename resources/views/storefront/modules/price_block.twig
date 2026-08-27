@@ -1,0 +1,11 @@
+<div class="md-price-row">
+  {% if product.on_sale and product.compare_at_formatted %}
+    <s class="md-price-was">{{ product.compare_at_formatted }}</s>
+  {% endif %}
+  {% if product.price_formatted %}
+    <span class="md-price">{{ product.price_formatted }}</span>
+  {% endif %}
+  {% if product.on_sale and product.save_percent %}
+    <span class="md-price-save">−{{ product.save_percent }}%</span>
+  {% endif %}
+</div>

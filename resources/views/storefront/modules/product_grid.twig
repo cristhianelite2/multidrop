@@ -1,0 +1,18 @@
+<section class="md-section md-mod-grid">
+  <div class="md-wrap">
+    <div class="md-section__head">
+      {% if title %}
+        <h2>{{ title }}</h2>
+      {% elseif featured_only %}
+        <h2>También te puede gustar</h2>
+      {% endif %}
+    </div>
+    <div class="md-grid" data-md-products{% if featured_only %} data-md-featured{% endif %}>
+      {% for product in products %}
+        {% if not featured_only or product.featured or product.is_featured or product.is_star or product.star %}
+          {% include 'product_card.twig' %}
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

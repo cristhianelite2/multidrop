@@ -1,0 +1,143 @@
+<section class="md-pdp md-mod-pdp" data-md-product data-product-id="{{ product.id|default('') }}">
+  <div class="md-wrap md-pdp__grid">
+    <div class="md-pdp__gallery">
+      <div class="md-media-carousel" data-md-media-carousel>
+        <div class="md-media-carousel__stage md-pdp__main">
+          {% if product.image %}
+            <img data-md-gallery-main src="{{ product.image }}" alt="{{ product.name|default('') }}" referrerpolicy="no-referrer">
+          {% else %}
+            <img data-md-gallery-main alt="{{ product.name|default('') }}" referrerpolicy="no-referrer">
+          {% endif %}
+          <button type="button" class="md-media-carousel__nav md-media-carousel__prev" data-md-media-prev aria-label="Anterior" hidden>‹</button>
+          <button type="button" class="md-media-carousel__nav md-media-carousel__next" data-md-media-next aria-label="Siguiente" hidden>›</button>
+          <span class="md-media-carousel__count" data-md-media-count hidden></span>
+        </div>
+        <div data-md-gallery data-md-gallery-thumbs class="md-media-carousel__thumbs md-pdp__thumbs md-gallery">
+          {% for img in product.images|default([]) %}
+            <button type="button" class="{% if loop.first %}is-active{% endif %}" data-md-gallery-thumb data-md-media-slide="{{ loop.index0 }}" data-src="{{ img }}" aria-current="{% if loop.first %}true{% else %}false{% endif %}">
+              <img src="{{ img }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="md-video-carousel" data-md-video-carousel hidden>
+        <div class="md-video-carousel__head">Videos <span data-md-video-label></span></div>
+        <div class="md-video-carousel__stage">
+          <video data-md-video-player controls playsinline preload="metadata"></video>
+          <button type="button" class="md-video-carousel__nav md-video-carousel__prev" data-md-video-prev aria-label="Video anterior">‹</button>
+          <button type="button" class="md-video-carousel__nav md-video-carousel__next" data-md-video-next aria-label="Video siguiente">›</button>
+          <span class="md-video-carousel__count" data-md-video-count></span>
+        </div>
+        <div class="md-video-carousel__thumbs" data-md-video-thumbs></div>
+      </div>
+    </div>
+    <div class="md-pdp__info md-pdp-info">
+      {% if product.badge %}<p class="md-tag md-badge">{{ product.badge }}</p>{% endif %}
+      <h1>{{ product.name|default('Producto') }}</h1>
+      {% if product.rating_avg %}
+        <div class="md-pdp-rating">
+          <span class="md-review__stars">★ {{ product.rating_avg }}</span>
+          <span>({{ product.review_count|default(0) }})</span>
+        </div>
+      {% endif %}
+      {% include 'price_block.twig' %}
+      {% if product.description_short %}
+        <p class="md-pdp__desc md-pdp-short" data-md-bind="product.description_short">{{ product.description_short }}</p>
+      {% endif %}
+      {% if product.variants %}
+        <div class="md-product__variants">
+          <div class="md-product__variants-label">Opciones</div>
+          <div class="md-variants" data-md-variants>
+            {% for v in product.variants %}
+              <button type="button" class="md-variant{% if loop.first %} is-selected{% endif %}" data-variant-id="{{ v.id|default('') }}" data-md-variant>
+                {% if v.image %}<img src="{{ v.image }}" alt="" referrerpolicy="no-referrer">{% endif %}
+                <span>{{ v.name|default(v.title|default('Opción')) }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% if product.id %}
+        <div class="md-pdp__row">
+          <div class="md-qty">
+            <button type="button" data-md-qty-minus aria-label="Restar">−</button>
+            <input data-md-qty name="qty" type="number" min="1" value="1" inputmode="numeric">
+            <button type="button" data-md-qty-plus aria-label="Sumar">+</button>
+          </div>
+          <button type="button" class="md-btn md-btn--primary" data-md-add-to-cart data-product-id="{{ product.id }}" data-id="{{ product.id }}">Agregar al carrito</button>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{% if product.description_html or product.description_long %}
+<section class="md-pdp-block md-section">
+  <div class="md-wrap">
+    <h2>Descripción</h2>
+    <div class="md-pdp-long" data-md-description-long data-md-bind="product.description_long">{{ (product.description_html|default(product.description_long))|raw }}</div>
+  </div>
+</section>
+{% endif %}
+
+<section class="md-pdp-block md-section">
+  <div class="md-wrap">
+    <h2>Reseñas</h2>
+    <div class="md-reviews" data-md-reviews>
+      {% if product.reviews %}
+      {% for r in product.reviews %}
+        <article class="md-review">
+          <div class="md-review__meta">
+            <strong>{{ r.author|default(r.name|default('Cliente')) }}</strong>
+            {% if r.score %}<span class="md-review__stars">★ {{ r.score }}</span>{% endif %}
+            {% if r.country %}<span>{{ r.country }}</span>{% endif %}
+          </div>
+          {% if r.comment or r.text %}<p>{{ r.comment|default(r.text) }}</p>{% endif %}
+          {% if r.images %}
+            <div class="md-review__photos">
+              {% for img in r.images %}
+                {% if img %}
+                  <a href="{{ img }}" target="_blank" rel="noopener">
+                    <img src="{{ img }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+                  </a>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+      {% else %}
+        <p class="md-empty">{{ i18n.pdp.no_reviews|default('Sin reseñas todavía.') }}</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+{% if product.comments %}
+<section class="md-pdp-block md-section">
+  <div class="md-wrap">
+    <h2>Comentarios</h2>
+    <div class="md-comments" data-md-comments>
+      {% for c in product.comments %}
+        <article class="md-comment">
+          <div class="md-comment__meta">
+            <strong>{{ c.author|default(c.name|default('Cliente')) }}</strong>
+          </div>
+          {% if c.comment or c.text %}<p>{{ c.comment|default(c.text) }}</p>{% endif %}
+          {% if c.images %}
+            <div class="md-comment__photos">
+              {% for img in c.images %}
+                {% if img %}
+                  <a href="{{ img }}" target="_blank" rel="noopener">
+                    <img src="{{ img }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+                  </a>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}

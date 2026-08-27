@@ -1,0 +1,12 @@
+<div data-md-module="social_proof" id="md-social-proof" class="md-mod-social md-sp-left md-hide" aria-live="polite">
+  <a id="md-sp-link" class="md-sp-thumb" href="{{ star.url|default('#') }}" data-md-sp-link>
+    <img id="md-sp-img" class="md-sp-img" src="{{ star.image|default('') }}" alt="" width="48" height="48" loading="lazy" decoding="async">
+    <span class="md-sp-dot md-sp-dot--fallback" aria-hidden="true"></span>
+  </a>
+  <div class="md-sp-body">
+    <div><strong id="md-sp-name">Emma</strong> en <span class="md-sp-place"><img id="md-sp-flag" class="md-sp-flag" src="https://flagcdn.com/w40/us.png" width="18" height="13" alt="" decoding="async"><span id="md-sp-country">Estados Unidos</span></span></div>
+    <div><span data-md-sp-bought>{{ i18n.social.bought|default('compró') }}</span> <a id="md-sp-product" class="md-sp-product" href="{{ star.url|default('#') }}" data-md-sp-link>{{ star.name|default(i18n.social.a_product|default('un producto')) }}</a></div>
+    <div class="md-sp-muted" id="md-sp-when">hace 3 minutos</div>
+  </div>
+  <button type="button" id="md-sp-close" class="md-mod-close" title="Cerrar" aria-label="Cerrar">×</button>
+</div>

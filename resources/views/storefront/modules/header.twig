@@ -1,0 +1,31 @@
+<header class="md-nav md-header" data-md-header>
+  <div class="md-wrap md-nav__row">
+    <a href="{{ urls.home|default('#') }}" class="md-logo">
+      {% if logo %}
+        <img src="{{ logo }}" alt="{{ store.name|default('Tienda') }}">
+      {% else %}
+        {{ store.name|default('Tienda') }}
+      {% endif %}
+    </a>
+    <nav class="md-nav__links">
+      <a href="{{ urls.home|default('#') }}">Inicio</a>
+      <a href="{{ urls.catalog|default('#') }}">Catálogo</a>
+      {% for link in nav_links|default([]) %}
+        <a href="{{ link.url|default('#') }}">{{ link.title|default('') }}</a>
+      {% endfor %}
+    </nav>
+    <div class="md-nav__actions">
+      <div class="md-locale-currency" data-md-locale-currency>
+        <select data-md-locale-select aria-label="Language"></select>
+        <select data-md-currency-select aria-label="Currency"></select>
+      </div>
+      <a href="{{ urls.cart|default('#') }}" class="md-cart-link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/></svg>
+        Carrito <span data-md-cart-count>{{ cart_count|default(0) }}</span>
+      </a>
+      <button type="button" class="md-nav__burger" data-md-nav-toggle aria-label="Menú" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</header>

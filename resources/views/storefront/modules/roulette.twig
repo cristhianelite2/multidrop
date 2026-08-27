@@ -1,0 +1,42 @@
+<div data-md-module="roulette" id="md-roulette-root">
+  <div id="md-roulette-fab-wrap" class="md-mod-roulette-fab-wrap">
+    <button type="button" id="md-roulette-open" class="md-mod-roulette-fab" aria-haspopup="dialog" data-md-roulette-fab>{{ i18n.roulette.fab|default('Girar') }}</button>
+    <div id="md-roulette-won" class="md-mod-roulette-won md-hide" aria-live="polite">
+      <div class="md-mod-roulette-won-kicker" data-md-roulette-won-kicker>{{ i18n.roulette.won_kicker|default('') }}</div>
+      <strong id="md-roulette-won-label">—</strong>
+      <div id="md-roulette-won-code-row" class="md-mod-roulette-won-code-row md-hide">
+        <code id="md-roulette-won-code"></code>
+        <button type="button" id="md-roulette-copy" class="md-mod-roulette-copy" data-md-roulette-copy>{{ i18n.roulette.copy|default('Copiar') }}</button>
+      </div>
+      <div class="md-mod-roulette-won-timer"><span data-md-roulette-next-spin>{{ i18n.roulette.next_spin|default('') }}</span> <b id="md-roulette-cooldown">--:--:--</b></div>
+    </div>
+    <div id="md-roulette-miss" class="md-mod-roulette-miss md-hide" aria-live="polite">
+      <div class="md-mod-roulette-miss-face" aria-hidden="true">😢</div>
+      <div class="md-mod-roulette-won-kicker" data-md-roulette-miss-title>{{ i18n.roulette.miss_title|default('') }}</div>
+      <strong data-md-roulette-miss-body>{{ i18n.roulette.miss_body|default('') }}</strong>
+      <button type="button" id="md-roulette-retry" class="md-mod-roulette-retry">{{ i18n.roulette.spin_again|default('Otra vez') }}</button>
+    </div>
+  </div>
+  <div id="md-roulette-overlay" class="md-mod-roulette-overlay md-hide" role="dialog" aria-modal="true" aria-labelledby="md-roulette-title">
+    <div class="md-mod-roulette-confetti" id="md-roulette-confetti" aria-hidden="true"></div>
+    <div class="md-mod-roulette-stage">
+      <button type="button" class="md-mod-roulette-x" id="md-roulette-close" aria-label="{{ i18n.roulette.close|default('Cerrar') }}">×</button>
+      <h2 id="md-roulette-title">{{ i18n.roulette.headline|default('Ruleta') }}</h2>
+      <p class="md-mod-roulette-sub" id="md-roulette-subtitle">{{ i18n.roulette.subtitle|default('') }}</p>
+      <div class="md-mod-roulette-pointer" aria-hidden="true"></div>
+      <div class="md-mod-roulette-wheel-wrap">
+        <div id="md-roulette-wheel" class="md-mod-roulette-wheel"></div>
+        <div class="md-mod-roulette-hub" aria-hidden="true">★</div>
+      </div>
+      <button type="button" id="md-roulette-spin" class="md-btn md-mod-roulette-spin-btn">{{ i18n.roulette.spin|default('Girar') }}</button>
+      <div id="md-roulette-result-panel" class="md-mod-roulette-result md-hide">
+        <strong id="md-roulette-result-label">—</strong>
+        <span id="md-roulette-result-extra"></span>
+        <div id="md-roulette-result-copy-row" class="md-mod-roulette-won-code-row md-hide" style="margin-top:10px;justify-content:center">
+          <code id="md-roulette-result-code"></code>
+          <button type="button" id="md-roulette-result-copy" class="md-mod-roulette-copy" data-md-roulette-copy-coupon>{{ i18n.roulette.copy_coupon|default('Copiar') }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

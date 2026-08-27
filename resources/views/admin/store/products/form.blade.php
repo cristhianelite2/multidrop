@@ -1,0 +1,1899 @@
+@extends('layouts.admin')
+
+@section('title', ($product->exists ? 'Editar' : 'Nuevo').' producto')
+@section('heading', $product->exists ? 'Editar producto' : 'Nuevo producto')
+@section('subheading', $store->name)
+
+@section('content')
+@php
+    $verified = is_array($product->verified_data) ? $product->verified_data : [];
+    $creative = is_array($product->creative_data) ? $product->creative_data : [];
+    $translations = is_array($creative['translations'] ?? null) ? $creative['translations'] : [];
+    $defaultLocale = old('default_locale', $creative['default_locale'] ?? ($store->defaultLocale() ?? 'es_MX'));
+    $cjImages = array_values(array_filter($verified['images'] ?? []));
+    $cjVideos = $cj_videos ?? [];
+    if ($cjVideos === []) {
+        foreach (array_values(array_filter($verified['videos'] ?? [], fn ($v) => is_array($v))) as $v) {
+            if (empty($v['url'])) {
+                continue;
+            }
+            $v['play_url'] = route('admin.lab.cj.video-proxy', ['u' => $v['url']]);
+            $cjVideos[] = $v;
+        }
+    }
+    $cjVariants = $product->exists ? $product->variants : collect();
+    $isCj = $product->exists && $product->isFromCj();
+    $cjReviews = $product->exists ? $product->reviews() : [];
+    $cjComments = $product->exists ? $product->comments() : [];
+    $cjRatingAvg = $product->exists ? $product->ratingAvg() : null;
+    $cjReviewCount = $product->exists ? $product->reviewCount() : 0;
+    $cjCommentCount = $product->exists ? $product->commentCount() : 0;
+    $locales = $locales ?? [];
+    $hasMiia = $has_miia ?? false;
+
+    // Sembrar locale default con datos principales si aún no hay traducción
+    if (! isset($translations[$defaultLocale]) || ! is_array($translations[$defaultLocale])) {
+        $translations[$defaultLocale] = [];
+    }
+    if (trim((string) ($translations[$defaultLocale]['name'] ?? '')) === '' && $product->name) {
+        $translations[$defaultLocale]['name'] = $product->name;
+    }
+    if (trim((string) ($translations[$defaultLocale]['description'] ?? '')) === '' && $product->description) {
+        $translations[$defaultLocale]['description'] = $product->description;
+    }
+    if (trim((string) ($translations[$defaultLocale]['badge'] ?? '')) === '' && $product->badge) {
+        $translations[$defaultLocale]['badge'] = $product->badge;
+    }
+
+    $activeLocale = old('_active_locale', $defaultLocale);
+    $activeMeta = collect($locales)->firstWhere('locale', $activeLocale) ?: ($locales[0] ?? null);
+    if (! $activeMeta && $locales) {
+        $activeMeta = $locales[0];
+        $activeLocale = $activeMeta['locale'];
+    }
+    $activeT = $translations[$activeLocale] ?? [];
+@endphp
+
+<div class="mb-4 flex flex-wrap items-center gap-2">
+    <a href="{{ route('admin.store.products.index') }}" class="admin-btn-secondary">← Catálogo</a>
+    @if($isCj && !empty($verified['cj_url']))
+        <a href="{{ $verified['cj_url'] }}" target="_blank" rel="noopener" class="admin-btn-secondary">Ver en CJ ↗</a>
+    @endif
+    @if($isCj)
+        <button type="button" id="btn-sync-cj" class="admin-btn-secondary">↻ Sincronizar desde CJ</button>
+    @endif
+
+    {{-- Idioma activo + traducir + % --}}
+    <div class="ml-auto flex flex-wrap items-center gap-2">
+        <div class="relative" id="locale-picker">
+            <button type="button" id="locale-picker-btn"
+                    class="admin-btn-secondary !px-3 !py-1.5 inline-flex items-center gap-2 min-w-[12rem]">
+                <span id="locale-picker-flag" class="market-flag fi {{ !empty($activeMeta['iso']) ? 'fi-'.$activeMeta['iso'] : '' }}"></span>
+                <span id="locale-picker-label" class="text-left text-sm font-medium text-ink truncate max-w-[9rem]">
+                    {{ $activeMeta['name'] ?? $activeLocale }}
+                </span>
+                <span class="text-ink-soft/50 text-xs">▾</span>
+            </button>
+            <div id="locale-picker-menu"
+                 class="absolute right-0 z-30 mt-1 hidden max-h-72 w-64 overflow-y-auto rounded-xl border border-line bg-white p-1 shadow-lg">
+                @foreach($locales as $loc)
+                    <button type="button"
+                            class="locale-option flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-mist/70"
+                            data-locale="{{ $loc['locale'] }}"
+                            data-name="{{ $loc['name'] }}"
+                            data-iso="{{ $loc['iso'] }}">
+                        <span class="market-flag fi fi-{{ $loc['iso'] }}"></span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-medium text-ink">{{ $loc['name'] }}</span>
+                            <span class="block text-[10px] text-ink-soft/50">{{ $loc['locale'] }}</span>
+                        </span>
+                    </button>
+                @endforeach
+            </div>
+            <input type="hidden" id="active-locale" value="{{ $activeLocale }}">
+        </div>
+
+        <div id="translation-pct-wrap"
+             class="inline-flex items-center gap-2 rounded-xl border border-line bg-mist/40 px-3 py-1.5"
+             title="Completitud de nombre, badge y descripción en este idioma">
+            <div class="h-2 w-16 overflow-hidden rounded-full bg-line/70">
+                <div id="translation-pct-bar" class="h-full rounded-full bg-teal transition-all" style="width: 0%"></div>
+            </div>
+            <span id="translation-pct-label" class="text-xs font-semibold text-ink tabular-nums">0%</span>
+            <span id="translation-pct-detail" class="text-[10px] text-ink-soft/55">0/3</span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+            <label class="inline-flex items-center gap-1.5 text-xs text-ink-soft">
+                <input type="checkbox" id="translate-convert-currency" class="rounded border-line text-teal" checked
+                       @disabled(! $hasMiia || ! $product->exists)>
+                Convertir precio
+            </label>
+            <select id="translate-currency" class="admin-input !w-auto !py-1.5 text-xs min-w-[7.5rem]"
+                    @disabled(! $hasMiia || ! $product->exists)
+                    title="Moneda destino al traducir">
+                <option value="">Moneda (auto)</option>
+                @foreach(($currencies ?? []) as $row)
+                    <option value="{{ $row['code'] }}">{{ $row['code'] }}</option>
+                @endforeach
+            </select>
+            <button type="button" id="btn-translate-miia" class="admin-btn !px-3 !py-1.5 text-sm"
+                    @disabled(! $hasMiia || ! $product->exists)
+                    title="Traducir nombre, badge y descripción; opcionalmente convertir moneda">
+                ✨ Traducir en este idioma
+            </button>
+        </div>
+    </div>
+</div>
+
+@if(! $hasMiia)
+    <div class="mb-4 rounded-xl border border-amber/30 bg-amber/10 px-4 py-3 text-sm text-amber">
+        Configura la key MIIA en <a href="{{ route('admin.settings.general') }}" class="underline font-semibold">General</a> para traducir idiomas.
+    </div>
+@endif
+
+<form method="post"
+      action="{{ $product->exists ? route('admin.store.products.update', $product) : route('admin.store.products.store') }}"
+      class="space-y-5"
+      id="product-form">
+    @csrf
+    @if($product->exists) @method('PUT') @endif
+    <input type="hidden" name="default_locale" id="default-locale-input" value="{{ $defaultLocale }}">
+
+    {{-- Hidden stores for all locales (same form fields, swapped by JS) --}}
+    <div id="i18n-hidden" class="hidden">
+        @foreach($locales as $loc)
+            @php
+                $t = $translations[$loc['locale']] ?? [];
+                $tName = old('translations.'.$loc['locale'].'.name', $t['name'] ?? '');
+                $tDesc = old('translations.'.$loc['locale'].'.description', $t['description'] ?? '');
+                $tBadge = old('translations.'.$loc['locale'].'.badge', $t['badge'] ?? '');
+            @endphp
+            <input type="hidden" name="translations[{{ $loc['locale'] }}][name]" value="{{ $tName }}" data-store-name="{{ $loc['locale'] }}">
+            <input type="hidden" name="translations[{{ $loc['locale'] }}][badge]" value="{{ $tBadge }}" data-store-badge="{{ $loc['locale'] }}">
+            <textarea name="translations[{{ $loc['locale'] }}][description]" data-store-desc="{{ $loc['locale'] }}">{{ $tDesc }}</textarea>
+        @endforeach
+    </div>
+
+    <div class="admin-blocks">
+    <div class="admin-card p-5 sm:p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h2 class="font-display text-lg font-bold text-ink">Contenido del producto</h2>
+                <p class="text-sm text-ink-soft/65">
+                    Mismo formulario para cada idioma. Editando:
+                    <strong id="content-locale-name" class="text-ink">{{ $activeMeta['name'] ?? $activeLocale }}</strong>
+                    <span id="content-locale-code" class="text-ink-soft/50">({{ $activeLocale }})</span>
+                </p>
+            </div>
+            <label class="inline-flex items-center gap-2 text-xs text-ink-soft">
+                <input type="checkbox" id="set-as-default-locale" class="rounded border-line text-teal" @checked($activeLocale === $defaultLocale)>
+                Usar este idioma como principal
+            </label>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+            <div class="sm:col-span-2">
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
+                <input id="field-name" value="{{ old('name', $activeT['name'] ?? $product->name) }}" class="admin-input" autocomplete="off">
+                <input type="hidden" name="name" id="main-name" value="{{ old('name', $product->name) }}" required>
+            </div>
+            <div class="sm:col-span-2 sm:max-w-xs">
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Badge</label>
+                <input id="field-badge" value="{{ $activeT['badge'] ?? $product->badge }}" class="admin-input" autocomplete="off">
+                <input type="hidden" name="badge" id="main-badge" value="{{ old('badge', $product->badge) }}">
+            </div>
+            <div class="sm:col-span-2">
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Descripción</label>
+                <textarea id="field-description" rows="6" class="admin-input">{{ $activeT['description'] ?? $product->description }}</textarea>
+                <textarea name="description" id="main-description" class="hidden">{{ old('description', $product->description) }}</textarea>
+            </div>
+        </div>
+        <p id="translate-status" class="hidden text-xs text-ink-soft/60"></p>
+    </div>
+
+    <div class="admin-card p-5 sm:p-6 space-y-4">
+        <h2 class="font-display text-lg font-bold text-ink">Datos de catálogo</h2>
+        <p class="text-sm text-ink-soft/65">Comunes a todos los idiomas (precio, stock, URL, etc.).</p>
+        <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Slug</label>
+                <input name="slug" value="{{ old('slug', $product->slug) }}" class="admin-input">
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">SKU</label>
+                <input name="sku" value="{{ old('sku', $product->sku) }}" class="admin-input">
+            </div>
+            <div class="sm:col-span-2">
+                @php
+                    $verifiedPricing = is_array($verified['pricing'] ?? null) ? $verified['pricing'] : [];
+                    $hasPricing = $product->exists && (
+                        data_get($verified, 'cost_usd') !== null
+                        || data_get($verifiedPricing, 'cost_usd') !== null
+                    );
+                    $fxSvc = app(\App\Services\Currency\CurrencyService::class);
+                    $priceCurrency = strtoupper((string) old('currency', $product->currency ?? 'MXN'));
+                    $costUsd = (float) (data_get($verifiedPricing, 'cost_usd') ?? data_get($verified, 'cost_usd') ?? 0);
+                    $shipUsd = (float) (data_get($verifiedPricing, 'ship_usd') ?? data_get($verified, 'ship_usd') ?? 0);
+                    $feesPct = (float) (data_get($verifiedPricing, 'fees_pct') ?? 0.045);
+                    $targetMargin = (float) (data_get($verifiedPricing, 'target_margin_pct') ?? 0.42);
+                    $landedUsd = $costUsd;
+                    $sellUsdSuggest = (float) (data_get($verifiedPricing, 'sell_usd') ?? data_get($verified, 'sell_usd') ?? 0);
+                    $profitUsdSuggest = (float) (data_get($verifiedPricing, 'profit_usd') ?? 0);
+                    $marginSuggest = data_get($verifiedPricing, 'margin_pct');
+                    $cjSuggestUsd = data_get($verified, 'suggest_sell_price_usd');
+                    $suggestedLocal = $sellUsdSuggest > 0
+                        ? round($fxSvc->convert($sellUsdSuggest, 'USD', $priceCurrency, true), 2)
+                        : null;
+                    $costLocal = $costUsd > 0 ? round($fxSvc->convert($costUsd, 'USD', $priceCurrency, false), 2) : null;
+                    $shipLocal = $shipUsd > 0 ? round($fxSvc->convert($shipUsd, 'USD', $priceCurrency, false), 2) : null;
+                    $landedLocal = $landedUsd > 0 ? round($fxSvc->convert($landedUsd, 'USD', $priceCurrency, false), 2) : null;
+                    $inputPrice = old('price', $product->price);
+                    // Si no hay precio guardado y sí hay sugerido, usar sugerido en el input
+                    if (($inputPrice === null || $inputPrice === '' || (float) $inputPrice <= 0) && $suggestedLocal) {
+                        $inputPrice = $suggestedLocal;
+                    }
+                    if ($inputPrice !== null && $inputPrice !== '') {
+                        $inputPrice = number_format((float) $inputPrice, 2, '.', '');
+                    }
+                    $pairMoney = function ($local, $usd, $cur) {
+                        $main = $local !== null ? number_format((float) $local, 2).' '.$cur : '—';
+                        if (strtoupper((string) $cur) === 'USD') {
+                            return $main;
+                        }
+
+                        return $main.' <span class="text-ink-soft/45">('.number_format((float) $usd, 2).' USD)</span>';
+                    };
+                    $sellNow = (float) ($inputPrice ?: 0);
+                    $feesLocal = $sellNow > 0 ? $sellNow * $feesPct : null;
+                    $feesUsdNow = $feesLocal !== null ? (float) $fxSvc->convert($feesLocal, $priceCurrency, 'USD', false) : 0;
+                    $profitLocalNow = ($sellNow > 0 && $costLocal !== null && $feesLocal !== null)
+                        ? $sellNow - $costLocal - $feesLocal
+                        : null;
+                    $profitUsdNow = $profitLocalNow !== null ? (float) $fxSvc->convert($profitLocalNow, $priceCurrency, 'USD', false) : 0;
+                    $cjSuggestLocal = $cjSuggestUsd ? (float) $fxSvc->convert((float) $cjSuggestUsd, 'USD', $priceCurrency, false) : null;
+                @endphp
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Precio de venta</label>
+                <div class="grid gap-3 lg:grid-cols-2">
+                    <div>
+                        <div class="relative">
+                            <input type="number" step="0.01" min="0" name="price" id="product-price" value="{{ $inputPrice }}" required class="admin-input pr-16"
+                                   data-suggested="{{ $suggestedLocal !== null ? number_format((float) $suggestedLocal, 2, '.', '') : '' }}">
+                            <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-ink-soft/55" id="price-currency-suffix">{{ $priceCurrency }}</span>
+                        </div>
+                        @if($hasPricing && $suggestedLocal)
+                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                <button type="button" id="use-suggested-price" class="admin-btn-secondary !px-2.5 !py-1 text-xs">
+                                    Usar sugerido ({{ number_format((float)$suggestedLocal, 2) }} {{ $priceCurrency }})
+                                </button>
+                                <span class="text-xs text-ink-soft/50">≈ {{ number_format($sellUsdSuggest, 2) }} USD</span>
+                            </div>
+                        @endif
+                    </div>
+
+                    @if($hasPricing)
+                        <div id="price-breakdown"
+                             class="rounded-2xl border border-line bg-mist/40 p-3 text-xs space-y-1.5"
+                             data-cost-usd="{{ $costUsd }}"
+                             data-ship-usd="{{ $shipUsd }}"
+                             data-landed-usd="{{ $landedUsd }}"
+                             data-fees-pct="{{ $feesPct }}"
+                             data-target-margin="{{ $targetMargin }}"
+                             data-sell-usd="{{ $sellUsdSuggest }}"
+                             data-currency="{{ $priceCurrency }}">
+                            <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Desglose de costos</div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Precio original (CJ)</span>
+                                <span class="font-medium text-ink" id="bd-cost">{!! $pairMoney($costLocal, $costUsd, $priceCurrency) !!}</span>
+                            </div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Envío estimado</span>
+                                <span class="font-medium text-ink" id="bd-ship">{!! $pairMoney($shipLocal, $shipUsd, $priceCurrency) !!} <span class="text-ink-soft/40 font-normal">se cobra aparte</span></span>
+                            </div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Costo producto</span>
+                                <span class="font-medium text-ink" id="bd-landed">{!! $pairMoney($landedLocal, $landedUsd, $priceCurrency) !!}</span>
+                            </div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Comisión / fees (~{{ number_format($feesPct * 100, 1) }}%)</span>
+                                <span class="font-medium text-ink" id="bd-fees">{!! $feesLocal !== null ? $pairMoney($feesLocal, $feesUsdNow, $priceCurrency) : '—' !!}</span>
+                            </div>
+                            @if($cjSuggestUsd)
+                                <div class="flex justify-between gap-2">
+                                    <span class="text-ink-soft/65">Sugerido CJ</span>
+                                    <span class="font-medium text-ink">{!! $pairMoney($cjSuggestLocal, $cjSuggestUsd, $priceCurrency) !!}</span>
+                                </div>
+                            @endif
+                            <div class="my-1 border-t border-line/70"></div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Precio sugerido (margen ~{{ number_format($targetMargin * 100, 0) }}%)</span>
+                                <span class="font-semibold text-teal" id="bd-suggested">
+                                    {!! $suggestedLocal !== null ? $pairMoney($suggestedLocal, $sellUsdSuggest, $priceCurrency) : '—' !!}
+                                </span>
+                            </div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Ganancia estimada</span>
+                                <span class="font-semibold text-ink" id="bd-profit">
+                                    {!! $profitLocalNow !== null ? $pairMoney($profitLocalNow, $profitUsdNow, $priceCurrency) : '—' !!}
+                                </span>
+                            </div>
+                            <div class="flex justify-between gap-2">
+                                <span class="text-ink-soft/65">Margen</span>
+                                <span class="font-semibold text-ink" id="bd-margin">
+                                    {{ $marginSuggest !== null ? number_format((float)$marginSuggest, 1).'%' : '—' }}
+                                </span>
+                            </div>
+                            <p class="pt-1 text-[10px] leading-relaxed text-ink-soft/45">
+                                Fees y ganancia se recalculan al cambiar el precio o la moneda. El envío es estimado (no cotización CJ real).
+                            </p>
+                        </div>
+                    @endif
+                </div>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Precio compare</label>
+                <input type="number" step="0.01" min="0" name="compare_at_price"
+                       value="{{ old('compare_at_price', $product->compare_at_price) !== null && old('compare_at_price', $product->compare_at_price) !== '' ? number_format((float) old('compare_at_price', $product->compare_at_price), 2, '.', '') : '' }}"
+                       class="admin-input">
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Moneda</label>
+                @php
+                    $currencyList = $currencies ?? [];
+                    if ($currencyList === []) {
+                        $currencyList = [
+                            ['code' => 'MXN', 'label' => 'Peso mexicano'],
+                            ['code' => 'USD', 'label' => 'Dólar estadounidense'],
+                            ['code' => 'EUR', 'label' => 'Euro'],
+                        ];
+                    }
+                    $currentCurrency = old('currency', $product->currency ?? 'MXN');
+                    $currentRow = collect($currencyList)->firstWhere('code', $currentCurrency);
+                    $currentLabel = is_array($currentRow) ? ($currentRow['label'] ?? $currentCurrency) : $currentCurrency;
+                @endphp
+                <div id="currency-combobox" class="relative" data-prev="{{ $currentCurrency }}">
+                    <input type="hidden" name="currency" id="product-currency" value="{{ $currentCurrency }}" required>
+                    <button type="button" id="currency-trigger" class="admin-input flex w-full items-center justify-between gap-2 text-left" aria-haspopup="listbox" aria-expanded="false">
+                        <span id="currency-trigger-label" class="truncate">{{ $currentCurrency }} — {{ $currentLabel }}</span>
+                        <span class="shrink-0 text-ink-soft/50" aria-hidden="true">▾</span>
+                    </button>
+                    <div id="currency-dropdown" class="absolute z-30 mt-1 hidden w-full overflow-hidden rounded-xl border border-line bg-white shadow-lg">
+                        <div class="border-b border-line p-2">
+                            <input type="search" id="currency-search" class="admin-input !py-1.5 text-sm" placeholder="Buscar moneda (código o nombre)…" autocomplete="off">
+                        </div>
+                        <ul id="currency-options" class="max-h-56 overflow-y-auto py-1" role="listbox">
+                            @foreach($currencyList as $row)
+                                <li>
+                                    <button
+                                        type="button"
+                                        class="currency-option flex w-full px-3 py-2 text-left text-sm hover:bg-mist/70 {{ $currentCurrency === $row['code'] ? 'bg-teal/10 text-teal font-medium' : 'text-ink' }}"
+                                        data-code="{{ $row['code'] }}"
+                                        data-label="{{ $row['label'] }}"
+                                        role="option"
+                                        aria-selected="{{ $currentCurrency === $row['code'] ? 'true' : 'false' }}"
+                                    >
+                                        <span class="font-mono font-semibold">{{ $row['code'] }}</span>
+                                        <span class="ml-2 text-ink-soft/70">{{ $row['label'] }}</span>
+                                    </button>
+                                </li>
+                            @endforeach
+                        </ul>
+                        <p id="currency-empty" class="hidden px-3 py-3 text-sm text-ink-soft/60">Sin resultados</p>
+                    </div>
+                </div>
+                <p class="mt-1 text-xs text-ink-soft/55">Moneda principal. Al cambiar, se convierten precio y compare con las tasas de General (respetando .99 / entero / múltiplos).</p>
+            </div>
+            <div class="sm:col-span-2" id="prices-by-currency">
+                @php
+                    $roundingModes = \App\Services\Currency\CurrencyService::ROUNDING_MODES;
+                    $fxSvc = $fxSvc ?? app(\App\Services\Currency\CurrencyService::class);
+                    $savedPrices = old('prices', $product->currencyPrices());
+                    if (! is_array($savedPrices)) {
+                        $savedPrices = [];
+                    }
+                    $seedCodes = [];
+                    foreach (array_filter([
+                        ...array_keys($savedPrices),
+                        'USD', 'MXN', 'EUR', 'GBP', 'CAD', 'AUD',
+                    ]) as $code) {
+                        $code = strtoupper((string) $code);
+                        if (preg_match('/^[A-Z]{3}$/', $code)) {
+                            $seedCodes[$code] = true;
+                        }
+                    }
+                    unset($seedCodes[$currentCurrency]);
+                @endphp
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-ink-soft">Precios por moneda</label>
+                        <p class="text-xs text-ink-soft/55">
+                            Cada moneda tiene su estrategia de redondeo. En Auto se aplica al convertir con el tipo de cambio
+                            (el valor inicial sale de
+                            <a href="{{ route('admin.settings.general') }}" class="text-teal underline">General</a>).
+                            En Fijo se aplica al precio que escribas.
+                        </p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1">
+                        <div class="flex flex-wrap items-center justify-end gap-1.5">
+                            <button type="button" id="fill-fx-prices" class="admin-btn-secondary !py-1 !px-2 text-xs">Fijar FX en vacíos</button>
+                            <button type="button" id="suggest-ai-prices" class="admin-btn !py-1 !px-2 text-xs"
+                                    title="{{ $hasMiia ? 'MIIA elige un precio de vitrina atractivo por mercado (p. ej. 499 MXN, no 512.99)' : 'Precio de vitrina por mercado. Configura MIIA en General para IA.' }}">
+                                ✨ Sugerir precios IA
+                            </button>
+                        </div>
+                        <p id="suggest-prices-status" class="hidden max-w-xs text-right text-[11px] text-ink-soft/60"></p>
+                    </div>
+                </div>
+                <div class="mt-2">
+                    <input type="search" id="currency-price-search" class="admin-input !py-1.5 text-sm" placeholder="Buscar moneda (MXN, euro, libra, dólar…)" autocomplete="off">
+                </div>
+                <div class="mt-2 overflow-x-auto rounded-xl border border-line">
+                    <table class="min-w-full text-xs">
+                        <thead>
+                        <tr class="border-b border-line bg-mist/40 text-left text-[10px] uppercase tracking-wide text-ink-soft/50">
+                            <th class="px-3 py-2">Moneda</th>
+                            <th class="px-3 py-2">Redondeo</th>
+                            <th class="px-3 py-2">Precio</th>
+                            <th class="px-3 py-2">Compare</th>
+                            <th class="px-3 py-2">Fijar</th>
+                            <th class="px-2 py-2 w-8"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="currency-price-rows">
+                        @foreach(array_keys($seedCodes) as $code)
+                            @php
+                                $row = is_array($savedPrices[$code] ?? null) ? $savedPrices[$code] : [];
+                                $locked = ! empty($row['locked']) || (isset($row['price']) && (float) $row['price'] > 0);
+                                $pVal = isset($row['price']) && (float) $row['price'] > 0 ? number_format((float) $row['price'], 2, '.', '') : '';
+                                $cVal = isset($row['compare_at_price']) && (float) $row['compare_at_price'] > 0 ? number_format((float) $row['compare_at_price'], 2, '.', '') : '';
+                                $roundMode = (string) ($row['rounding'] ?? $fxSvc->roundingFor($code));
+                                if (! isset($roundingModes[$roundMode])) {
+                                    $roundMode = $fxSvc->roundingFor($code);
+                                }
+                                $meta = collect($currencyList)->firstWhere('code', $code);
+                                $rowLabel = is_array($meta) ? ($meta['label'] ?? $code) : ($code);
+                            @endphp
+                            <tr class="border-b border-line/70 currency-price-row" data-code="{{ $code }}" data-search="{{ strtolower($code.' '.$rowLabel) }}">
+                                <td class="px-3 py-2 min-w-[220px]">
+                                    <select class="admin-input !py-1.5 text-xs js-ccy-select" aria-label="Moneda">
+                                        @foreach($currencyList as $opt)
+                                            <option value="{{ $opt['code'] }}" data-label="{{ $opt['label'] }}" data-rounding="{{ $roundingModes[$opt['rounding'] ?? 'none'] ?? ($opt['rounding'] ?? '') }}" @selected($opt['code'] === $code)>
+                                                {{ $opt['code'] }} — {{ $opt['label'] }}
+                                            </option>
+                                        @endforeach
+                                        @if(! collect($currencyList)->firstWhere('code', $code))
+                                            <option value="{{ $code }}" selected>{{ $code }} — {{ $rowLabel }}</option>
+                                        @endif
+                                    </select>
+                                </td>
+                                <td class="px-3 py-2 min-w-[240px]">
+                                    <select name="prices[{{ $code }}][rounding]" class="admin-input !py-1.5 text-xs js-ccy-rounding" aria-label="Redondeo">
+                                        @foreach($roundingModes as $mode => $label)
+                                            <option value="{{ $mode }}" @selected($mode === $roundMode)>{{ $label }}</option>
+                                        @endforeach
+                                    </select>
+                                </td>
+                                <td class="px-3 py-2">
+                                    <input type="number" step="0.01" min="0" name="prices[{{ $code }}][price]" value="{{ $pVal }}"
+                                           class="admin-input !py-1.5 font-mono js-ccy-price" data-code="{{ $code }}" placeholder="FX">
+                                </td>
+                                <td class="px-3 py-2">
+                                    <input type="number" step="0.01" min="0" name="prices[{{ $code }}][compare_at_price]" value="{{ $cVal }}"
+                                           class="admin-input !py-1.5 font-mono js-ccy-compare" data-code="{{ $code }}">
+                                </td>
+                                <td class="px-3 py-2">
+                                    <label class="inline-flex items-center gap-1.5 text-ink-soft">
+                                        <input type="hidden" name="prices[{{ $code }}][locked]" value="0">
+                                        <input type="checkbox" name="prices[{{ $code }}][locked]" value="1" class="rounded border-line text-teal js-ccy-lock" @checked($locked)>
+                                        <span class="js-ccy-lock-label">{{ $locked ? 'Fijo' : 'Auto' }}</span>
+                                    </label>
+                                </td>
+                                <td class="px-2 py-2">
+                                    <button type="button" class="js-ccy-remove text-ink-soft/40 hover:text-coral" title="Quitar">&times;</button>
+                                </td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p id="currency-price-empty" class="hidden mt-2 text-xs text-ink-soft/55">Ninguna moneda coincide con la búsqueda.</p>
+                <div class="mt-2 flex flex-wrap items-end gap-2">
+                    <div class="relative min-w-[240px] flex-1" id="add-price-currency-box">
+                        <label class="mb-1 block text-[11px] text-ink-soft/60">Añadir moneda</label>
+                        <button type="button" id="add-price-currency-trigger" class="admin-input flex w-full items-center justify-between gap-2 !py-1.5 text-left text-xs" aria-haspopup="listbox" aria-expanded="false">
+                            <span id="add-price-currency-label" class="truncate text-ink-soft/60">Buscar y añadir…</span>
+                            <span class="shrink-0 text-ink-soft/50">▾</span>
+                        </button>
+                        <div id="add-price-currency-dropdown" class="absolute z-30 mt-1 hidden w-full overflow-hidden rounded-xl border border-line bg-white shadow-lg">
+                            <div class="border-b border-line p-2">
+                                <input type="search" id="add-price-currency-search" class="admin-input !py-1.5 text-sm" placeholder="Buscar moneda…" autocomplete="off">
+                            </div>
+                            <ul id="add-price-currency-options" class="max-h-56 overflow-y-auto py-1" role="listbox">
+                                @foreach($currencyList as $row)
+                                    <li>
+                                        <button type="button" class="add-ccy-option flex w-full px-3 py-2 text-left text-sm hover:bg-mist/70 text-ink"
+                                                data-code="{{ $row['code'] }}" data-label="{{ $row['label'] ?? '' }}"
+                                                data-rounding="{{ $roundingModes[$row['rounding'] ?? 'none'] ?? ($row['rounding'] ?? '') }}">
+                                            <span class="font-mono font-semibold">{{ $row['code'] }}</span>
+                                            <span class="ml-2 text-ink-soft/70">{{ $row['label'] ?? $row['code'] }}</span>
+                                        </button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                            <p id="add-price-currency-empty" class="hidden px-3 py-3 text-sm text-ink-soft/60">Sin resultados</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Stock</label>
+                <input type="number" name="stock" value="{{ old('stock', $product->stock) }}" class="admin-input">
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Estado</label>
+                <select name="status" class="admin-input">
+                    @foreach(['draft','live','paused','archived'] as $st)
+                        <option value="{{ $st }}" @selected(old('status', $product->status) === $st)>{{ $st }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="sm:col-span-2">
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Imagen URL principal</label>
+                <input name="image_url" value="{{ old('image_url', $product->image_url) }}" class="admin-input">
+                @if($product->image_url)
+                    <img src="{{ $product->image_url }}" alt="" class="mt-2 h-24 w-24 rounded-lg object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity">
+                @endif
+            </div>
+        </div>
+
+        <label class="inline-flex items-center gap-2 text-sm text-ink-soft">
+            <input type="hidden" name="is_featured" value="0">
+            <input type="checkbox" name="is_featured" value="1" @checked(old('is_featured', $product->is_featured)) class="rounded border-line text-teal">
+            Destacado en catálogo
+        </label>
+        <label class="inline-flex items-start gap-2 text-sm text-ink-soft">
+            <input type="hidden" name="is_star" value="0">
+            <input type="checkbox" name="is_star" value="1" class="mt-0.5 rounded border-line text-teal"
+                @checked(old('is_star', $product->exists && $store->isStarProduct($product)))>
+            <span>
+                <span class="font-medium text-ink">Producto estrella</span>
+                <span class="block text-xs text-ink-soft/60">
+                    Ancla de la mini-tienda: hero, urgencia, combos/upsell, cross-sell y prueba social giran alrededor de este producto.
+                    @if($store->isMini())
+                        En mini-tiendas suele ser el producto principal.
+                    @endif
+                </span>
+            </span>
+        </label>
+    </div>
+
+    @if($product->exists)
+        <div class="admin-card p-5 sm:p-6 space-y-4 admin-card-span-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="font-display text-lg font-bold text-ink">Fuente CJ Dropshipping</h2>
+                @if($isCj)
+                    <span class="admin-badge bg-teal/10 text-teal">PID {{ $verified['cj_pid'] ?? '—' }}</span>
+                @else
+                    <span class="admin-badge bg-mist text-ink-soft">Sin origen CJ</span>
+                @endif
+            </div>
+
+            @if($isCj)
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
+                    <div><span class="text-ink-soft/55">SKU CJ</span><div class="font-medium text-ink">{{ $verified['product_sku'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Categoría</span><div class="font-medium text-ink">{{ $verified['category'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Tipo</span><div class="font-medium text-ink">{{ $verified['product_type'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Proveedor</span><div class="font-medium text-ink">{{ $verified['supplier_name'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Peso</span><div class="font-medium text-ink">{{ $verified['weight_g'] ?? '—' }} g</div></div>
+                    <div><span class="text-ink-soft/55">Peso empaque</span><div class="font-medium text-ink">{{ $verified['packed_weight_g'] ?? '—' }} g</div></div>
+                    <div><span class="text-ink-soft/55">Costo USD</span><div class="font-medium text-ink">{{ $verified['cost_usd'] ?? $verified['sell_price_usd'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Envío est. USD</span><div class="font-medium text-ink">{{ $verified['ship_usd'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Material</span><div class="font-medium text-ink">{{ $verified['material'] ?? '—' }}</div></div>
+                    <div class="sm:col-span-2"><span class="text-ink-soft/55">Keywords</span><div class="font-medium text-ink">{{ $verified['product_key'] ?? '—' }}</div></div>
+                    <div class="sm:col-span-2 lg:col-span-3"><span class="text-ink-soft/55">Props</span><div class="font-medium text-ink whitespace-pre-wrap">{{ $verified['product_props'] ?? '—' }}</div></div>
+                    <div><span class="text-ink-soft/55">Sync</span><div class="font-medium text-ink text-xs">{{ $verified['synced_at'] ?? $verified['imported_at'] ?? '—' }}</div></div>
+                </div>
+
+                @if(!empty($verified['description_short']))
+                    <div>
+                        <div class="mb-1 text-sm font-medium text-ink-soft">Descripción corta (CJ)</div>
+                        <p class="rounded-xl border border-line bg-mist/30 p-3 text-sm text-ink-soft">{{ $verified['description_short'] }}</p>
+                    </div>
+                @endif
+                @if(!empty($verified['description_html']))
+                    <div>
+                        <div class="mb-1 text-sm font-medium text-ink-soft">Descripción larga (HTML CJ)</div>
+                        <div class="rounded-xl border border-line bg-mist/30 p-3 text-sm text-ink-soft max-h-56 overflow-auto prose prose-sm max-w-none">{!! $verified['description_html'] !!}</div>
+                    </div>
+                @elseif(!empty($verified['description_en']) && empty($product->description))
+                    <div>
+                        <div class="mb-1 text-sm font-medium text-ink-soft">Descripción CJ (EN)</div>
+                        <p class="rounded-xl border border-line bg-mist/30 p-3 text-sm text-ink-soft whitespace-pre-wrap max-h-48 overflow-auto">{{ $verified['description_en'] }}</p>
+                    </div>
+                @endif
+
+                <div>
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                        <h3 class="font-display text-base font-bold text-ink">Galería ({{ count($cjImages) }})</h3>
+                    </div>
+                    @if($cjImages)
+                        <div class="flex flex-wrap gap-2">
+                            @foreach($cjImages as $img)
+                                <button type="button" class="js-zoomable block h-20 w-20 overflow-hidden rounded-lg border border-line bg-mist cursor-zoom-in hover:opacity-80 transition-opacity" data-src="{{ $img }}">
+                                    <img src="{{ $img }}" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy">
+                                </button>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-sm text-ink-soft/55">Sin imágenes sincronizadas. Usa «Sincronizar desde CJ».</p>
+                    @endif
+                </div>
+
+                <div>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="font-display text-base font-bold text-ink">Videos ({{ count($cjVideos) }})</h3>
+                        <span class="text-xs text-ink-soft/55">Reproducción vía proxy CJ (Referer)</span>
+                    </div>
+                    @if($cjVideos)
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            @foreach($cjVideos as $i => $vid)
+                                <div class="overflow-hidden rounded-xl border border-line bg-ink/95">
+                                    <div class="relative bg-black">
+                                        <video
+                                            class="cj-product-video mx-auto max-h-80 w-full"
+                                            controls
+                                            playsinline
+                                            preload="metadata"
+                                            @if(!empty($vid['cover'])) poster="{{ $vid['cover'] }}" @endif
+                                            src="{{ $vid['play_url'] ?? route('admin.lab.cj.video-proxy', ['u' => $vid['url']]) }}"
+                                        ></video>
+                                    </div>
+                                    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-white/80">
+                                        <span>{{ $vid['name'] ?? ('Video '.($i + 1)) }}</span>
+                                        <span class="text-white/50">
+                                            @if(!empty($vid['duration']))
+                                                {{ gmdate('i:s', (int) round((float) $vid['duration'])) }}
+                                            @endif
+                                            @if(!empty($vid['width']) && !empty($vid['height']))
+                                                · {{ $vid['width'] }}×{{ $vid['height'] }}
+                                            @endif
+                                        </span>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-sm text-ink-soft/55">Sin videos en CJ para este PID. Prueba «Sincronizar desde CJ».</p>
+                    @endif
+                </div>
+
+                <div>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="font-display text-base font-bold text-ink">
+                            Reseñas
+                            @if($cjReviewCount > 0)
+                                ({{ $cjReviewCount }})
+                            @else
+                                ({{ count($cjReviews) }})
+                            @endif
+                        </h3>
+                        <span class="text-xs text-ink-soft/55">
+                            @if($cjRatingAvg !== null)
+                                ★ {{ number_format($cjRatingAvg, 1) }} / 5
+                                @if(!empty($verified['reviews_synced_at']))
+                                    · sync {{ \Illuminate\Support\Carbon::parse($verified['reviews_synced_at'])->diffForHumans() }}
+                                @endif
+                            @else
+                                Rating + comentarios del comprador (CJ)
+                            @endif
+                        </span>
+                    </div>
+                    @if($cjReviews)
+                        <div class="space-y-3 max-h-[28rem] overflow-y-auto rounded-xl border border-line p-3">
+                            @foreach($cjReviews as $review)
+                                <article class="rounded-lg border border-line/70 bg-mist/20 p-3">
+                                    <div class="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                                        <span class="font-semibold text-ink">{{ $review['author'] ?? 'Comprador' }}</span>
+                                        @if(!empty($review['country']))
+                                            <span class="admin-badge bg-mist text-ink-soft">{{ $review['country'] }}</span>
+                                        @endif
+                                        <span class="text-amber font-medium">
+                                            @php $stars = (int) ($review['score'] ?? 0); @endphp
+                                            {{ str_repeat('★', max(0, min(5, $stars))).str_repeat('☆', max(0, 5 - min(5, $stars))) }}
+                                        </span>
+                                        @if(!empty($review['date']))
+                                            <span class="text-ink-soft/50">{{ \Illuminate\Support\Str::limit((string) $review['date'], 32, '') }}</span>
+                                        @endif
+                                    </div>
+                                    @if(!empty($review['comment']))
+                                        <p class="text-sm text-ink-soft whitespace-pre-wrap">{{ $review['comment'] }}</p>
+                                    @endif
+                                    @if(!empty($review['images']) && is_array($review['images']))
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            @foreach($review['images'] as $rimg)
+                                                <img src="{{ $rimg }}" alt="" class="h-14 w-14 rounded-md object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity" loading="lazy">
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </article>
+                            @endforeach
+                        </div>
+                        @if($cjReviewCount > count($cjReviews))
+                            <p class="mt-2 text-xs text-ink-soft/55">
+                                Mostrando {{ count($cjReviews) }} de {{ $cjReviewCount }} reseñas totales en CJ.
+                            </p>
+                        @endif
+                    @else
+                        <p class="text-sm text-ink-soft/55">Sin reseñas aún. Pulsa «Sincronizar desde CJ» para importar rating y comentarios.</p>
+                    @endif
+                </div>
+
+                <div>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="font-display text-base font-bold text-ink">
+                            Comentarios
+                            ({{ $cjCommentCount }})
+                        </h3>
+                        <span class="text-xs text-ink-soft/55">Texto y fotos de compradores (CJ)</span>
+                    </div>
+                    @if($cjComments)
+                        <div class="space-y-3 max-h-[28rem] overflow-y-auto rounded-xl border border-line p-3">
+                            @foreach($cjComments as $comment)
+                                <article class="rounded-lg border border-line/70 bg-mist/20 p-3">
+                                    <div class="mb-1 flex flex-wrap items-center gap-2 text-xs">
+                                        <span class="font-semibold text-ink">{{ $comment['author'] ?? 'Comprador' }}</span>
+                                        @if(!empty($comment['country']))
+                                            <span class="admin-badge bg-mist text-ink-soft">{{ $comment['country'] }}</span>
+                                        @endif
+                                        @if(!empty($comment['date']))
+                                            <span class="text-ink-soft/50">{{ \Illuminate\Support\Str::limit((string) $comment['date'], 32, '') }}</span>
+                                        @endif
+                                    </div>
+                                    @if(!empty($comment['comment']))
+                                        <p class="text-sm text-ink-soft whitespace-pre-wrap">{{ $comment['comment'] }}</p>
+                                    @endif
+                                    @if(!empty($comment['images']) && is_array($comment['images']))
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            @foreach($comment['images'] as $cimg)
+                                                <img src="{{ $cimg }}" alt="" class="h-14 w-14 rounded-md object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity" loading="lazy">
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </article>
+                            @endforeach
+                        </div>
+                    @else
+                        <p class="text-sm text-ink-soft/55">Sin comentarios con texto o fotos. Pulsa «Sincronizar desde CJ».</p>
+                    @endif
+                </div>
+
+                <div>
+                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="font-display text-base font-bold text-ink">Variantes ({{ $cjVariants->count() }})</h3>
+                        <span class="text-xs text-ink-soft/55">Incluye imagen, SKU, precio USD, peso y stock CJ</span>
+                    </div>
+                    @if($cjVariants->isEmpty())
+                        <p class="text-sm text-ink-soft/55">Sin variantes guardadas. Pulsa «Sincronizar desde CJ» para traerlas.</p>
+                    @else
+                        {{-- El form bulk se inyecta fuera del <form> principal vía JS (HTML no permite forms anidados) --}}
+
+                        <div class="overflow-x-auto rounded-xl border border-line">
+                            <table id="variants-table" class="w-full min-w-[720px] text-left text-xs">
+                                <thead class="bg-mist text-ink-soft/70">
+                                    <tr>
+                                        <th class="w-8 px-2 py-2">
+                                            <input type="checkbox" id="var-check-all" class="rounded border-line text-teal focus:ring-teal/30" title="Seleccionar todas">
+                                        </th>
+                                        <th class="px-2 py-2 font-medium">Img</th>
+                                        <th class="px-2 py-2 font-medium">Variante</th>
+                                        <th class="px-2 py-2 font-medium">SKU</th>
+                                        <th class="px-2 py-2 font-medium">VID</th>
+                                        <th class="px-2 py-2 font-medium">USD</th>
+                                        <th class="px-2 py-2 font-medium">Peso</th>
+                                        <th class="px-2 py-2 font-medium">Stock</th>
+                                        <th class="px-2 py-2 font-medium">Medidas</th>
+                                        <th class="px-2 py-2 font-medium"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($cjVariants as $variant)
+                                        @php $opt = is_array($variant->options) ? $variant->options : []; @endphp
+                                        <tr class="border-t border-line/70 hover:bg-mist/20">
+                                            <td class="px-2 py-1.5 align-middle">
+                                                <input type="checkbox" class="var-row-check rounded border-line text-teal focus:ring-teal/30"
+                                                       value="{{ $variant->id }}" title="Seleccionar">
+                                            </td>
+                                            <td class="px-2 py-1.5">
+                                                @if(!empty($opt['image']))
+                                                    <img src="{{ $opt['image'] }}" alt="" class="h-10 w-10 rounded-md object-cover border border-line cursor-zoom-in hover:opacity-80 transition-opacity" loading="lazy" title="Ver imagen">
+                                                @else
+                                                    <span class="text-ink-soft/40">—</span>
+                                                @endif
+                                            </td>
+                                            <td class="px-2 py-1.5 font-medium text-ink">{{ $variant->name }}</td>
+                                            <td class="px-2 py-1.5 text-ink-soft">{{ $variant->sku }}</td>
+                                            <td class="px-2 py-1.5 text-[10px] text-ink-soft/60">{{ $opt['vid'] ?? '—' }}</td>
+                                            <td class="px-2 py-1.5">{{ $variant->price !== null ? number_format((float)$variant->price, 2) : '—' }}</td>
+                                            <td class="px-2 py-1.5">{{ $opt['weight_g'] ?? '—' }}</td>
+                                            <td class="px-2 py-1.5">{{ $opt['stock'] ?? '—' }}</td>
+                                            <td class="px-2 py-1.5 text-ink-soft/70">
+                                                @if(!empty($opt['length']) || !empty($opt['width']) || !empty($opt['height']))
+                                                    {{ $opt['length'] ?? '—' }}×{{ $opt['width'] ?? '—' }}×{{ $opt['height'] ?? '—' }}
+                                                @else
+                                                    —
+                                                @endif
+                                            </td>
+                                            <td class="px-2 py-1.5 text-right">
+                                                <button type="button" class="text-coral hover:underline text-[11px] js-var-single-delete"
+                                                        data-url="{{ route('admin.store.products.variants.destroy', [$product, $variant]) }}">Quitar</button>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+            @else
+                <p class="text-sm text-ink-soft/60">Este producto no viene de CJ. Importa desde <a class="text-teal underline" href="{{ route('admin.lab.cj') }}">CJ Search</a>.</p>
+            @endif
+        </div>
+    @endif
+    </div>
+
+    <div class="admin-form-actions flex flex-wrap gap-3">
+        <button class="admin-btn" id="btn-save-product">{{ $product->exists ? 'Guardar' : 'Crear' }}</button>
+        <a href="{{ route('admin.store.products.index') }}" class="admin-btn-secondary">Cancelar</a>
+    </div>
+</form>
+@endsection
+
+@push('scripts')
+<script>
+(function ($) {
+  var csrf = $('meta[name="csrf-token"]').attr('content');
+  var syncUrl = @json($isCj ? route('admin.store.products.sync-cj', $product) : null);
+  var translateUrl = @json($product->exists ? route('admin.store.products.translate', $product) : null);
+  var suggestPricesUrl = @json(route('admin.store.products.suggest-prices'));
+  var defaultLocale = @json($defaultLocale);
+  var activeLocale = String($('#active-locale').val() || defaultLocale);
+
+  function storeGet(locale) {
+    return {
+      name: String($('[data-store-name="'+locale+'"]').val() || ''),
+      badge: String($('[data-store-badge="'+locale+'"]').val() || ''),
+      description: String($('[data-store-desc="'+locale+'"]').val() || '')
+    };
+  }
+
+  function storeSet(locale, data) {
+    $('[data-store-name="'+locale+'"]').val(data.name || '');
+    $('[data-store-badge="'+locale+'"]').val(data.badge || '');
+    $('[data-store-desc="'+locale+'"]').val(data.description || '');
+  }
+
+  function readVisible() {
+    return {
+      name: String($('#field-name').val() || ''),
+      badge: String($('#field-badge').val() || ''),
+      description: String($('#field-description').val() || '')
+    };
+  }
+
+  function writeVisible(data) {
+    $('#field-name').val(data.name || '');
+    $('#field-badge').val(data.badge || '');
+    $('#field-description').val(data.description || '');
+  }
+
+  function syncMainFromLocale(locale) {
+    if (locale !== defaultLocale) return;
+    var data = storeGet(locale);
+    $('#main-name').val(data.name);
+    $('#main-badge').val(data.badge);
+    $('#main-description').val(data.description);
+  }
+
+  function persistActive() {
+    storeSet(activeLocale, readVisible());
+    syncMainFromLocale(activeLocale);
+  }
+
+  function translationPct(data) {
+    var fields = ['name', 'badge', 'description'];
+    var filled = 0;
+    fields.forEach(function (k) {
+      if (String(data[k] || '').trim() !== '') filled += 1;
+    });
+    var pct = Math.round((filled / fields.length) * 100);
+    return { filled: filled, total: fields.length, pct: pct };
+  }
+
+  function updatePct() {
+    var info = translationPct(readVisible());
+    $('#translation-pct-bar').css('width', info.pct + '%');
+    $('#translation-pct-label').text(info.pct + '%');
+    $('#translation-pct-detail').text(info.filled + '/' + info.total);
+    var $wrap = $('#translation-pct-wrap');
+    $wrap.toggleClass('border-teal/40 bg-teal/5', info.pct === 100);
+    $wrap.toggleClass('border-amber/40 bg-amber/5', info.pct > 0 && info.pct < 100);
+  }
+
+  function setPicker(locale, name, iso) {
+    $('#active-locale').val(locale);
+    $('#locale-picker-label').text(name || locale);
+    $('#content-locale-name').text(name || locale);
+    $('#content-locale-code').text('(' + locale + ')');
+    var $flag = $('#locale-picker-flag');
+    $flag.attr('class', 'market-flag fi' + (iso ? (' fi-' + iso) : ''));
+    $('#set-as-default-locale').prop('checked', locale === defaultLocale);
+  }
+
+  function switchLocale(locale, name, iso) {
+    if (!locale || locale === activeLocale) {
+      $('#locale-picker-menu').addClass('hidden');
+      return;
+    }
+    persistActive();
+    activeLocale = locale;
+    writeVisible(storeGet(locale));
+    setPicker(locale, name, iso);
+    updatePct();
+    $('#locale-picker-menu').addClass('hidden');
+    $(document).trigger('locale:changed', [locale]);
+  }
+
+  $('#locale-picker-btn').on('click', function (e) {
+    e.stopPropagation();
+    $('#locale-picker-menu').toggleClass('hidden');
+  });
+  $(document).on('click', function () {
+    $('#locale-picker-menu').addClass('hidden');
+  });
+  $('#locale-picker-menu').on('click', function (e) { e.stopPropagation(); });
+
+  $('.locale-option').on('click', function () {
+    switchLocale(
+      String($(this).data('locale') || ''),
+      String($(this).data('name') || ''),
+      String($(this).data('iso') || '')
+    );
+  });
+
+  $('#field-name, #field-badge, #field-description').on('input change', function () {
+    persistActive();
+    updatePct();
+  });
+
+  $('#set-as-default-locale').on('change', function () {
+    if (!$(this).is(':checked')) {
+      // no permitir quedar sin default: re-check
+      $(this).prop('checked', true);
+      return;
+    }
+    persistActive();
+    defaultLocale = activeLocale;
+    $('#default-locale-input').val(defaultLocale);
+    // copiar al principal
+    var data = storeGet(defaultLocale);
+    $('#main-name').val(data.name);
+    $('#main-badge').val(data.badge);
+    $('#main-description').val(data.description);
+  });
+
+  $('#product-form').on('submit', function (e) {
+    persistActive();
+    syncMainFromLocale(defaultLocale);
+    var main = storeGet(defaultLocale);
+    if (!String(main.name || '').trim()) {
+      main = readVisible();
+      $('#main-name').val(main.name);
+      $('#main-badge').val(main.badge);
+      $('#main-description').val(main.description);
+    }
+    if (!String($('#main-name').val() || '').trim()) {
+      e.preventDefault();
+      alert('El nombre del idioma principal no puede estar vacío.');
+      return false;
+    }
+  });
+
+  $('#btn-sync-cj').on('click', function () {
+    if (!syncUrl) return;
+    var $btn = $(this);
+    if (!confirm('¿Re-sincronizar todo el detalle desde CJ (variantes, imágenes, videos, reseñas, descripción)?')) return;
+    $btn.prop('disabled', true).text('Sincronizando…');
+    $.ajax({
+      url: syncUrl,
+      method: 'POST',
+      dataType: 'json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: { _token: csrf }
+    }).done(function (res) {
+      alert((res && res.message) || 'Listo');
+      if (res && res.redirect) window.location.href = res.redirect;
+      else window.location.reload();
+    }).fail(function (xhr) {
+      alert((xhr.responseJSON && xhr.responseJSON.error) || 'Error al sincronizar');
+      $btn.prop('disabled', false).text('↻ Sincronizar desde CJ');
+    });
+  });
+
+  var localeCurrencyMap = @json($locale_currency_map ?? []);
+
+  function suggestTranslateCurrency(locale) {
+    var suggested = localeCurrencyMap[locale] || '';
+    var $sel = $('#translate-currency');
+    if (!$sel.length) return;
+    // Si está en "auto" o vacío, no fuerza; solo preselecciona sugerida
+    if (!$sel.data('manual')) {
+      $sel.val(suggested || '');
+    }
+  }
+
+  $('#translate-currency').on('change', function () {
+    $(this).data('manual', true);
+  });
+
+  // Cuando cambia el idioma activo, sugerir moneda
+  $(document).on('locale:changed', function (e, locale) {
+    suggestTranslateCurrency(locale || activeLocale);
+  });
+  suggestTranslateCurrency(activeLocale);
+
+  $('#btn-translate-miia').on('click', function () {
+    if (!translateUrl) {
+      alert('Guarda el producto primero para poder traducir.');
+      return;
+    }
+    var $btn = $(this);
+    var $status = $('#translate-status');
+    persistActive();
+    var locale = activeLocale;
+    var convert = $('#translate-convert-currency').is(':checked') ? 1 : 0;
+    var cur = String($('#translate-currency').val() || '');
+    if (convert && !cur) {
+      cur = localeCurrencyMap[locale] || '';
+    }
+    $btn.prop('disabled', true).text('Traduciendo…');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60')
+      .text('MIIA está traduciendo a ' + locale + (convert && cur ? (' · convirtiendo a ' + cur) : '') + '…');
+
+    $.ajax({
+      url: translateUrl,
+      method: 'POST',
+      dataType: 'json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: {
+        _token: csrf,
+        locale: locale,
+        apply_to_main: locale === defaultLocale ? 1 : 0,
+        convert_currency: convert,
+        currency: cur || null
+      }
+    }).done(function (res) {
+      if (!(res && res.success && res.translation)) {
+        $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text((res && res.error) || 'Falló');
+        return;
+      }
+      var t = res.translation;
+      storeSet(locale, {
+        name: t.name || '',
+        badge: t.badge || '',
+        description: t.description || ''
+      });
+      writeVisible(storeGet(locale));
+      syncMainFromLocale(locale);
+      updatePct();
+
+      if (res.pricing && res.pricing.price != null) {
+        var code = String(res.pricing.currency || '').toUpperCase();
+        if (code && typeof upsertCurrencyPriceRow === 'function') {
+          upsertCurrencyPriceRow(code, res.pricing.price, res.pricing.compare_at_price, true);
+        }
+      }
+
+      $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal')
+        .text((res.message || 'Traducción lista') + ' · ' + translationPct(readVisible()).pct + '%. Guarda el producto.');
+      if (window.AdminToast) AdminToast.success(res.message || 'Traducción lista');
+    }).fail(function (xhr) {
+      var err = (xhr.responseJSON && xhr.responseJSON.error) || 'Error MIIA';
+      if (xhr.responseJSON && xhr.responseJSON.raw_preview) {
+        err += '\n\nRespuesta: ' + xhr.responseJSON.raw_preview;
+      }
+      $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text(err);
+      if (window.AdminToast) AdminToast.error(err);
+    }).always(function () {
+      $btn.prop('disabled', false).text('✨ Traducir en este idioma');
+    });
+  });
+
+  // init
+  persistActive();
+  updatePct();
+
+  // —— Conversión de moneda (precio + compare) ——
+  var fx = @json($fx ?? ['base' => 'USD', 'rates' => ['USD' => 1], 'rounding' => []]);
+  var rates = fx.rates || {};
+  var rounding = fx.rounding || {};
+
+  function money2(n) {
+    var x = Number(n);
+    if (!isFinite(x)) return 0;
+    return Math.round((x + Number.EPSILON) * 100) / 100;
+  }
+
+  function money2str(n) {
+    return money2(n).toFixed(2);
+  }
+
+  function applyRound(amount, mode) {
+    amount = Number(amount);
+    if (!isFinite(amount)) return 0;
+    var neg = amount < 0;
+    amount = Math.abs(amount);
+    var out;
+    switch (mode) {
+      case 'cent_00': out = Math.round(amount); break;
+      case 'cent_99': out = amount < 1 ? money2(amount) : Math.floor(amount) + 0.99; break;
+      case 'cent_95': out = amount < 1 ? money2(amount) : Math.floor(amount) + 0.95; break;
+      case 'cent_49': out = amount < 1 ? money2(amount) : Math.floor(amount) + 0.49; break;
+      case 'nearest_5': out = Math.round(amount / 5) * 5; break;
+      case 'nearest_10': out = Math.round(amount / 10) * 10; break;
+      case 'psych':
+        if (amount < 8) out = money2(amount);
+        else if (amount < 25) out = Math.floor(amount) + 0.99;
+        else if (amount < 80) out = Math.floor(amount / 5) * 5 + 4.99;
+        else out = Math.floor(amount / 10) * 10 + 9.99;
+        break;
+      default: out = money2(amount);
+    }
+    out = money2(out);
+    return neg ? -out : out;
+  }
+
+  function convertMoney(amount, from, to, doRound, mode) {
+    from = String(from || 'USD').toUpperCase();
+    to = String(to || 'USD').toUpperCase();
+    amount = Number(amount);
+    if (!isFinite(amount)) return 0;
+    var roundMode = mode || rounding[to] || 'none';
+    if (from === to) {
+      return doRound === false ? money2(amount) : applyRound(amount, roundMode);
+    }
+    var fromRate = Number(rates[from] || 1);
+    var toRate = Number(rates[to] || 1);
+    if (fromRate <= 0) fromRate = 1;
+    var inBase = amount / fromRate;
+    var converted = inBase * toRate;
+    return doRound === false ? money2(converted) : applyRound(converted, roundMode);
+  }
+
+  function moneyFmt(n, cur) {
+    if (n == null || !isFinite(Number(n))) return '—';
+    return money2str(n) + (cur ? (' ' + cur) : '');
+  }
+
+  function setMoneyInput($el, value) {
+    if (!$el || !$el.length) return;
+    if (value == null || value === '' || !isFinite(Number(value))) {
+      $el.val('');
+      return;
+    }
+    $el.val(money2str(value));
+  }
+
+  function clampMoneyInput($el) {
+    var raw = String($el.val() || '').trim();
+    if (raw === '') return;
+    var n = Number(raw);
+    if (!isFinite(n)) {
+      $el.val('');
+      return;
+    }
+    $el.val(money2str(n));
+  }
+
+  function refreshPriceBreakdown() {
+    var $bd = $('#price-breakdown');
+    if (! $bd.length) return;
+    var cur = String($('#product-currency').val() || $bd.data('currency') || 'MXN').toUpperCase();
+    var costUsd = Number($bd.data('cost-usd') || 0);
+    var shipUsd = Number($bd.data('ship-usd') || 0);
+    var landedUsd = Number($bd.data('landed-usd') || (costUsd + shipUsd));
+    var feesPct = Number($bd.data('fees-pct') || 0.045);
+    var sellUsdSuggest = Number($bd.data('sell-usd') || 0);
+    var sellLocal = Number($('#product-price').val() || 0);
+
+    function moneyPair(local, usd, cur) {
+      var main = moneyFmt(local, cur);
+      if (String(cur || '').toUpperCase() === 'USD') return main;
+      return main + ' <span class="text-ink-soft/45">(' + moneyFmt(usd, 'USD') + ')</span>';
+    }
+
+    var costLocal = convertMoney(costUsd, 'USD', cur, false);
+    var shipLocal = convertMoney(shipUsd, 'USD', cur, false);
+    var productCostUsd = costUsd;
+    var feesLocal = sellLocal > 0 ? sellLocal * feesPct : 0;
+    var profitLocal = sellLocal > 0 ? (sellLocal - costLocal - feesLocal) : null;
+    var margin = (sellLocal > 0 && profitLocal != null) ? (profitLocal / sellLocal) * 100 : null;
+    var suggestedLocal = sellUsdSuggest > 0 ? convertMoney(sellUsdSuggest, 'USD', cur, true) : null;
+    var feesUsd = sellLocal > 0 ? convertMoney(feesLocal, cur, 'USD', false) : 0;
+    var profitUsd = profitLocal != null ? convertMoney(profitLocal, cur, 'USD', false) : 0;
+
+    $('#bd-cost').html(moneyPair(costLocal, costUsd, cur));
+    $('#bd-ship').html(moneyPair(shipLocal, shipUsd, cur) + ' <span class="text-ink-soft/40 font-normal">se cobra aparte</span>');
+    $('#bd-landed').html(moneyPair(costLocal, productCostUsd, cur));
+    $('#bd-fees').html(moneyPair(feesLocal, feesUsd, cur));
+    $('#bd-suggested').html(suggestedLocal != null ? moneyPair(suggestedLocal, sellUsdSuggest, cur) : '—');
+    var $profit = $('#bd-profit');
+    $profit.html(profitLocal != null ? moneyPair(profitLocal, profitUsd, cur) : '—');
+    $profit.toggleClass('text-teal', profitLocal != null && profitLocal > 0);
+    $profit.toggleClass('text-coral', profitLocal != null && profitLocal < 0);
+    $('#bd-margin').text(margin != null ? (margin.toFixed(1) + '%') : '—');
+    $('#price-currency-suffix').text(cur);
+    $bd.attr('data-currency', cur);
+
+    var $btn = $('#use-suggested-price');
+    if ($btn.length && suggestedLocal != null) {
+      $btn.text('Usar sugerido (' + moneyFmt(suggestedLocal, cur) + ')');
+      $('#product-price').attr('data-suggested', money2str(suggestedLocal));
+    }
+  }
+
+  $('#product-price, input[name="compare_at_price"]').on('blur', function () {
+    var cur = String($('#product-currency').val() || 'MXN').toUpperCase();
+    var n = Number($(this).val());
+    if (isFinite(n) && n > 0) {
+      setMoneyInput($(this), applyRound(n, rounding[cur] || 'none'));
+    } else {
+    clampMoneyInput($(this));
+    }
+    refreshPriceBreakdown();
+    refreshCurrencyPricePreviews();
+  });
+  $('#product-price').on('input change', refreshPriceBreakdown);
+  $('#use-suggested-price').on('click', function () {
+    var suggested = money2($('#product-price').attr('data-suggested') || 0);
+    if (suggested > 0) {
+      setMoneyInput($('#product-price'), suggested);
+      $('#product-price').trigger('change');
+    }
+  });
+
+  $('#product-currency').on('change', function () {
+    var $sel = $(this);
+    var $box = $('#currency-combobox');
+    var from = String($box.attr('data-prev') || $sel.val()).toUpperCase();
+    var to = String($sel.val() || '').toUpperCase();
+    if (!to || from === to) {
+      $box.attr('data-prev', to);
+      refreshPriceBreakdown();
+      syncPriceRowsToBaseCurrency();
+      return;
+    }
+    var $price = $('input[name="price"]');
+    var $compare = $('input[name="compare_at_price"]');
+    var price = Number($price.val());
+    var compare = Number($compare.val());
+    if (isFinite(price) && price > 0) {
+      setMoneyInput($price, convertMoney(price, from, to));
+    }
+    if (isFinite(compare) && compare > 0) {
+      setMoneyInput($compare, convertMoney(compare, from, to));
+    }
+    $('[data-variant-price], input[name*="[price]"]').each(function () {
+      var $v = $(this);
+      if (!$v.is('input')) return;
+      var v = Number($v.val());
+      if (isFinite(v) && v > 0) setMoneyInput($v, convertMoney(v, from, to));
+    });
+    $box.attr('data-prev', to);
+    refreshPriceBreakdown();
+    refreshCurrencyPricePreviews();
+    syncPriceRowsToBaseCurrency();
+  });
+
+  refreshPriceBreakdown();
+  clampMoneyInput($('#product-price'));
+  clampMoneyInput($('input[name="compare_at_price"]'));
+
+  var roundingLabels = @json(\App\Services\Currency\CurrencyService::ROUNDING_MODES);
+  var storefrontCurrencies = @json($currencyList);
+
+  function roundingSelectHtml(selected) {
+    selected = String(selected || 'none');
+    var html = '';
+    Object.keys(roundingLabels).forEach(function (mode) {
+      html += '<option value="' + mode + '"' + (mode === selected ? ' selected' : '') + '>' +
+        String(roundingLabels[mode] || mode).replace(/</g, '&lt;') + '</option>';
+    });
+    return html;
+  }
+
+  function rowRounding($row) {
+    var mode = String($row.find('.js-ccy-rounding').val() || '').trim();
+    if (mode && roundingLabels[mode]) return mode;
+    var code = String($row.attr('data-code') || '').toUpperCase();
+    return rounding[code] || 'none';
+  }
+
+  function baseCurrency() {
+    return String($('#product-currency').val() || 'MXN').toUpperCase();
+  }
+
+  function currencyMeta(code) {
+    code = String(code || '').toUpperCase();
+    for (var i = 0; i < storefrontCurrencies.length; i++) {
+      if (String(storefrontCurrencies[i].code).toUpperCase() === code) return storefrontCurrencies[i];
+    }
+    return { code: code, label: code, rounding: rounding[code] || 'none' };
+  }
+
+  function usedPriceCodes(exceptRow) {
+    var used = {};
+    used[baseCurrency()] = true;
+    $('#currency-price-rows .currency-price-row').each(function () {
+      if (exceptRow && this === exceptRow) return;
+      var code = String($(this).attr('data-code') || '').toUpperCase();
+      if (code) used[code] = true;
+    });
+    return used;
+  }
+
+  function currencySelectHtml(selected) {
+    selected = String(selected || '').toUpperCase();
+    var html = '';
+    storefrontCurrencies.forEach(function (row) {
+      var code = String(row.code || '').toUpperCase();
+      var sel = code === selected ? ' selected' : '';
+      html += '<option value="' + code + '" data-label="' + String(row.label || '').replace(/"/g, '&quot;') + '"' + sel + '>' +
+        code + ' — ' + (row.label || code) + '</option>';
+    });
+    if (selected && !storefrontCurrencies.some(function (r) { return String(r.code).toUpperCase() === selected; })) {
+      html += '<option value="' + selected + '" selected>' + selected + '</option>';
+    }
+    return html;
+  }
+
+  function refreshSelectAvailability() {
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var row = this;
+      var current = String($(row).attr('data-code') || '').toUpperCase();
+      var used = usedPriceCodes(row);
+      $(row).find('.js-ccy-select option').each(function () {
+        var v = String($(this).val() || '').toUpperCase();
+        $(this).prop('disabled', !!used[v] && v !== current);
+      });
+    });
+    var used = usedPriceCodes(null);
+    $('#add-price-currency-options .add-ccy-option').each(function () {
+      var v = String($(this).data('code') || '').toUpperCase();
+      var taken = !!used[v];
+      $(this).toggleClass('opacity-40 pointer-events-none', taken);
+      $(this).closest('li').toggle(!taken);
+    });
+  }
+
+  function remapRowCode($row, next) {
+    var prev = String($row.attr('data-code') || '').toUpperCase();
+    next = String(next || '').toUpperCase();
+    if (!next || prev === next) return;
+    var used = usedPriceCodes($row.get(0));
+    if (used[next]) {
+      $row.find('.js-ccy-select').val(prev);
+      return;
+    }
+    var meta = currencyMeta(next);
+    var roundKey = rounding[next] || meta.rounding || 'none';
+    $row.attr('data-code', next);
+    $row.attr('data-search', (next + ' ' + (meta.label || '')).toLowerCase());
+    var $round = $row.find('.js-ccy-rounding');
+    if ($round.length) {
+      $round.val(roundKey);
+    }
+    $row.find('.js-ccy-price, .js-ccy-compare, .js-ccy-lock, .js-ccy-rounding, input[type="hidden"]').each(function () {
+      var name = String($(this).attr('name') || '');
+      if (name.indexOf('prices[') === 0) {
+        $(this).attr('name', name.replace('prices[' + prev + ']', 'prices[' + next + ']'));
+      }
+      if ($(this).is('.js-ccy-price, .js-ccy-compare')) {
+        $(this).attr('data-code', next);
+      }
+    });
+    refreshSelectAvailability();
+    refreshCurrencyPricePreviews();
+    filterCurrencyRows($('#currency-price-search').val());
+  }
+
+  function syncLockLabel($row) {
+    var on = $row.find('.js-ccy-lock').is(':checked');
+    $row.find('.js-ccy-lock-label').text(on ? 'Fijo' : 'Auto');
+  }
+
+  function syncPriceRowsToBaseCurrency() {
+    var base = baseCurrency();
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var code = String($(this).attr('data-code') || '').toUpperCase();
+      $(this).toggle(code !== base);
+    });
+    refreshSelectAvailability();
+    filterCurrencyRows($('#currency-price-search').val());
+  }
+
+  function filterCurrencyRows(q) {
+    q = String(q || '').toLowerCase().trim();
+    var visible = 0;
+    var base = baseCurrency();
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var $row = $(this);
+      var code = String($row.attr('data-code') || '').toUpperCase();
+      if (code === base) {
+        $row.hide();
+        return;
+      }
+      var hay = String($row.attr('data-search') || $row.text() || '').toLowerCase();
+      var show = !q || hay.indexOf(q) !== -1;
+      $row.toggle(show);
+      if (show) visible += 1;
+    });
+    $('#currency-price-empty').toggleClass('hidden', visible > 0);
+  }
+
+  function refreshCurrencyPricePreviews() {
+    var from = baseCurrency();
+    var price = Number($('#product-price').val() || 0);
+    var compare = Number($('input[name="compare_at_price"]').val() || 0);
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var $row = $(this);
+      var code = String($row.attr('data-code') || '').toUpperCase();
+      if (!code || code === from) return;
+      var mode = rowRounding($row);
+      var fxPrice = (isFinite(price) && price > 0) ? convertMoney(price, from, code, true, mode) : null;
+      var fxCompare = (isFinite(compare) && compare > 0) ? convertMoney(compare, from, code, true, mode) : null;
+      $row.find('.js-ccy-price').attr('placeholder', fxPrice != null ? money2str(fxPrice) : 'FX');
+      $row.find('.js-ccy-compare').attr('placeholder', fxCompare != null ? money2str(fxCompare) : '');
+      if ($row.find('.js-ccy-lock').is(':checked')) return;
+      $row.find('.js-ccy-price').val('');
+      $row.find('.js-ccy-compare').val('');
+    });
+  }
+
+  function upsertCurrencyPriceRow(code, price, compare, lock, skipRound) {
+    code = String(code || '').toUpperCase();
+    if (!code) return;
+    var $row = $('#currency-price-rows .currency-price-row[data-code="' + code + '"]');
+    if (!$row.length) {
+      var meta = currencyMeta(code);
+      var roundKey = rounding[code] || meta.rounding || 'none';
+      $row = $('<tr class="border-b border-line/70 currency-price-row"></tr>')
+        .attr('data-code', code)
+        .attr('data-search', (code + ' ' + (meta.label || '')).toLowerCase());
+      $row.html(
+        '<td class="px-3 py-2 min-w-[220px]"><select class="admin-input !py-1.5 text-xs js-ccy-select" aria-label="Moneda">' + currencySelectHtml(code) + '</select></td>' +
+        '<td class="px-3 py-2 min-w-[240px]"><select name="prices[' + code + '][rounding]" class="admin-input !py-1.5 text-xs js-ccy-rounding" aria-label="Redondeo">' + roundingSelectHtml(roundKey) + '</select></td>' +
+        '<td class="px-3 py-2"><input type="number" step="0.01" min="0" name="prices[' + code + '][price]" class="admin-input !py-1.5 font-mono js-ccy-price" data-code="' + code + '" placeholder="FX"></td>' +
+        '<td class="px-3 py-2"><input type="number" step="0.01" min="0" name="prices[' + code + '][compare_at_price]" class="admin-input !py-1.5 font-mono js-ccy-compare" data-code="' + code + '"></td>' +
+        '<td class="px-3 py-2"><label class="inline-flex items-center gap-1.5 text-ink-soft">' +
+          '<input type="hidden" name="prices[' + code + '][locked]" value="0">' +
+          '<input type="checkbox" name="prices[' + code + '][locked]" value="1" class="rounded border-line text-teal js-ccy-lock">' +
+          '<span class="js-ccy-lock-label">Auto</span></label></td>' +
+        '<td class="px-2 py-2"><button type="button" class="js-ccy-remove text-ink-soft/40 hover:text-coral" title="Quitar">&times;</button></td>'
+      );
+      $('#currency-price-rows').append($row);
+    }
+    if (skipRound) {
+      $row.find('.js-ccy-rounding').val('none');
+    }
+    if (price != null && isFinite(Number(price)) && Number(price) > 0) {
+      var p = Number(price);
+      setMoneyInput($row.find('.js-ccy-price'), skipRound ? p : applyRound(p, rowRounding($row)));
+    }
+    if (compare != null && isFinite(Number(compare)) && Number(compare) > 0) {
+      var c = Number(compare);
+      setMoneyInput($row.find('.js-ccy-compare'), skipRound ? c : applyRound(c, rowRounding($row)));
+    }
+    if (lock) {
+      $row.find('.js-ccy-lock').prop('checked', true);
+    }
+    syncLockLabel($row);
+    syncPriceRowsToBaseCurrency();
+  }
+
+  $(document).on('change', '.js-ccy-lock', function () {
+    syncLockLabel($(this).closest('.currency-price-row'));
+    if (!$(this).is(':checked')) refreshCurrencyPricePreviews();
+  });
+  $(document).on('input', '.js-ccy-price, .js-ccy-compare', function () {
+    var $row = $(this).closest('.currency-price-row');
+    if (!$row.find('.js-ccy-lock').is(':checked')) {
+      $row.find('.js-ccy-lock').prop('checked', true);
+      syncLockLabel($row);
+    }
+  });
+  $(document).on('blur', '.js-ccy-price, .js-ccy-compare', function () {
+    var $row = $(this).closest('.currency-price-row');
+    var n = Number($(this).val());
+    if (isFinite(n) && n > 0) {
+      setMoneyInput($(this), applyRound(n, rowRounding($row)));
+    }
+  });
+  $(document).on('change', '.js-ccy-rounding', function () {
+    var $row = $(this).closest('.currency-price-row');
+    var mode = rowRounding($row);
+    $row.find('.js-ccy-price, .js-ccy-compare').each(function () {
+      var n = Number($(this).val());
+      if (isFinite(n) && n > 0) {
+        setMoneyInput($(this), applyRound(n, mode));
+      }
+    });
+    refreshCurrencyPricePreviews();
+  });
+  $(document).on('change', '.js-ccy-select', function () {
+    remapRowCode($(this).closest('.currency-price-row'), $(this).val());
+  });
+  $(document).on('click', '.js-ccy-remove', function () {
+    $(this).closest('.currency-price-row').remove();
+    refreshSelectAvailability();
+    filterCurrencyRows($('#currency-price-search').val());
+  });
+  $('#currency-price-search').on('input', function () {
+    filterCurrencyRows($(this).val());
+  });
+  $('#fill-fx-prices').on('click', function () {
+    var from = baseCurrency();
+    var price = Number($('#product-price').val() || 0);
+    var compare = Number($('input[name="compare_at_price"]').val() || 0);
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var $row = $(this);
+      var code = String($row.attr('data-code') || '').toUpperCase();
+      if (!code || code === from) return;
+      if ($row.find('.js-ccy-lock').is(':checked') && String($row.find('.js-ccy-price').val() || '') !== '') return;
+      if (!(isFinite(price) && price > 0)) return;
+      var mode = rowRounding($row);
+      setMoneyInput($row.find('.js-ccy-price'), convertMoney(price, from, code, true, mode));
+      if (isFinite(compare) && compare > 0) {
+        setMoneyInput($row.find('.js-ccy-compare'), convertMoney(compare, from, code, true, mode));
+      }
+      $row.find('.js-ccy-lock').prop('checked', true);
+      syncLockLabel($row);
+    });
+  });
+
+  $('#suggest-ai-prices').on('click', function () {
+    var $btn = $(this);
+    var $status = $('#suggest-prices-status');
+    var currencies = [];
+    $('#currency-price-rows .currency-price-row').each(function () {
+      var $row = $(this);
+      var code = String($row.attr('data-code') || '').toUpperCase();
+      if (!/^[A-Z]{3}$/.test(code)) return;
+      currencies.push({ code: code, rounding: rowRounding($row) });
+    });
+    if (!currencies.length) {
+      alert('Añade al menos una moneda en la tabla para sugerir precios.');
+      return;
+    }
+    var $bd = $('#price-breakdown');
+    $btn.prop('disabled', true).text('✨ Pensando…');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60')
+      .text('Sugeriendo precio para ' + currencies.length + ' moneda(s)…');
+
+    $.ajax({
+      url: suggestPricesUrl,
+      method: 'POST',
+      dataType: 'json',
+      timeout: 120000,
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: {
+        _token: csrf,
+        name: String($('#field-name').val() || ''),
+        cost_usd: Number($bd.attr('data-cost-usd') || 0),
+        ship_usd: 0,
+        fees_pct: Number($bd.attr('data-fees-pct') || 0.045),
+        target_margin: Number($bd.attr('data-target-margin') || 0.42),
+        base_price: Number($('#product-price').val() || 0),
+        base_currency: baseCurrency(),
+        compare_at: Number($('input[name="compare_at_price"]').val() || 0),
+        currencies: currencies
+      }
+    }).done(function (res) {
+      if (!(res && res.success && res.prices)) {
+        $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral')
+          .text((res && res.error) || 'No se pudieron sugerir precios.');
+        return;
+      }
+      var n = 0;
+      var base = baseCurrency();
+      $.each(res.prices, function (code, row) {
+        if (!row || row.price == null) return;
+        upsertCurrencyPriceRow(code, row.price, row.compare_at_price, true, true);
+        if (String(code).toUpperCase() === base) {
+          setMoneyInput($('#product-price'), row.price);
+          if (row.compare_at_price) {
+            setMoneyInput($('input[name="compare_at_price"]'), row.compare_at_price);
+          }
+          $('#product-price').trigger('change');
+        }
+        n++;
+      });
+      $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal')
+        .text(res.message || ('Precios sugeridos en ' + n + ' moneda(s). Guarda el producto.'));
+      if (window.AdminToast) AdminToast.success(res.message || 'Precios sugeridos');
+    }).fail(function (xhr) {
+      var err = (xhr.responseJSON && (xhr.responseJSON.error || xhr.responseJSON.message)) || 'Error al sugerir precios';
+      $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text(err);
+      if (window.AdminToast) AdminToast.error(err);
+    }).always(function () {
+      $btn.prop('disabled', false).text('✨ Sugerir precios IA');
+    });
+  });
+
+  (function initAddCurrencySearch() {
+    var $box = $('#add-price-currency-box');
+    if (!$box.length) return;
+    var $trigger = $('#add-price-currency-trigger');
+    var $dropdown = $('#add-price-currency-dropdown');
+    var $search = $('#add-price-currency-search');
+    var $options = $('#add-price-currency-options');
+    var $empty = $('#add-price-currency-empty');
+
+    function open() {
+      refreshSelectAvailability();
+      $dropdown.removeClass('hidden');
+      $trigger.attr('aria-expanded', 'true');
+      $search.val('');
+      filter('');
+      setTimeout(function () { $search.trigger('focus'); }, 0);
+    }
+    function close() {
+      $dropdown.addClass('hidden');
+      $trigger.attr('aria-expanded', 'false');
+    }
+    function filter(q) {
+      q = String(q || '').toLowerCase().trim();
+      var visible = 0;
+      $options.find('.add-ccy-option').each(function () {
+        var $btn = $(this);
+        if ($btn.hasClass('pointer-events-none')) {
+          $btn.closest('li').hide();
+          return;
+        }
+        var code = String($btn.data('code') || '').toLowerCase();
+        var label = String($btn.data('label') || '').toLowerCase();
+        var show = !q || code.indexOf(q) !== -1 || label.indexOf(q) !== -1;
+        $btn.closest('li').toggle(show);
+        if (show) visible += 1;
+      });
+      $empty.toggleClass('hidden', visible > 0);
+    }
+    $trigger.on('click', function (e) {
+      e.preventDefault();
+      if ($dropdown.hasClass('hidden')) open(); else close();
+    });
+    $search.on('input', function () { filter($(this).val()); });
+    $search.on('keydown', function (e) {
+      if (e.key === 'Escape') { close(); $trigger.trigger('focus'); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var $first = $options.find('.add-ccy-option').filter(function () {
+          return $(this).closest('li').is(':visible');
+        }).first();
+        if ($first.length) {
+          upsertCurrencyPriceRow(String($first.data('code') || ''), null, null, false);
+          refreshCurrencyPricePreviews();
+          close();
+        }
+      }
+    });
+    $options.on('click', '.add-ccy-option', function () {
+      if ($(this).hasClass('pointer-events-none')) return;
+      upsertCurrencyPriceRow(String($(this).data('code') || ''), null, null, false);
+      refreshCurrencyPricePreviews();
+      close();
+    });
+    $(document).on('click', function (e) {
+      if (!$(e.target).closest('#add-price-currency-box').length) close();
+    });
+  })();
+
+  $('#product-price').on('change', refreshCurrencyPricePreviews);
+  syncPriceRowsToBaseCurrency();
+  refreshCurrencyPricePreviews();
+
+  // —— Combobox buscador de moneda ——
+  (function initCurrencySearch() {
+    var $box = $('#currency-combobox');
+    if (! $box.length) return;
+    var $trigger = $('#currency-trigger');
+    var $dropdown = $('#currency-dropdown');
+    var $search = $('#currency-search');
+    var $options = $('#currency-options');
+    var $empty = $('#currency-empty');
+    var $hidden = $('#product-currency');
+    var $label = $('#currency-trigger-label');
+
+    function open() {
+      $dropdown.removeClass('hidden');
+      $trigger.attr('aria-expanded', 'true');
+      $search.val('');
+      filter('');
+      setTimeout(function () { $search.trigger('focus'); }, 0);
+    }
+    function close() {
+      $dropdown.addClass('hidden');
+      $trigger.attr('aria-expanded', 'false');
+    }
+    function filter(q) {
+      q = String(q || '').toLowerCase().trim();
+      var visible = 0;
+      $options.find('.currency-option').each(function () {
+        var code = String($(this).data('code') || '').toLowerCase();
+        var label = String($(this).data('label') || '').toLowerCase();
+        var show = !q || code.indexOf(q) !== -1 || label.indexOf(q) !== -1;
+        $(this).closest('li').toggle(show);
+        if (show) visible += 1;
+      });
+      $empty.toggleClass('hidden', visible > 0);
+      $options.toggleClass('hidden', visible === 0);
+    }
+    function select(code, label) {
+      code = String(code || '').toUpperCase();
+      $hidden.val(code).trigger('change');
+      $label.text(code + ' — ' + (label || code));
+      $options.find('.currency-option').removeClass('bg-teal/10 text-teal font-medium').addClass('text-ink');
+      $options.find('.currency-option[data-code="' + code + '"]')
+        .addClass('bg-teal/10 text-teal font-medium').removeClass('text-ink');
+      close();
+    }
+
+    $trigger.on('click', function (e) {
+      e.preventDefault();
+      if ($dropdown.hasClass('hidden')) open(); else close();
+    });
+    $search.on('input', function () { filter($(this).val()); });
+    $search.on('keydown', function (e) {
+      if (e.key === 'Escape') { close(); $trigger.trigger('focus'); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        var $first = $options.find('.currency-option').filter(function () {
+          return $(this).closest('li').is(':visible');
+        }).first();
+        if ($first.length) select($first.data('code'), $first.data('label'));
+      }
+    });
+    $options.on('click', '.currency-option', function () {
+      select($(this).data('code'), $(this).data('label'));
+    });
+    $(document).on('click', function (e) {
+      if (! $(e.target).closest('#currency-combobox').length) close();
+    });
+  })();
+
+  /* ── Bulk variantes ────────────────────────────────────────────── */
+  (function () {
+    var $table = $('#variants-table');
+    if (!$table.length) return;
+
+    var bulkAction = @json(route('admin.store.products.variants.bulk-destroy', $product));
+    var csrfToken  = $('meta[name="csrf-token"]').attr('content');
+    var $checkAll  = $('#var-check-all');
+
+    /* Form oculto FUERA del form principal (HTML no permite forms anidados) */
+    var $bulkForm = $('<form>', {
+      id: 'variants-bulk-form',
+      method: 'POST',
+      action: bulkAction,
+      css: { display: 'none' }
+    }).append('<input type="hidden" name="_token" value="' + csrfToken + '">')
+      .append('<input type="hidden" name="_method" value="DELETE">');
+    $('body').append($bulkForm);
+
+    /* Toolbar overlay al final del body */
+    var $toolbar = $([
+      '<div id="var-bulk-toolbar" style="',
+        'display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;',
+        'background:#fef2f2;border-top:1.5px solid rgba(239,68,68,.25);',
+        'box-shadow:0 -4px 24px rgba(185,28,28,.12);',
+        'padding:10px 20px;gap:10px;flex-wrap:wrap;align-items:center;">',
+        '<span style="font-size:13px;font-weight:600;color:#0f172a;">',
+          '<span id="var-bulk-count">0</span> variante(s)',
+        '</span>',
+        '<span style="width:1px;height:16px;background:#fca5a5;display:inline-block;"></span>',
+        '<button type="button" id="var-bulk-delete" class="admin-btn-danger !px-3 !py-1.5 text-xs">',
+          'Eliminar seleccionadas',
+        '</button>',
+        '<button type="button" id="var-bulk-cancel" class="admin-btn-secondary !px-3 !py-1.5 text-xs" style="margin-left:auto">',
+          'Cancelar',
+        '</button>',
+      '</div>'
+    ].join(''));
+    $('body').append($toolbar);
+
+    var $count = $toolbar.find('#var-bulk-count');
+
+    function selectedChecks() {
+      return $table.find('.var-row-check:checked');
+    }
+
+    function refreshVarToolbar() {
+      var n = selectedChecks().length;
+      $count.text(n);
+      $toolbar.css('display', n > 0 ? 'flex' : 'none');
+      var total = $table.find('.var-row-check').length;
+      $checkAll.prop('checked', total > 0 && n === total);
+      $checkAll.prop('indeterminate', n > 0 && n < total);
+    }
+
+    $checkAll.on('change', function () {
+      $table.find('.var-row-check').prop('checked', this.checked);
+      refreshVarToolbar();
+    });
+
+    $table.on('change', '.var-row-check', refreshVarToolbar);
+
+    $toolbar.on('click', '#var-bulk-delete', function () {
+      var $sel = selectedChecks();
+      if (!$sel.length) return;
+      if (!confirm('¿Eliminar ' + $sel.length + ' variante(s)? No se volverán a importar en sync CJ.')) return;
+      $bulkForm.find('input[name="ids[]"]').remove();
+      $sel.each(function () {
+        $bulkForm.append('<input type="hidden" name="ids[]" value="' + $(this).val() + '">');
+      });
+      $bulkForm[0].submit();
+    });
+
+    $toolbar.on('click', '#var-bulk-cancel', function () {
+      $table.find('.var-row-check').prop('checked', false);
+      $checkAll.prop('checked', false).prop('indeterminate', false);
+      refreshVarToolbar();
+    });
+
+    /* El lightbox global se inicializa más abajo */
+
+    /* Eliminar individual (no puede ser <form> anidado) */
+    $table.on('click', '.js-var-single-delete', function () {
+      if (!confirm('¿Eliminar esta variante? No se volverá a importar en la próxima sync CJ.')) return;
+      var url = $(this).data('url');
+      var $f = $('<form>', { method: 'POST', action: url, css: { display: 'none' } })
+        .append('<input type="hidden" name="_token" value="' + csrfToken + '">')
+        .append('<input type="hidden" name="_method" value="DELETE">');
+      $('body').append($f);
+      $f[0].submit();
+    });
+  })();
+
+  /* ── Lightbox global (imagen principal, galería, reseñas, comentarios, variantes) ── */
+  (function () {
+    var $lb = $(
+      '<div id="prod-lightbox" style="display:none;position:fixed;inset:0;z-index:99999;' +
+      'background:rgba(0,0,0,.85);cursor:zoom-out;align-items:center;justify-content:center;padding:16px;">' +
+      '<img id="prod-lightbox-img" src="" style="max-width:90vw;max-height:88vh;border-radius:10px;' +
+      'box-shadow:0 8px 48px rgba(0,0,0,.7);object-fit:contain;">' +
+      '</div>'
+    );
+    $('body').append($lb);
+    var $img = $lb.find('#prod-lightbox-img');
+
+    function openLightbox(src) {
+      $img.attr('src', src);
+      $lb.css('display', 'flex');
+    }
+
+    /* Imágenes con clase js-zoomable */
+    $(document).on('click', 'img.js-zoomable', function () {
+      openLightbox($(this).attr('src'));
+    });
+
+    /* Botones/contenedores js-zoomable con data-src (galería CJ) */
+    $(document).on('click', 'button.js-zoomable', function () {
+      openLightbox($(this).data('src') || $(this).find('img').attr('src'));
+    });
+
+    $lb.on('click', function () { $lb.css('display', 'none'); });
+    $(document).on('keydown.prodlb', function (e) { if (e.key === 'Escape') $lb.css('display', 'none'); });
+  })();
+
+})(jQuery);
+</script>
+@endpush

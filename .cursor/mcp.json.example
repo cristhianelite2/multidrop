@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cj-dropshipping": {
+      "url": "https://developers.cjdropshipping.cn/mcp/YOUR_ACCESS_TOKEN"
+    },
+    "multidrop-catalog": {
+      "command": "php",
+      "args": ["artisan", "mcp:serve"],
+      "cwd": "F:/xampp82/htdocs/html/multidrop"
+    }
+  }
+}

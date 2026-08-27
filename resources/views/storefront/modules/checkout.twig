@@ -1,0 +1,61 @@
+<section class="md-checkout md-mod-checkout">
+  <div class="md-wrap">
+    <h1>Checkout</h1>
+    <div class="md-checkout-layout">
+      <form data-md-checkout-form class="md-checkout-box" method="post" action="{{ urls.checkout_place|default('#') }}">
+        <fieldset class="md-fieldset">
+          <legend>Tus datos</legend>
+          <div class="md-field"><label>Nombre</label><input name="name" placeholder="Nombre" required></div>
+          <div class="md-row2">
+            <div class="md-field"><label>Email</label><input name="email" type="email" placeholder="Email" required></div>
+            <div class="md-field"><label>Teléfono</label><input name="phone" placeholder="Teléfono"></div>
+          </div>
+        </fieldset>
+        <div class="md-newsletter-slot" data-md-newsletter-slot></div>
+        <fieldset class="md-fieldset">
+          <legend>Envío</legend>
+          <div class="md-field"><label>Dirección</label><input name="address" placeholder="Dirección" required></div>
+          <div class="md-row2">
+            <div class="md-field"><label>Ciudad</label><input name="city" placeholder="Ciudad" required></div>
+            <div class="md-field"><label>Estado</label><input name="state" placeholder="Estado"></div>
+          </div>
+          <div class="md-row2">
+            <div class="md-field"><label>CP</label><input name="zip" placeholder="CP"></div>
+            <div class="md-field md-field--country"><label>País</label><input name="country" placeholder="País" data-md-country></div>
+          </div>
+        </fieldset>
+        <div data-md-coupon-form class="md-coupon md-field">
+          <label>{{ i18n.checkout.coupon|default('Cupón') }}</label>
+          <div class="md-row2">
+            <input name="code" placeholder="{{ i18n.checkout.coupon|default('Cupón') }}">
+            <button type="button" data-md-coupon-apply class="md-btn md-btn--ghost">{{ i18n.checkout.coupon_apply|default('Aplicar') }}</button>
+          </div>
+        </div>
+        <p data-md-checkout-totals></p>
+        {% if turnstile.enabled and turnstile.site_key and not turnstile.local_bypass %}
+          <div class="cf-turnstile" data-sitekey="{{ turnstile.site_key }}"></div>
+        {% elseif turnstile.local_bypass %}
+          <p class="text-xs md-checkout-turnstile-local">Modo local: captcha de seguridad omitido.</p>
+        {% endif %}
+        <button type="submit" class="md-btn md-btn--primary md-btn--wide">Pagar</button>
+        <p data-md-checkout-msg></p>
+      </form>
+      <aside class="md-checkout-summary">
+        <h3>{{ i18n.cart.summary|default('Tu pedido') }}</h3>
+        <div data-md-checkout-lines data-md-checkout-items>
+          {% for item in cart.items|default([]) %}
+            <div class="md-checkout-summary__item md-checkout-summary__row">
+              {% if item.image %}<img src="{{ item.image }}" alt="">{% endif %}
+              <span>{{ item.name|default('Producto') }} × {{ item.qty|default(1) }}</span>
+              <span>{{ item.price_formatted|default('') }}</span>
+            </div>
+          {% endfor %}
+        </div>
+        <div data-md-checkout-summary>
+          <div class="md-checkout-summary__row md-summary__line"><span>{{ i18n.cart.subtotal|default('Subtotal') }}</span><span data-md-checkout-subtotal>{{ cart.totals.subtotal_formatted|default('') }}</span></div>
+          <div class="md-checkout-summary__row md-summary__line md-summary__line--total"><span>{{ i18n.cart.total|default('Total') }}</span><span data-md-checkout-total>{{ cart.totals.total_formatted|default('') }}</span></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>

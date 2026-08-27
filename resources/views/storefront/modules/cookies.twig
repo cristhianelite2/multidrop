@@ -1,0 +1,43 @@
+<div data-md-module="cookies" id="md-cookies" class="md-mod-cookies md-hide" hidden>
+  <div class="md-mod-cookies__bar" id="md-cookies-bar" role="dialog" aria-modal="false" aria-labelledby="md-cookies-title" aria-describedby="md-cookies-body">
+    <div class="md-mod-cookies__copy">
+      <strong id="md-cookies-title">{{ cookies.title|default(i18n.cookies.title|default('Usamos cookies')) }}</strong>
+      <p id="md-cookies-body">{{ cookies.body|default(i18n.cookies.body|default('')) }}</p>
+      <a id="md-cookies-policy" class="md-mod-cookies__policy" href="{{ cookies.policy_url|default('#') }}"{% if not cookies.policy_url %} hidden{% endif %} target="_blank" rel="noopener">{{ i18n.cookies.policy|default('Política de cookies') }}</a>
+    </div>
+    <div class="md-mod-cookies__actions">
+      <button type="button" class="md-btn" data-md-cookies-accept>{{ cookies.accept_label|default(i18n.cookies.accept|default('Aceptar todo')) }}</button>
+      <button type="button" class="md-btn md-btn--ghost" data-md-cookies-reject>{{ cookies.reject_label|default(i18n.cookies.reject|default('Rechazar opcionales')) }}</button>
+      <button type="button" class="md-btn md-btn--ghost" data-md-cookies-configure>{{ cookies.configure_label|default(i18n.cookies.configure|default('Configurar')) }}</button>
+    </div>
+  </div>
+  <div class="md-mod-cookies__overlay md-hide" id="md-cookies-overlay" hidden>
+    <div class="md-mod-cookies__card" role="dialog" aria-modal="true" aria-labelledby="md-cookies-prefs-title">
+      <button type="button" class="md-mod-close" data-md-cookies-close aria-label="{{ i18n.upsell.close|default('Cerrar') }}">×</button>
+      <h2 id="md-cookies-prefs-title">{{ cookies.configure_label|default(i18n.cookies.configure|default('Configurar')) }}</h2>
+      <p class="md-mod-cookies__hint">{{ cookies.body|default(i18n.cookies.body|default('')) }}</p>
+      <label class="md-mod-cookies__cat">
+        <input type="checkbox" checked disabled>
+        <span>
+          <strong id="md-cookies-necessary-label">{{ cookies.necessary_label|default(i18n.cookies.necessary|default('Necesarias')) }}</strong>
+          <em>{{ i18n.cookies.necessary_hint|default('Siempre activas. Carrito, checkout e idioma.') }}</em>
+        </span>
+      </label>
+      <label class="md-mod-cookies__cat" data-md-cookies-cat="analytics">
+        <input type="checkbox" id="md-cookies-analytics">
+        <span>
+          <strong id="md-cookies-analytics-label">{{ cookies.analytics_label|default(i18n.cookies.analytics|default('Analítica')) }}</strong>
+          <em>{{ i18n.cookies.analytics_hint|default('Google Analytics. Solo si las aceptas.') }}</em>
+        </span>
+      </label>
+      <label class="md-mod-cookies__cat" data-md-cookies-cat="marketing">
+        <input type="checkbox" id="md-cookies-marketing">
+        <span>
+          <strong id="md-cookies-marketing-label">{{ cookies.marketing_label|default(i18n.cookies.marketing|default('Marketing')) }}</strong>
+          <em>{{ i18n.cookies.marketing_hint|default('Meta Pixel. Solo si las aceptas.') }}</em>
+        </span>
+      </label>
+      <button type="button" class="md-btn" data-md-cookies-save>{{ cookies.save_label|default(i18n.cookies.save|default('Guardar preferencias')) }}</button>
+    </div>
+  </div>
+</div>

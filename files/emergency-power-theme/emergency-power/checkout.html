@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout — {{store.name}}</title>
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="checkout.css">
+</head>
+<body class="md-checkout">
+
+<header class="md-header">
+  <div class="md-container md-header__inner">
+    <a class="md-logo" href="{{urls.home}}">
+      <img class="md-logo__mark" src="assets/logo.svg" alt="">
+      {{store.name}}
+    </a>
+    <div class="md-header__actions">
+      <div class="md-locale-currency" data-md-locale-currency>
+        <select data-md-locale-select aria-label="Language"></select>
+        <select data-md-currency-select aria-label="Currency"></select>
+      </div>
+      <span class="md-eyebrow" style="color:var(--md-checkout-primary)">Secure checkout</span>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="md-container">
+    <div class="md-checkout-steps">
+      <span>Cart</span> → <span class="is-active">Information &amp; payment</span> → <span>Confirmation</span>
+    </div>
+
+    <div class="md-checkout-layout">
+
+      <aside class="md-mod-cross-checkout md-hide" data-md-cross-checkout hidden>
+        <div class="md-mod-cross-checkout__top">
+          <div class="md-mod-cross-checkout__intro">
+            <span class="md-mod-cross-checkout__badge" data-md-cross-badge>✨ Oferta mágica</span>
+            <strong class="md-mod-cross-checkout__title" data-md-cross-headline>Completa tu pedido</strong>
+            <span class="md-mod-cross-checkout__hint" data-md-cross-hint></span>
+          </div>
+          <div class="md-mod-cross-checkout__timer" data-md-cross-timer aria-live="polite">
+            <span class="md-mod-cross-checkout__timer-label">Expira en</span>
+            <b data-md-cross-countdown>15:00</b>
+          </div>
+        </div>
+        <div class="md-mod-cross-checkout__list" data-md-cross-list></div>
+      </aside>
+
+      <form class="md-checkout-form" data-md-checkout-form>
+
+        <section class="md-checkout-section">
+          <h2 class="md-h3">Contact</h2>
+          <div class="md-checkout-form-grid">
+            <div class="md-field">
+              <label for="email">Email</label>
+              <input type="email" id="email" name="email" autocomplete="email" required>
+            </div>
+            <label class="md-mod-newsletter-checkout" for="md-newsletter-opt-in" data-md-module="newsletter">
+              <input type="checkbox" name="newsletter_opt_in" id="md-newsletter-opt-in" value="1">
+              <span>Quiero recibir ofertas y ganar un cupón para mi próxima compra</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="md-checkout-section">
+          <h2 class="md-h3">Shipping address</h2>
+          <div class="md-checkout-form-grid md-mt-0">
+            <div class="md-field md-field--country" data-md-country-field>
+              <label for="md-shipping-country-search">País de envío</label>
+              <div class="md-country-picker" data-md-country-picker>
+                <button type="button" class="md-country-picker__trigger" data-md-country-trigger aria-haspopup="listbox" aria-expanded="false">
+                  <img class="md-country-picker__flag md-hide" data-md-country-flag src="" width="20" height="15" alt="" decoding="async" hidden>
+                  <span data-md-country-label>Selecciona un país…</span>
+                  <span class="md-country-picker__chev" aria-hidden="true">▾</span>
+                </button>
+                <div class="md-country-picker__panel md-hide" data-md-country-panel hidden>
+                  <input type="search" id="md-shipping-country-search" class="md-country-picker__search" data-md-country-search placeholder="Buscar país…" autocomplete="off">
+                  <ul class="md-country-picker__list" data-md-country-list role="listbox"></ul>
+                </div>
+                <input type="hidden" name="country" value="" data-md-shipping-country-field data-md-shipping-country>
+              </div>
+              <p class="md-country-picker__msg" data-md-shipping-msg></p>
+            </div>
+          </div>
+          <div class="md-checkout-form-grid md-checkout-form-grid--2 md-mt-16">
+            <div class="md-field">
+              <label for="first_name">First name</label>
+              <input type="text" id="first_name" name="first_name" autocomplete="given-name" required>
+            </div>
+            <div class="md-field">
+              <label for="last_name">Last name</label>
+              <input type="text" id="last_name" name="last_name" autocomplete="family-name" required>
+            </div>
+          </div>
+          <div class="md-checkout-form-grid md-mt-16">
+            <div class="md-field">
+              <label for="address">Address</label>
+              <input type="text" id="address" name="address" autocomplete="address-line1" required>
+            </div>
+          </div>
+          <div class="md-checkout-form-grid md-checkout-form-grid--2 md-mt-16">
+            <div class="md-field">
+              <label for="city">City</label>
+              <input type="text" id="city" name="city" autocomplete="address-level2" required>
+            </div>
+            <div class="md-field">
+              <label for="zip">ZIP / Postal code</label>
+              <input type="text" id="zip" name="zip" autocomplete="postal-code" required>
+            </div>
+          </div>
+        </section>
+
+        <section class="md-checkout-section">
+          <h2 class="md-h3">Payment</h2>
+          <!-- Mount point only. The platform injects its own payment
+               gateway markup/JS here — this theme does not implement
+               or handle card data. Colors follow --md-checkout-* vars. -->
+          <div class="md-checkout-gateway" data-md-checkout-gateway>
+            Payment gateway loads here at runtime.
+          </div>
+        </section>
+
+        <button type="submit" class="md-btn md-checkout-submit md-btn--block md-mt-24">
+          Pay &amp; place order →
+        </button>
+      </form>
+
+      <aside class="md-checkout-summary" data-md-checkout-summary>
+        <h2 class="md-h3">Order summary</h2>
+        <div data-md-checkout-lines></div>
+
+        <div class="md-checkout-summary__row">
+          <span>Subtotal</span>
+          <span class="md-price" data-md-checkout-subtotal>$0.00</span>
+        </div>
+        <div class="md-checkout-summary__row md-checkout-summary__row--discount md-hide" data-md-checkout-discount-row hidden>
+          <span>Descuento</span>
+          <span class="md-price" data-md-checkout-discount>$0.00</span>
+        </div>
+        <div class="md-checkout-summary__row md-checkout-summary__row--magic md-hide" data-md-checkout-magic-row hidden>
+          <span data-md-checkout-magic-label>Descuento mágico</span>
+          <span class="md-price" data-md-checkout-magic-discount>$0.00</span>
+        </div>
+        <div class="md-checkout-summary__coupon md-checkout-summary__coupon--inline" data-md-coupon-form>
+          <div class="md-checkout-summary__coupon-row">
+            <input type="text" name="code" placeholder="Cupón" autocomplete="off" aria-label="Código de cupón">
+            <button type="button" class="md-btn" data-md-coupon-apply>Aplicar</button>
+            <div class="md-checkout-summary__coupon-applied md-hide" data-md-checkout-coupon-applied hidden>
+              <strong data-md-checkout-coupon-code></strong>
+              <button type="button" data-md-coupon-clear title="Quitar cupón">×</button>
+            </div>
+          </div>
+          <p class="md-checkout-summary__coupon-msg" data-md-coupon-msg></p>
+        </div>
+        <div class="md-checkout-summary__row" data-md-checkout-shipping-row>
+          <span>Envío</span>
+          <span class="md-price" data-md-checkout-shipping>Selecciona un país</span>
+        </div>
+        <div class="md-checkout-summary__row md-checkout-summary__row--total">
+          <span>Total</span>
+          <span class="md-price" data-md-checkout-total>$0.00</span>
+        </div>
+      </aside>
+
+    </div>
+  </div>
+</main>
+
+<script src="theme.js"></script>
+<script src="checkout.js"></script>
+</body>
+</html>

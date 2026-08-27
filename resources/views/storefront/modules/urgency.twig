@@ -1,0 +1,13 @@
+<div class="md-wrap">
+  <div data-md-module="urgency" class="md-mod-urgency" aria-hidden="false">
+    <span data-md-urgency-copy>
+      {% if urgency.bar_text %}
+        {{ urgency.bar_text }}
+      {% else %}
+        ¡Solo quedan <b id="md-urgency-stock" data-md-urgency-stock>{{ urgency.stock|default(7) }}</b>
+        {% if star.name %} de <b data-md-urgency-star>{{ star.name }}</b>{% else %} unidades{% endif %}
+        · Oferta termina en <b id="md-urgency-timer" data-md-urgency-timer>14:59</b>!
+      {% endif %}
+    </span>
+  </div>
+</div>

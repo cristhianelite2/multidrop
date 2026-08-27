@@ -1,0 +1,25 @@
+<div id="md-atc-modal" class="md-atc-modal md-hide" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="md-atc-title">
+  <div class="md-atc-modal__backdrop" data-md-atc-close></div>
+  <div class="md-atc-modal__card">
+    <button type="button" class="md-atc-modal__close" data-md-atc-close aria-label="{{ i18n.upsell.close|default('Cerrar') }}">×</button>
+    <div class="md-atc-modal__mark" aria-hidden="true">✓</div>
+    <h2 class="md-atc-modal__title" id="md-atc-title">{{ i18n.atc.title|default('Agregado al carrito') }}</h2>
+    <p class="md-atc-modal__sub" id="md-atc-sub">{{ i18n.atc.sub|default('') }}</p>
+    <div class="md-atc-modal__product" id="md-atc-product">
+      <div class="md-atc-modal__media">
+        <span class="md-atc-modal__ph" id="md-atc-img-ph" aria-hidden="true"></span>
+        <img id="md-atc-img" alt="" width="64" height="64" hidden referrerpolicy="no-referrer">
+      </div>
+      <div class="md-atc-modal__copy">
+        <div class="md-atc-modal__name" id="md-atc-name">{{ i18n.social.a_product|default('Producto') }}</div>
+        <div class="md-atc-modal__meta" id="md-atc-meta"></div>
+      </div>
+      <div class="md-atc-modal__price" id="md-atc-price"></div>
+    </div>
+    <div class="md-atc-modal__actions">
+      <a class="md-btn md-btn--primary" id="md-atc-checkout" href="{{ urls.checkout|default('#') }}">{{ i18n.atc.checkout|default('Ir al checkout') }}</a>
+      <button type="button" class="md-btn md-btn--ghost" data-md-atc-close id="md-atc-continue">{{ i18n.atc.continue|default('Seguir comprando') }}</button>
+      <a class="md-btn md-btn--ghost" id="md-atc-cart" href="{{ urls.cart|default('#') }}" hidden>{{ i18n.atc.cart|default('Ver carrito') }}</a>
+    </div>
+  </div>
+</div>

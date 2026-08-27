@@ -1,0 +1,47 @@
+<footer class="md-footer">
+  <div class="md-wrap">
+    <div class="md-footer__grid">
+      <div>
+        <a href="{{ urls.home|default('#') }}" class="md-logo">
+          {% if logo %}
+            <img src="{{ logo }}" alt="{{ store.name|default('Tienda') }}">
+          {% else %}
+            {{ store.name|default('Tienda') }}
+          {% endif %}
+        </a>
+        {% if store.tagline %}<p>{{ store.tagline }}</p>{% endif %}
+      </div>
+      <div>
+        <h4>Tienda</h4>
+        <ul>
+          <li><a href="{{ urls.catalog|default('#') }}">Catálogo</a></li>
+          <li><a href="{{ urls.cart|default('#') }}">Carrito</a></li>
+          <li><a href="{{ urls.checkout|default('#') }}">Checkout</a></li>
+        </ul>
+      </div>
+      {% if nav_links %}
+      <div>
+        <h4>Páginas</h4>
+        <ul>
+          {% for link in nav_links %}
+            <li><a href="{{ link.url|default('#') }}">{{ link.title|default('') }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      <div>
+        <h4>Ayuda</h4>
+        <ul>
+          <li><a href="{{ urls.home|default('#') }}">Inicio</a></li>
+          {% if cookies_enabled %}
+          <li><a href="#cookies" data-md-cookies-open>{{ i18n.cookies.link|default('Cookies') }}</a></li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+    <div class="md-footer__bottom">
+      <span>{{ store.name|default('Tienda') }}</span>
+      <span>Hecho con Multidrop</span>
+    </div>
+  </div>
+</footer>

@@ -1,0 +1,622 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Domain\AI\AiTaskRouter;
+use App\Domain\Suppliers\Cj\CjConnector;
+use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Models\OrderClaim;
+use App\Models\PlatformSetting;
+use App\Models\Store;
+use App\Services\Currency\CurrencyService;
+use App\Services\Platform\PlatformContact;
+use App\Services\Platform\PlatformMailSettings;
+use App\Services\Security\TurnstileVerifier;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\Rule;
+
+class GeneralSettingsController extends Controller
+{
+    public function edit(CjConnector $cj, CurrencyService $currency, TurnstileVerifier $turnstile, PlatformContact $contact, PlatformMailSettings $mail, AiTaskRouter $aiRouter)
+    {
+        $today = Carbon::now()->startOfDay();
+        $last30 = Carbon::now()->subDays(30);
+
+        $payments = [
+            'stripe_key' => PlatformSetting::getValue('payments.stripe.key', config('payments.stripe.key')),
+            'stripe_secret' => PlatformSetting::getValue('payments.stripe.secret') ? '********' : '',
+            'stripe_webhook_secret' => PlatformSetting::getValue('payments.stripe.webhook_secret') ? '********' : '',
+            'paypal_client_id' => PlatformSetting::getValue('payments.paypal.client_id', config('payments.paypal.client_id')),
+            'paypal_client_secret' => PlatformSetting::getValue('payments.paypal.client_secret') ? '********' : '',
+            'paypal_mode' => PlatformSetting::getValue('payments.paypal.mode', config('payments.paypal.mode', 'sandbox')),
+            'mp_public_key' => PlatformSetting::getValue('payments.mercadopago.public_key', config('payments.mercadopago.public_key')),
+            'mp_access_token' => PlatformSetting::getValue('payments.mercadopago.access_token') ? '********' : '',
+            'mp_webhook_secret' => PlatformSetting::getValue('payments.mercadopago.webhook_secret') ? '********' : '',
+        ];
+
+        $hasDb = [
+            'stripe_secret' => (bool) PlatformSetting::getValue('payments.stripe.secret'),
+            'stripe_webhook_secret' => (bool) PlatformSetting::getValue('payments.stripe.webhook_secret'),
+            'paypal_client_secret' => (bool) PlatformSetting::getValue('payments.paypal.client_secret'),
+            'mp_access_token' => (bool) PlatformSetting::getValue('payments.mercadopago.access_token'),
+            'mp_webhook_secret' => (bool) PlatformSetting::getValue('payments.mercadopago.webhook_secret'),
+            'cj_api_key' => (bool) PlatformSetting::getValue('cj.api_key') || (bool) config('cj.api_key'),
+            'cj_access_token' => (bool) PlatformSetting::getValue('cj.access_token') || (bool) config('cj.access_token'),
+            'openai_api_key' => (bool) PlatformSetting::getValue('ai.openai.api_key') || (bool) config('ai.providers.openai.api_key'),
+            'miia_api_key' => (bool) PlatformSetting::getValue('ai.miia.api_key') || (bool) config('ai.providers.miia.api_key'),
+            'turnstile_secret' => (bool) PlatformSetting::getValue('cloudflare.turnstile.secret_key') || (bool) config('cloudflare.turnstile.secret_key'),
+            'turnstile_site' => (bool) ($turnstile->siteKey()),
+            'resend_api_key' => (bool) PlatformSetting::getValue('platform.mail.resend_api_key') || (bool) config('services.resend.key'),
+        ];
+
+        $accessToken = PlatformSetting::getValue('cj.access_token', config('cj.access_token'));
+
+        $cjData = [
+            'email' => PlatformSetting::getValue('cj.email', config('cj.email')),
+            'api_key' => $hasDb['cj_api_key'] ? '********' : '',
+            'authorized_at' => PlatformSetting::getValue('cj.authorized_at'),
+            'has_access_token' => $hasDb['cj_access_token'],
+            'mcp_url' => $cj->mcpServerUrl($accessToken),
+            'mcp_url_masked' => $this->maskMcpUrl($cj->mcpServerUrl($accessToken)),
+            'last_test_at' => PlatformSetting::getValue('cj.last_test_at'),
+            'last_test_ok' => filter_var(PlatformSetting::getValue('cj.last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
+            'last_test_message' => PlatformSetting::getValue('cj.last_test_message'),
+        ];
+
+        $aiEngines = $aiRouter->listEngines();
+        $ai = [
+            'miia_api_key' => $hasDb['miia_api_key'] ? '********' : '',
+            'miia_base_url' => PlatformSetting::getValue('ai.miia.base_url', config('ai.providers.miia.base_url')),
+            'miia_model' => PlatformSetting::getValue('ai.miia.model', config('ai.providers.miia.model')),
+            'engines' => $aiEngines,
+            'engines_chat' => $aiRouter->enginesForKind('chat', $aiEngines),
+            'engines_image' => $aiRouter->enginesForKind('image', $aiEngines),
+            'tasks' => $this->aiTasksForView($aiRouter, $aiEngines),
+            'engines_url' => route('admin.settings.general.ai.engines'),
+        ];
+
+        $security = [
+            'turnstile_site_key' => PlatformSetting::getValue('cloudflare.turnstile.site_key', config('cloudflare.turnstile.site_key')),
+            'turnstile_secret_key' => $hasDb['turnstile_secret'] ? '********' : '',
+            'bot_fight_ack' => filter_var(PlatformSetting::getValue('cloudflare.bot_fight_ack', '0'), FILTER_VALIDATE_BOOLEAN),
+            'ai_crawl_ack' => filter_var(PlatformSetting::getValue('cloudflare.ai_crawl_ack', '0'), FILTER_VALIDATE_BOOLEAN),
+            'access_enabled' => (bool) config('cloudflare.access.enabled'),
+            'turnstile_ready' => $turnstile->enabled(),
+            'docs' => config('cloudflare.docs', []),
+            'max_orders_per_hour' => (int) PlatformSetting::getValue(
+                'fraud.max_orders_per_hour',
+                config('multidrop.fraud.max_orders_per_hour', 8)
+            ),
+        ];
+
+        $mailStatus = $mail->status();
+
+        $stores = Store::query()
+            ->active()
+            ->with('market:id,code')
+            ->orderBy('store_type')
+            ->orderBy('name')
+            ->get(['id', 'name', 'store_type', 'market_id']);
+
+        $ordersByStore = Order::query()
+            ->selectRaw('store_id')
+            ->selectRaw('COUNT(*) as orders_total')
+            ->selectRaw("SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as orders_today", [$today])
+            ->selectRaw("SUM(CASE WHEN created_at >= ? AND payment_status='paid' THEN 1 ELSE 0 END) as paid_today", [$today])
+            ->selectRaw("SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as orders_30", [$last30])
+            ->selectRaw("SUM(CASE WHEN created_at >= ? AND payment_status='paid' THEN 1 ELSE 0 END) as paid_30", [$last30])
+            ->selectRaw("SUM(CASE WHEN created_at >= ? AND payment_status='paid' THEN total ELSE 0 END) as revenue_30", [$last30])
+            ->groupBy('store_id')
+            ->get()
+            ->keyBy('store_id');
+
+        $claimsByStore = OrderClaim::query()
+            ->selectRaw('store_id, COUNT(*) as open_claims')
+            ->whereIn('status', ['open', 'in_progress'])
+            ->groupBy('store_id')
+            ->get()
+            ->keyBy('store_id');
+
+        $storeSalesRows = $stores->map(function (Store $store) use ($ordersByStore, $claimsByStore) {
+            $orderAgg = $ordersByStore->get($store->id);
+            $orders30 = (int) ($orderAgg->orders_30 ?? 0);
+            $paid30 = (int) ($orderAgg->paid_30 ?? 0);
+
+            return [
+                'id' => $store->id,
+                'name' => $store->name,
+                'type' => $store->store_type ?: 'mini',
+                'market' => $store->market?->code ?? '—',
+                'orders_today' => (int) ($orderAgg->orders_today ?? 0),
+                'paid_today' => (int) ($orderAgg->paid_today ?? 0),
+                'orders_30' => $orders30,
+                'paid_30' => $paid30,
+                'revenue_30' => (float) ($orderAgg->revenue_30 ?? 0),
+                'open_claims' => (int) ($claimsByStore->get($store->id)->open_claims ?? 0),
+                'conversion_paid_30' => $orders30 > 0 ? round(($paid30 / $orders30) * 100, 1) : 0.0,
+            ];
+        })->sortByDesc('paid_today')->values();
+
+        $salesByType = collect(['mini', 'mega'])->mapWithKeys(function (string $type) use ($storeSalesRows) {
+            $items = $storeSalesRows->where('type', $type);
+
+            return [$type => [
+                'stores' => $items->count(),
+                'new_sales' => (int) $items->sum('paid_today'),
+                'orders_30' => (int) $items->sum('orders_30'),
+                'paid_30' => (int) $items->sum('paid_30'),
+                'revenue_30' => (float) $items->sum('revenue_30'),
+                'open_claims' => (int) $items->sum('open_claims'),
+            ]];
+        });
+
+        return view('admin.settings.general', [
+            'payments' => $payments,
+            'hasDb' => $hasDb,
+            'cj' => $cjData,
+            'ai' => $ai,
+            'security' => $security,
+            'contact' => $contact->all(),
+            'mail' => [
+                'driver' => $mailStatus['driver'],
+                'resend_api_key' => $hasDb['resend_api_key'] ? '********' : '',
+                'from_address' => $mailStatus['from_address'],
+                'from_name' => $mailStatus['from_name'],
+                'ready' => $mailStatus['ready'],
+            ],
+            'currency' => [
+                'base' => $currency->base(),
+                'catalog' => $currency->catalog(),
+                'rounding_modes' => CurrencyService::ROUNDING_MODES,
+                'updated_at' => $currency->updatedAt(),
+                'fetch_url' => route('admin.settings.general.currency.fetch'),
+            ],
+            'pixels' => [
+                'ga_measurement_id' => PlatformSetting::getValue('marketing.ga_measurement_id', ''),
+                'meta_pixel_id' => PlatformSetting::getValue('marketing.meta_pixel_id', ''),
+            ],
+            'commerce' => [
+                'sales_by_type' => $salesByType,
+                'stores' => $storeSalesRows,
+                'ga_tracking_on' => (bool) PlatformSetting::getValue('marketing.ga_measurement_id', ''),
+            ],
+        ]);
+    }
+
+    public function update(Request $request, CurrencyService $currency, PlatformContact $contact, PlatformMailSettings $mail, AiTaskRouter $aiRouter)
+    {
+        $data = $request->validate([
+            'stripe_key' => ['nullable', 'string', 'max:255'],
+            'stripe_secret' => ['nullable', 'string', 'max:255'],
+            'stripe_webhook_secret' => ['nullable', 'string', 'max:255'],
+            'paypal_client_id' => ['nullable', 'string', 'max:255'],
+            'paypal_client_secret' => ['nullable', 'string', 'max:255'],
+            'paypal_mode' => ['required', Rule::in(['sandbox', 'live'])],
+            'mp_public_key' => ['nullable', 'string', 'max:255'],
+            'mp_access_token' => ['nullable', 'string', 'max:255'],
+            'mp_webhook_secret' => ['nullable', 'string', 'max:255'],
+            'miia_api_key' => ['nullable', 'string', 'max:500'],
+            'miia_base_url' => ['nullable', 'string', 'max:255'],
+            'miia_model' => ['nullable', 'string', 'max:120'],
+            'ai_task_engines' => ['nullable', 'array'],
+            'ai_task_engines.*' => ['nullable', 'string', 'max:120'],
+            'currency_base' => ['required', 'string', 'size:3'],
+            'fx_rates' => ['nullable', 'array'],
+            'fx_rates.*' => ['nullable', 'numeric', 'min:0'],
+            'fx_rounding' => ['nullable', 'array'],
+            'fx_rounding.*' => ['nullable', 'string', Rule::in(array_keys(CurrencyService::ROUNDING_MODES))],
+            'turnstile_site_key' => ['nullable', 'string', 'max:255'],
+            'turnstile_secret_key' => ['nullable', 'string', 'max:255'],
+            'bot_fight_ack' => ['nullable', 'boolean'],
+            'ai_crawl_ack' => ['nullable', 'boolean'],
+            'fraud_max_orders_per_hour' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'contact_email' => ['nullable', 'email', 'max:190'],
+            'contact_phone' => ['nullable', 'string', 'max:40'],
+            'contact_whatsapp' => ['nullable', 'string', 'max:40'],
+            'contact_hours' => ['nullable', 'string', 'max:120'],
+            'contact_note' => ['nullable', 'string', 'max:500'],
+            'mail_driver' => ['required', Rule::in(['resend', 'log', 'smtp', 'array'])],
+            'resend_api_key' => ['nullable', 'string', 'max:255'],
+            'mail_from_address' => ['nullable', 'email', 'max:190'],
+            'mail_from_name' => ['nullable', 'string', 'max:120'],
+            'ga_measurement_id' => ['nullable', 'string', 'max:40'],
+            'meta_pixel_id' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        PlatformSetting::put('payments.stripe.key', $data['stripe_key'] ?? null, 'payments');
+        PlatformSetting::put('payments.paypal.client_id', $data['paypal_client_id'] ?? null, 'payments');
+        PlatformSetting::put('payments.paypal.mode', $data['paypal_mode'], 'payments');
+        PlatformSetting::put('payments.mercadopago.public_key', $data['mp_public_key'] ?? null, 'payments');
+
+        $this->putSecretIfPresent('payments.stripe.secret', $data['stripe_secret'] ?? null);
+        $this->putSecretIfPresent('payments.stripe.webhook_secret', $data['stripe_webhook_secret'] ?? null);
+        $this->putSecretIfPresent('payments.paypal.client_secret', $data['paypal_client_secret'] ?? null);
+        $this->putSecretIfPresent('payments.mercadopago.access_token', $data['mp_access_token'] ?? null);
+        $this->putSecretIfPresent('payments.mercadopago.webhook_secret', $data['mp_webhook_secret'] ?? null);
+
+        PlatformSetting::put('ai.miia.base_url', $data['miia_base_url'] ?: 'https://ia.ceballosleon.com', 'ai');
+        PlatformSetting::put('ai.miia.model', $data['miia_model'] ?: 'auto', 'ai');
+        $this->putSecretIfPresent('ai.miia.api_key', $data['miia_api_key'] ?? null, 'ai');
+
+        $taskMap = [];
+        foreach (array_keys(config('ai.tasks', [])) as $taskKey) {
+            $taskMap[$taskKey] = $aiRouter->sanitizeEngineForTask(
+                $taskKey,
+                trim((string) ($data['ai_task_engines'][$taskKey] ?? ''))
+            );
+        }
+        PlatformSetting::put('ai.task_engines', json_encode($taskMap, JSON_UNESCAPED_UNICODE), 'ai');
+        config(['ai.task_engines' => $taskMap]);
+
+        PlatformSetting::put('cloudflare.turnstile.site_key', $data['turnstile_site_key'] ?? null, 'cloudflare');
+        $this->putSecretIfPresent('cloudflare.turnstile.secret_key', $data['turnstile_secret_key'] ?? null, 'cloudflare');
+        PlatformSetting::put('cloudflare.bot_fight_ack', $request->boolean('bot_fight_ack') ? '1' : '0', 'cloudflare');
+        PlatformSetting::put('cloudflare.ai_crawl_ack', $request->boolean('ai_crawl_ack') ? '1' : '0', 'cloudflare');
+        PlatformSetting::put(
+            'fraud.max_orders_per_hour',
+            (string) ($data['fraud_max_orders_per_hour'] ?? config('multidrop.fraud.max_orders_per_hour', 8)),
+            'fraud'
+        );
+
+        $contact->save([
+            'email' => $data['contact_email'] ?? null,
+            'phone' => $data['contact_phone'] ?? null,
+            'whatsapp' => $data['contact_whatsapp'] ?? null,
+            'hours' => $data['contact_hours'] ?? null,
+            'note' => $data['contact_note'] ?? null,
+        ]);
+
+        $mail->save([
+            'mail_driver' => $data['mail_driver'],
+            'resend_api_key' => $data['resend_api_key'] ?? null,
+            'mail_from_address' => $data['mail_from_address'] ?? null,
+            'mail_from_name' => $data['mail_from_name'] ?? null,
+        ]);
+
+        PlatformSetting::put('marketing.ga_measurement_id', trim((string) ($data['ga_measurement_id'] ?? '')) ?: null, 'marketing');
+        PlatformSetting::put('marketing.meta_pixel_id', trim((string) ($data['meta_pixel_id'] ?? '')) ?: null, 'marketing');
+
+        $currency->save(
+            strtoupper($data['currency_base']),
+            $data['fx_rates'] ?? [],
+            $data['fx_rounding'] ?? []
+        );
+
+        Artisan::call('config:clear');
+
+        return back()->with('success', 'Configuración de General guardada.');
+    }
+
+    public function fetchCurrencyRates(Request $request, CurrencyService $currency)
+    {
+        $data = $request->validate([
+            'base' => ['nullable', 'string', 'size:3'],
+            'persist' => ['nullable', 'boolean'],
+        ]);
+
+        $base = strtoupper($data['base'] ?? $currency->base());
+        $result = $currency->fetchFromPublicApi($base);
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $result['error'] ?? 'No se pudieron obtener tasas',
+            ], 422);
+        }
+
+        if ($request->boolean('persist')) {
+            $currency->save($base, $result['rates'] ?? [], $currency->roundingMap());
+        }
+
+        return response()->json([
+            'success' => true,
+            'base' => $result['base'],
+            'rates' => $result['rates'],
+            'source' => $result['source'] ?? null,
+            'date' => $result['date'] ?? null,
+            'persisted' => $request->boolean('persist'),
+            'message' => 'Tasas actualizadas desde '.($result['source'] ?? 'API').
+                ($result['date'] ?? null ? ' ('.$result['date'].')' : ''),
+        ]);
+    }
+
+    public function authorizeCj(Request $request, CjConnector $cj)
+    {
+        $apiKey = $this->resolveCjApiKey($request);
+        if (empty($apiKey)) {
+            return back()->with('error', 'Ingresa la API Key de CJ Dropshipping.');
+        }
+
+        Cache::forget('cj.access_token');
+        $result = $cj->authorizeWithApiKey($apiKey);
+
+        if (! ($result['success'] ?? false)) {
+            return back()->with('error', 'CJ: '.($result['error'] ?? 'No se pudo autorizar.'));
+        }
+
+        $this->syncCursorMcpQuietly();
+
+        return back()->with('success', 'API Key de CJ agregada y autorizada. MCP listo para sincronizar.');
+    }
+
+    public function testCj(Request $request, CjConnector $cj)
+    {
+        $hasKey = PlatformSetting::getValue('cj.api_key') || config('cj.api_key');
+        $apiKey = $this->resolveCjApiKey($request);
+        if (empty($apiKey) && empty($hasKey)) {
+            return $this->testJson($request, false, 'Primero guarda una API Key de CJ.');
+        }
+        config(['cj.api_key' => $apiKey ?: PlatformSetting::getValue('cj.api_key', config('cj.api_key'))]);
+
+        Cache::forget('cj.access_token');
+        $result = $cj->testApi(config('cj.api_key'));
+
+        PlatformSetting::put('cj.last_test_at', now()->toIso8601String(), 'cj');
+        PlatformSetting::put('cj.last_test_ok', ($result['success'] ?? false) ? '1' : '0', 'cj');
+        PlatformSetting::put(
+            'cj.last_test_message',
+            ($result['success'] ?? false)
+                ? ($result['message'] ?? 'OK')
+                : ($result['error'] ?? 'Falló'),
+            'cj'
+        );
+
+        if (! ($result['success'] ?? false)) {
+            return $this->testJson($request, false, 'Prueba CJ falló: '.($result['error'] ?? 'Error desconocido'));
+        }
+
+        $this->syncCursorMcpQuietly();
+
+        $msg = $result['message'] ?? 'API CJ OK.';
+        if (! empty($result['mcp_url'])) {
+            $msg .= ' MCP remoto sincronizado en .cursor/mcp.json.';
+        }
+
+        return $this->testJson($request, true, $msg);
+    }
+
+    public function testApi(Request $request)
+    {
+        $data = $request->validate([
+            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile'])],
+        ]);
+
+        $ok = false;
+        $message = 'Sin respuesta';
+        $engines = [];
+
+        try {
+            switch ($data['provider']) {
+                case 'miia':
+                    $key = PlatformSetting::getValue('ai.miia.api_key', config('ai.providers.miia.api_key'));
+                    $base = rtrim((string) (PlatformSetting::getValue('ai.miia.base_url') ?: config('ai.providers.miia.base_url') ?: 'https://ia.ceballosleon.com'), '/');
+                    if (! $key) {
+                        return $this->testJson($request, false, 'Guarda primero la API Key de MIIA.');
+                    }
+                    $res = \Illuminate\Support\Facades\Http::withToken($key)->timeout(12)->get($base.'/v1/models');
+                    $ok = $res->successful();
+                    $router = app(AiTaskRouter::class);
+                    $engines = $ok ? $router->listEngines(true) : [];
+                    $imageCount = count($router->enginesForKind('image', $engines));
+                    $message = $ok
+                        ? ('MIIA OK · '.count($engines).' motores ('.$imageCount.' imagen)')
+                        : ('HTTP '.$res->status());
+                    if ($ok) {
+                        $imgProbe = \Illuminate\Support\Facades\Http::withToken($key)
+                            ->timeout(15)
+                            ->acceptJson()
+                            ->post($base.'/v1/images/generations', [
+                                'model' => 'gpt-image-1.5',
+                                'prompt' => '',
+                            ]);
+                        $imgBody = $imgProbe->json();
+                        $imgErr = is_array($imgBody)
+                            ? (string) ($imgBody['error']['message'] ?? $imgBody['message'] ?? $imgBody['error'] ?? '')
+                            : $imgProbe->body();
+                        $explained = \App\Domain\AI\OpenAiComboImageService::explainImagePermissionError($imgErr);
+                        if ($explained !== $imgErr) {
+                            $message .= ' · ⚠ '.$explained;
+                        } elseif ($imgProbe->status() === 422 || $imgProbe->successful()) {
+                            $message .= ' · imágenes habilitadas en esta key';
+                        }
+                    }
+                    break;
+                case 'stripe':
+                    $key = PlatformSetting::getValue('payments.stripe.secret', config('services.stripe.secret'));
+                    if (! $key) {
+                        return $this->testJson($request, false, 'Guarda primero el secret de Stripe.');
+                    }
+                    $res = \Illuminate\Support\Facades\Http::withBasicAuth($key, '')->timeout(12)->get('https://api.stripe.com/v1/balance');
+                    $ok = $res->successful();
+                    $message = $ok ? 'Stripe OK (balance)' : ('HTTP '.$res->status());
+                    break;
+                case 'paypal':
+                    $id = PlatformSetting::getValue('payments.paypal.client_id');
+                    $secret = PlatformSetting::getValue('payments.paypal.client_secret');
+                    $mode = PlatformSetting::getValue('payments.paypal.mode', 'sandbox');
+                    if (! $id || ! $secret) {
+                        return $this->testJson($request, false, 'Guarda Client ID y Secret de PayPal.');
+                    }
+                    $simulate = $request->boolean('simulate')
+                        || app()->environment('local')
+                        || ! filter_var(config('app.url'), FILTER_VALIDATE_URL);
+                    if ($simulate) {
+                        $idLen = strlen((string) $id);
+                        $secretLen = strlen((string) $secret);
+                        $idLooksOk = $idLen >= 20;
+                        $secretLooksOk = $secretLen >= 20;
+                        $ok = $idLooksOk && $secretLooksOk && in_array($mode, ['sandbox', 'live'], true);
+                        if ($ok) {
+                            $message = 'PayPal simulado OK: tus llaves están configuradas correctamente (Client ID '.$idLen.' chars, Secret '.$secretLen.' chars, modo '.$mode.'). Nota: el cobro real con PayPal Orders API aún no está implementado en esta iteración.';
+                        } else {
+                            $message = 'PayPal simulado falló: revisa formato de llaves o modo (sandbox/live).';
+                        }
+                        break;
+                    }
+                    $host = $mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+                    $res = \Illuminate\Support\Facades\Http::asForm()
+                        ->withBasicAuth($id, $secret)
+                        ->timeout(12)
+                        ->post($host.'/v1/oauth2/token', ['grant_type' => 'client_credentials']);
+                    $ok = $res->successful() && $res->json('access_token');
+                    $message = $ok ? 'PayPal OK (token)' : ('HTTP '.$res->status());
+                    break;
+                case 'mercadopago':
+                    $token = PlatformSetting::getValue('payments.mercadopago.access_token');
+                    if (! $token) {
+                        return $this->testJson($request, false, 'Guarda el Access Token de Mercado Pago.');
+                    }
+                    $res = \Illuminate\Support\Facades\Http::withToken($token)->timeout(12)->get('https://api.mercadopago.com/users/me');
+                    $ok = $res->successful();
+                    $message = $ok ? 'Mercado Pago OK' : ('HTTP '.$res->status());
+                    break;
+                case 'resend':
+                    $key = PlatformSetting::getValue('platform.mail.resend_api_key', config('services.resend.key'));
+                    if (! $key) {
+                        return $this->testJson($request, false, 'Guarda primero la API Key de Resend.');
+                    }
+                    $res = \Illuminate\Support\Facades\Http::withToken($key)->timeout(12)->get('https://api.resend.com/domains');
+                    $ok = $res->successful();
+                    $message = $ok ? 'Resend OK (domains)' : ('HTTP '.$res->status());
+                    break;
+                case 'turnstile':
+                    $site = PlatformSetting::getValue('cloudflare.turnstile.site_key');
+                    $secret = PlatformSetting::getValue('cloudflare.turnstile.secret_key');
+                    $ok = (bool) $site && (bool) $secret;
+                    $message = $ok ? 'Turnstile: site y secret guardados' : 'Falta site key o secret';
+                    break;
+            }
+        } catch (\Throwable $e) {
+            return $this->testJson($request, false, 'Prueba falló: '.$e->getMessage());
+        }
+
+        $extra = [];
+        if (($data['provider'] ?? '') === 'miia' && ! empty($engines)) {
+            $extra['engines'] = $engines;
+        }
+
+        return $this->testJson($request, $ok, $ok ? $message : 'Prueba falló: '.$message, $extra);
+    }
+
+    public function aiEngines(Request $request, AiTaskRouter $router)
+    {
+        $engines = $router->listEngines($request->boolean('fresh'));
+
+        return response()->json([
+            'success' => $engines !== [],
+            'engines' => $engines,
+            'engines_chat' => $router->enginesForKind('chat', $engines),
+            'engines_image' => $router->enginesForKind('image', $engines),
+        ]);
+    }
+
+    /**
+     * @param  list<array{id: string, label: string, kind: string}>  $engines
+     * @return list<array{key: string, label: string, hint: string, kind: string, engine: string}>
+     */
+    protected function aiTasksForView(AiTaskRouter $router, array $engines): array
+    {
+        $saved = $router->savedEngines();
+        $old = old('ai_task_engines', []);
+        $rows = [];
+        foreach ($router->tasks() as $key => $meta) {
+            $kind = (string) ($meta['kind'] ?? 'chat');
+            $kindIds = array_values(array_filter(array_map(
+                function ($row) use ($kind) {
+                    if (! is_array($row) || empty($row['id'])) {
+                        return '';
+                    }
+                    $id = (string) $row['id'];
+                    $rowKind = (($row['kind'] ?? '') === 'image' || AiTaskRouter::looksLikeImageEngine($id)) ? 'image' : 'chat';
+
+                    return $rowKind === $kind ? $id : '';
+                },
+                $engines
+            )));
+            $raw = is_array($old) && isset($old[$key]) && trim((string) $old[$key]) !== ''
+                ? trim((string) $old[$key])
+                : (string) ($saved[$key] ?? $router->defaultEngineFor($key, $kindIds));
+            $rows[] = [
+                'key' => $key,
+                'label' => (string) ($meta['label'] ?? $key),
+                'hint' => (string) ($meta['hint'] ?? ''),
+                'kind' => $kind,
+                'engine' => $router->sanitizeEngineForTask($key, $raw),
+            ];
+        }
+
+        return $rows;
+    }
+
+    protected function testJson(Request $request, bool $ok, string $message, array $extra = [])
+    {
+        $payload = array_merge([
+            'ok' => $ok,
+            'success' => $ok,
+            'message' => $message,
+        ], $extra);
+
+        if ($request->expectsJson() || $request->ajax()) {
+            return response()->json($payload);
+        }
+
+        return $ok
+            ? back()->with('success', $message)
+            : back()->with('error', $message);
+    }
+
+    protected function resolveCjApiKey(Request $request): ?string
+    {
+        $apiKey = $request->input('cj_api_key');
+        if (is_string($apiKey) && $apiKey !== '' && $apiKey !== '********') {
+            PlatformSetting::put('cj.api_key', $apiKey, 'cj', true);
+            config(['cj.api_key' => $apiKey]);
+
+            return $apiKey;
+        }
+
+        $stored = PlatformSetting::getValue('cj.api_key', config('cj.api_key'));
+        config(['cj.api_key' => $stored]);
+
+        return $stored ?: null;
+    }
+
+    protected function syncCursorMcpQuietly(): void
+    {
+        try {
+            Artisan::call('cj:sync-cursor-mcp');
+        } catch (\Throwable) {
+            // opcional: el admin puede correr el comando a mano
+        }
+    }
+
+    protected function maskMcpUrl(?string $url): ?string
+    {
+        if (! $url) {
+            return null;
+        }
+
+        $parts = explode('/', $url);
+        $token = array_pop($parts);
+        if (! $token || strlen($token) < 12) {
+            return $url;
+        }
+
+        $masked = substr($token, 0, 6).str_repeat('*', max(8, strlen($token) - 10)).substr($token, -4);
+
+        return implode('/', $parts).'/'.$masked;
+    }
+
+    protected function putSecretIfPresent(string $key, ?string $value, string $group = 'payments'): void
+    {
+        if ($value === null || $value === '' || $value === '********') {
+            return;
+        }
+
+        PlatformSetting::put($key, $value, $group, true);
+    }
+}

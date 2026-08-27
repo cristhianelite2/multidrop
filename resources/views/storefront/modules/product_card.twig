@@ -1,0 +1,21 @@
+<article class="md-card" data-product-id="{{ product.id }}">
+  <a href="{{ product.url|default('#') }}">
+    <div class="md-card__media">
+      {% if product.image %}
+        <img src="{{ product.image }}" alt="{{ product.name|default('') }}" loading="lazy">
+      {% endif %}
+      {% if product.badge %}
+        <span class="md-card__badge md-tag md-tag--sm">{{ product.badge }}</span>
+      {% endif %}
+    </div>
+  </a>
+  <div class="md-card__body meta">
+    <h3 class="md-card__title md-card__name"><a href="{{ product.url|default('#') }}">{{ product.name|default('Producto') }}</a></h3>
+    <div class="md-card__foot">
+      <span class="md-card__price price">{% include 'price_block.twig' %}</span>
+      {% if product.id %}
+        <button type="button" class="md-add" data-md-add-to-cart data-product-id="{{ product.id }}" data-id="{{ product.id }}" aria-label="Agregar">+</button>
+      {% endif %}
+    </div>
+  </div>
+</article>

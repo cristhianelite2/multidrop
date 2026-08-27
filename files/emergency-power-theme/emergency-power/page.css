@@ -1,0 +1,35 @@
+/* ========================================================================
+   page.css — generic content page only (about, contact, FAQ, etc.)
+   ======================================================================== */
+
+.md-page-hero{ padding: 48px 0 32px; border-bottom: 1px solid var(--md-line); }
+
+.md-prose{ max-width: 72ch; padding: 40px 0 72px; font-size: 16px; line-height: 1.7; color: var(--md-paper); }
+.md-prose h2{
+  font-family: var(--md-font-display); text-transform: uppercase; font-weight: 700;
+  font-size: 26px; margin: 36px 0 12px;
+}
+.md-prose h2:first-child{ margin-top: 0; }
+.md-prose h3{ font-family: var(--md-font-display); text-transform: uppercase; font-weight: 600; font-size: 19px; margin: 28px 0 10px; }
+.md-prose p{ margin: 0 0 16px; color: var(--md-muted); }
+.md-prose a{ color: var(--md-amber); text-decoration: underline; text-underline-offset: 3px; }
+.md-prose ul, .md-prose ol{ margin: 0 0 16px; padding-left: 22px; color: var(--md-muted); }
+.md-prose li{ margin-bottom: 8px; }
+.md-prose img{ margin: 24px 0; border: 1px solid var(--md-line); }
+.md-prose blockquote{
+  border-left: 2px solid var(--md-amber);
+  margin: 24px 0; padding: 4px 0 4px 18px;
+  color: var(--md-paper); font-style: italic;
+}
+
+/* FAQ accordion (used when a page's content includes .md-faq markup) */
+.md-faq-item{ border-bottom: 1px solid var(--md-line); }
+.md-faq-item summary{
+  cursor: pointer; list-style: none; padding: 18px 0;
+  font-family: var(--md-font-display); text-transform: uppercase; font-weight: 600; font-size: 16px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.md-faq-item summary::-webkit-details-marker{ display: none; }
+.md-faq-item summary::after{ content: '+'; color: var(--md-amber); font-family: var(--md-font-mono); }
+.md-faq-item[open] summary::after{ content: '–'; }
+.md-faq-item p{ padding: 0 0 18px; color: var(--md-muted); }

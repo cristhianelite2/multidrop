@@ -1,0 +1,35 @@
+<section class="md-hero md-mod-hero" data-md-star-product>
+  <div class="md-wrap md-hero__grid">
+    <div class="md-hero__copy">
+      <p class="md-eyebrow">Producto estrella</p>
+      <h1>{{ star.name|default(store.name|default('Producto estrella')) }}</h1>
+      {% if star.price_formatted %}
+        <div class="md-price-row md-hero__price">
+          {% if star.on_sale and star.compare_at_formatted %}
+            <s class="md-price-was">{{ star.compare_at_formatted }}</s>
+          {% endif %}
+          <span class="md-price">{{ star.price_formatted }}</span>
+          {% if star.on_sale and star.save_percent %}
+            <span class="md-price-save">−{{ star.save_percent }}%</span>
+          {% endif %}
+        </div>
+      {% endif %}
+      {% if star.description_short or star.summary %}
+        <p class="md-lede">{{ star.description_short|default(star.summary) }}</p>
+      {% endif %}
+      <div class="md-hero__ctas">
+        {% if star.id %}
+          <button type="button" class="md-btn md-btn--primary" data-md-add-to-cart data-product-id="{{ star.id }}" data-id="{{ star.id }}">Agregar al carrito</button>
+        {% endif %}
+        {% if star.url %}
+          <a class="md-btn md-btn--ghost" href="{{ star.url }}">Ver producto</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="md-niche">
+      {% if hero_image %}
+        <img class="md-hero__img" src="{{ hero_image }}" alt="{{ star.name|default('') }}">
+      {% endif %}
+    </div>
+  </div>
+</section>

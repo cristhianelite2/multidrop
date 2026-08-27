@@ -1,0 +1,29 @@
+<section class="md-cart-page md-mod-cart" data-md-cart-root>
+  <div class="md-wrap">
+    <h1>Carrito</h1>
+    {% set items = cart.items|default([]) %}
+    <div class="md-cart-empty md-empty" data-md-cart-empty{% if items %} hidden{% endif %}>
+      <h3>{{ i18n.cart.empty|default('Tu carrito está vacío.') }}</h3>
+      <a class="md-btn md-btn--primary" href="{{ urls.catalog|default('#') }}">Ver catálogo</a>
+    </div>
+    <div data-md-cart class="md-cart md-cart-layout{% if not items %} md-hide md-hidden{% endif %}">
+      <div data-md-cart-items class="md-cart-items">
+        {% for item in items %}
+          <div class="md-cart-line md-cart-row" data-cart-line data-cart-row="{{ item.product_id|default(item.id) }}" data-md-cart-row="{{ item.product_id|default(item.id) }}" data-product-id="{{ item.product_id|default(item.id) }}">
+            {% if item.image %}<img src="{{ item.image }}" alt="" width="74" height="74">{% endif %}
+            <div>
+              <strong class="md-cart-row__name">{{ item.name|default('Producto') }}</strong>
+              <div class="md-cart-line__meta md-cart-row__price">{{ i18n.cart.qty|default('Cant.') }} {{ item.qty|default(1) }} · {{ item.price_formatted|default('') }}</div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <aside data-md-cart-summary class="md-summary">
+        <h3>{{ i18n.cart.summary|default('Resumen') }}</h3>
+        <div class="md-summary__line"><span>{{ i18n.cart.subtotal|default('Subtotal') }}</span><span data-md-cart-subtotal>{{ cart.totals.subtotal_formatted|default(cart.totals.subtotal|default('')) }}</span></div>
+        <div class="md-summary__line md-summary__line--total"><span>{{ i18n.cart.total|default('Total') }}</span><strong data-md-cart-total>{{ cart.totals.total_formatted|default(cart.totals.total|default('')) }}</strong></div>
+        <a class="md-btn md-btn--primary md-btn--wide" href="{{ urls.checkout|default('#') }}" data-md-cart-checkout>{{ i18n.cart.checkout|default('Ir al checkout') }}</a>
+      </aside>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{store.name}} — Product</title>
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="product.css">
+</head>
+<body>
+
+<header class="md-header">
+  <div class="md-container md-header__inner">
+    <a class="md-logo" href="{{urls.home}}">
+      <img class="md-logo__mark" src="assets/logo.svg" alt="">
+      {{store.name}}
+    </a>
+    <nav class="md-nav">
+      <a href="{{urls.home}}">Home</a>
+      <a href="{{urls.catalog}}">Shop</a>
+      <a href="/s/{{store.slug}}/pages/about">About</a>
+      <a href="/s/{{store.slug}}/pages/faq">FAQ</a>
+    </nav>
+    <div class="md-header__actions">
+      <div class="md-locale-currency" data-md-locale-currency>
+        <select data-md-locale-select aria-label="Language"></select>
+        <select data-md-currency-select aria-label="Currency"></select>
+      </div>
+      <a class="md-cart-link" href="{{urls.cart}}">
+        Cart <span class="md-cart-count" data-md-cart-count>0</span>
+      </a>
+      <button type="button" class="md-burger" data-md-nav-toggle aria-label="Open menu" aria-expanded="false">☰</button>
+    </div>
+  </div>
+  <nav class="md-mobile-nav" data-md-nav-panel>
+    <a href="{{urls.home}}">Home</a>
+    <a href="{{urls.catalog}}">Shop</a>
+    <a href="/s/{{store.slug}}/pages/about">About</a>
+    <a href="/s/{{store.slug}}/pages/faq">FAQ</a>
+  </nav>
+</header>
+
+<main>
+  <div class="md-container" data-md-product>
+
+    <nav class="md-breadcrumb">
+      <a href="{{urls.home}}">Home</a> /
+      <a href="{{urls.catalog}}">Shop</a> /
+      <span data-md-bind="name">Product name</span>
+    </nav>
+
+    <div class="md-product__grid">
+
+      <div class="md-product__gallery">
+        <div class="md-media-carousel" data-md-media-carousel>
+          <div class="md-product__main-media md-bracket md-media-carousel__stage">
+            <img data-md-bind="image" data-md-gallery-main alt="">
+          </div>
+          <div class="md-product__thumbs md-media-carousel__thumbs" data-md-gallery data-md-gallery-thumbs></div>
+        </div>
+        <div class="md-video-carousel" data-md-video-carousel hidden>
+          <div class="md-video-carousel__head">Videos</div>
+          <div class="md-video-carousel__stage">
+            <video data-md-video-player controls playsinline preload="metadata"></video>
+          </div>
+          <div class="md-video-carousel__thumbs" data-md-video-thumbs></div>
+        </div>
+      </div>
+
+      <div class="md-product__info">
+        <span class="md-card__badge" data-md-bind="badge"></span>
+        <h1 class="md-h2" data-md-bind="name">Product name</h1>
+        <div class="md-product__price-row md-price-row">
+          <s class="md-price-was md-hide" data-md-bind="compare_at_formatted"></s>
+          <span class="md-price" data-md-bind="price_formatted">$0.00</span>
+          <span class="md-price-save md-hide" data-md-bind="save_percent"></span>
+        </div>
+        <p class="md-lede" data-md-bind="description">Product description goes here.</p>
+
+        <div class="md-product__specs">
+          <div class="md-spec">
+            <span class="md-spec__label">Capacity</span>
+            <span class="md-spec__value" data-md-bind="capacity_wh"></span>
+          </div>
+          <div class="md-spec">
+            <span class="md-spec__label">Output</span>
+            <span class="md-spec__value" data-md-bind="output_w"></span>
+          </div>
+          <div class="md-spec">
+            <span class="md-spec__label">Recharge</span>
+            <span class="md-spec__value" data-md-bind="recharge_time"></span>
+          </div>
+        </div>
+
+        <div class="md-product__buy">
+          <div class="md-qty-stepper">
+            <button type="button" data-md-qty-decr aria-label="Decrease quantity">–</button>
+            <input type="number" min="1" value="1" data-md-qty aria-label="Quantity">
+            <button type="button" data-md-qty-incr aria-label="Increase quantity">+</button>
+          </div>
+          <button type="button" class="md-btn md-btn--primary md-btn--block" data-md-add-to-cart>
+            Add to cart
+          </button>
+        </div>
+
+        <ul class="md-product__trust">
+          <li><img src="assets/icon-shield.svg" alt=""> 2-year warranty on cells &amp; electronics</li>
+          <li><img src="assets/icon-truck.svg" alt=""> Ships within 24 hours</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <section class="md-related">
+    <div class="md-container">
+      <div class="md-section-head">
+        <div>
+          <p class="md-eyebrow">Pairs well</p>
+          <h2 class="md-h3">You may also like</h2>
+        </div>
+      </div>
+      <div data-md-products data-md-limit="4"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="md-footer">
+  <div class="md-container">
+    <div class="md-footer__grid">
+      <div class="md-footer__col">
+        <div class="md-logo" style="margin-bottom:12px;"><img class="md-logo__mark" src="assets/logo.svg" alt=""> {{store.name}}</div>
+        <p class="text-muted" style="font-size:14px;max-width:32ch;">Backup power gear for storms, outages, and everything the grid can't guarantee.</p>
+      </div>
+      <div class="md-footer__col">
+        <h4>Shop</h4>
+        <a href="{{urls.catalog}}">All products</a>
+        <a href="{{urls.cart}}">Cart</a>
+      </div>
+      <div class="md-footer__col">
+        <h4>Support</h4>
+        <a href="/s/{{store.slug}}/pages/faq">FAQ</a>
+        <a href="/s/{{store.slug}}/pages/shipping">Shipping &amp; returns</a>
+      </div>
+      <div class="md-footer__col">
+        <h4>Company</h4>
+        <a href="/s/{{store.slug}}/pages/about">About</a>
+        <a href="/s/{{store.slug}}/pages/contact">Contact</a>
+      </div>
+    </div>
+    <div class="md-footer__bottom">
+      <span>© <span data-year></span> {{store.name}}. All rights reserved.</span>
+      <span>{{products.count}} products in stock</span>
+    </div>
+  </div>
+</footer>
+
+<script src="theme.js"></script>
+<script src="product.js"></script>
+</body>
+</html>

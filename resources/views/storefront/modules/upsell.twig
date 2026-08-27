@@ -1,0 +1,22 @@
+<div data-md-module="upsell" class="md-mod-upsell" id="md-upsell-demo">
+  <div class="md-mod-upsell-head">
+    <strong>{{ i18n.upsell.headline|default('Completa tu pedido') }}</strong>
+    <button type="button" id="md-upsell-close" class="md-mod-close" aria-label="{{ i18n.upsell.close|default('Cerrar') }}">×</button>
+  </div>
+  <div class="md-mod-upsell-body" id="md-upsell-body">
+    <p id="md-upsell-copy">{{ upsell.copy|default(i18n.upsell.copy_generic|default('')) }}</p>
+    {% set offer = upsell.offer_product|default(null) %}
+    <div class="md-mod-upsell-product" id="md-upsell-product"{% if not offer %} hidden{% endif %}>
+      <img id="md-upsell-img" alt="" width="48" height="48" loading="lazy"{% if offer.image %} src="{{ offer.image }}"{% endif %}>
+      <div>
+        <div id="md-upsell-name" class="md-mod-upsell-name">{{ offer.name|default('') }}</div>
+        <div class="md-mod-upsell-prices">
+          <s id="md-upsell-was">{{ offer.price_formatted|default('') }}</s>
+          <strong id="md-upsell-now">{{ offer.sale_price_formatted|default('') }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+  <button type="button" id="md-upsell-accept" class="md-btn" data-md-upsell-accept>{{ i18n.upsell.cta|default('Agregar combo') }}</button>
+  <p id="md-upsell-msg" class="md-mod-upsell-msg" hidden></p>
+</div>

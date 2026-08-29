@@ -376,15 +376,48 @@ class LabController extends Controller
         return $this->huntAliExpressPayload($fetched['product'], $storeContext, $matcher);
     }
 
-    public function pluginCapture(Request $request, AliExpressProductFetcher $fetcher, CjProductMatcher $matcher)
+    public function pluginBootstrap(Request $request)
     {
         if ($request->isMethod('OPTIONS')) {
             return response('', 204)->withHeaders($this->pluginCorsHeaders());
         }
 
-        $expected = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
-        $token = (string) $request->input('token', $request->header('X-Multidrop-Token', ''));
-        if ($expected === '' || ! hash_equals($expected, $token)) {
+        if (! $this->pluginTokenValid($request)) {
+            return response()->json(['success' => false, 'error' => 'Token del plugin inválido. Cópialo de Product Hunter.'], 401)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $stores = \App\Models\Store::query()
+            ->with('market:id,code,name')
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug', 'market_id', 'status'])
+            ->map(fn (\App\Models\Store $s) => [
+                'id' => $s->id,
+                'name' => $s->name,
+                'slug' => $s->slug,
+                'status' => $s->status,
+                'market' => $s->market?->code,
+            ])
+            ->values()
+            ->all();
+
+        return response()->json([
+            'success' => true,
+            'stores' => $stores,
+        ])->withHeaders($this->pluginCorsHeaders());
+    }
+
+    public function pluginCapture(
+        Request $request,
+        AliExpressProductFetcher $fetcher,
+        AliExpressProductSyncService $sync,
+        CjProductMatcher $matcher
+    ) {
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        if (! $this->pluginTokenValid($request)) {
             return response()->json(['success' => false, 'error' => 'Token del plugin inválido. Cópialo de Product Hunter.'], 401)
                 ->withHeaders($this->pluginCorsHeaders());
         }
@@ -408,34 +441,68 @@ class LabController extends Controller
         }
 
         $ae = $fetched['product'];
-        $country = 'MX';
-        $firstStore = \App\Models\Store::query()->orderBy('id')->first();
-        $code = strtoupper((string) ($firstStore?->market?->code ?? 'MX'));
-        $country = $code === 'UK' ? 'GB' : ($code !== '' ? $code : 'MX');
+        $storeId = (int) $request->input('store_id', 0);
+        $store = $storeId > 0
+            ? \App\Models\Store::query()->find($storeId)
+            : \App\Models\Store::query()->orderBy('id')->first();
+
+        if (! $store) {
+            return response()->json([
+                'success' => false,
+                'error' => 'No hay tienda disponible. Crea una en Multidrop o elige tienda en el popup.',
+            ], 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $out = $sync->syncToStore($store, $ae);
+        if (! ($out['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $out['error'] ?? 'No se pudo guardar el borrador',
+            ], 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        /** @var Product $product */
+        $product = $out['product'];
+        $created = (bool) ($out['created'] ?? false);
+
+        // Cache opcional por si el panel quiere abrir el hunter después
+        $id = (string) Str::uuid();
         $matches = [];
         $matchError = null;
         try {
+            $country = strtoupper((string) ($store->market?->code ?? 'MX'));
+            if ($country === 'UK') {
+                $country = 'GB';
+            }
             $matches = $matcher->match($ae, $country);
         } catch (\Throwable $e) {
             $matchError = $e->getMessage();
         }
-
-        $id = (string) Str::uuid();
         \Illuminate\Support\Facades\Cache::put('ae_plugin_capture_'.$id, [
             'success' => true,
             'source' => 'aliexpress',
             'aliexpress' => $ae,
             'matches' => $matches,
             'match_error' => $matchError,
+            'product_id' => $product->id,
+            'store_id' => $store->id,
         ], now()->addMinutes(20));
 
-        $open = url('/admin/lab/cj?capture='.$id);
+        $msg = $created
+            ? 'Producto enviado a borrador en «'.$store->name.'».'
+            : 'Borrador actualizado en «'.$store->name.'».';
 
         return response()->json([
             'success' => true,
+            'drafted' => true,
+            'created' => $created,
             'capture_id' => $id,
-            'open_url' => $open,
-            'title' => $ae['title'] ?? '',
+            'product_id' => $product->id,
+            'store_id' => $store->id,
+            'store_name' => $store->name,
+            'edit_url' => route('admin.store.products.edit', $product),
+            'title' => $ae['title'] ?? $product->name,
+            'message' => $msg,
         ])->withHeaders($this->pluginCorsHeaders());
     }
 
@@ -482,6 +549,7 @@ class LabController extends Controller
         $configJs = 'window.MULTIDROP_DEFAULTS = '.json_encode([
             'origin' => $origin,
             'capture_path' => '/admin/lab/cj/plugin-capture',
+            'bootstrap_path' => '/admin/lab/cj/plugin-bootstrap',
             'hunter_path' => '/admin/lab/cj',
         ], JSON_UNESCAPED_SLASHES).";\n";
         $zip->addFromString('config.js', $configJs);
@@ -568,6 +636,14 @@ class LabController extends Controller
             'Access-Control-Allow-Headers' => 'Content-Type, X-Multidrop-Token, Accept',
             'Access-Control-Max-Age' => '86400',
         ];
+    }
+
+    protected function pluginTokenValid(Request $request): bool
+    {
+        $expected = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
+        $token = (string) $request->input('token', $request->header('X-Multidrop-Token', ''));
+
+        return $expected !== '' && hash_equals($expected, $token);
     }
 
     protected function ensurePluginToken(): string

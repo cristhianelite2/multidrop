@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Multidrop AliExpress Hunter",
-  "version": "1.0.1",
-  "description": "Captura la ficha de AliExpress (HTML + descripción + datos JS) y la envía a Product Hunter.",
+  "version": "1.0.2",
+  "description": "Captura la ficha de AliExpress y la guarda como borrador en la tienda elegida de Multidrop.",
   "action": {
     "default_title": "Multidrop Hunter",
     "default_popup": "popup.html",

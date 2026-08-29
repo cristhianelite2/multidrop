@@ -295,6 +295,8 @@ window.MultidropAdmin = {
             if ($form.hasClass('hidden') || $form.closest('.hidden, [id*="modal"], .fixed, [data-switcher-menu]').length) return;
             if ($form.closest('[data-tab-panel]').length) return;
             if ($form.parents('form').length) return;
+            // Formularios cortos (perfil, etc.): el botón se queda en la tarjeta
+            if (($form.outerHeight() || 0) < 320) return;
 
             const $actions = findActionGroup($form);
             if (!$actions || !$actions.length) return;

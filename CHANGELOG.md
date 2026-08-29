@@ -10,6 +10,10 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - URL de origen canónica `/item/{id}.html` (ignora trackers tipo Criteo).
 - Descripción en texto plano con espacios colapsados al importar y al guardar.
 - UI: colapsar/expandir detalles, descripción y reseñas; miniaturas de variantes con `referrerpolicy`.
+- Extensión 1.0.2: valida token, selector de tienda, captura directa a borrador (sin abrir Hunter).
+
+### Admin
+- Perfil: botones Guardar/Contraseña dentro de la tarjeta (sin barra fija).
 
 ### Catálogo admin
 - Origen AE vs CJ en listado y ficha; reseñas/detalles/rating editables.

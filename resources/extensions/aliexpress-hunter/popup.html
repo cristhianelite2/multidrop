@@ -7,23 +7,42 @@
     body { font: 13px/1.4 system-ui, sans-serif; margin: 0; padding: 12px; width: 320px; color: #134e4a; }
     h1 { font-size: 14px; margin: 0 0 8px; }
     label { display: block; font-weight: 600; margin: 8px 0 4px; }
-    input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #99f6e4; border-radius: 8px; }
+    input, select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #99f6e4; border-radius: 8px; background: #fff; }
     button { margin-top: 10px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: #0f766e; color: #fff; font-weight: 600; cursor: pointer; }
     button.secondary { background: #115e59; margin-top: 6px; }
-    p { margin: 8px 0 0; font-size: 11px; color: #5b7c79; }
-    #status { min-height: 1.2em; }
+    button.linkish { background: transparent; color: #0f766e; margin-top: 4px; padding: 4px; font-weight: 500; text-decoration: underline; }
+    button:disabled { opacity: .55; cursor: wait; }
+    #status { min-height: 1.2em; margin: 8px 0 0; font-size: 12px; color: #0f766e; }
+    #status.is-error { color: #b91c1c; }
+    #status.is-ok { color: #0f766e; font-weight: 600; }
+    .hint { margin: 6px 0 0; font-size: 11px; color: #5b7c79; }
+    .hidden { display: none !important; }
+    #store-meta { margin: 4px 0 0; font-size: 11px; color: #5b7c79; }
   </style>
 </head>
 <body>
   <h1>Multidrop · AliExpress</h1>
-  <label for="origin">URL de Product Hunter (origen)</label>
-  <input id="origin" placeholder="http://127.0.0.1:8003" autocomplete="off">
-  <label for="token">Token del plugin</label>
-  <input id="token" placeholder="pégalo desde Product Hunter" autocomplete="off">
-  <button type="button" id="save">Guardar</button>
-  <button type="button" id="capture" class="secondary">Capturar ficha de esta pestaña</button>
+
+  <div id="setup-block">
+    <label for="origin">URL de Multidrop</label>
+    <input id="origin" placeholder="https://shop.ceballosleon.com" autocomplete="off">
+    <div id="token-wrap">
+      <label for="token">Token del plugin</label>
+      <input id="token" placeholder="pégalo desde Product Hunter" autocomplete="off">
+    </div>
+    <button type="button" id="save">Guardar y validar</button>
+  </div>
+
+  <div id="ready-block" class="hidden">
+    <p class="hint" id="origin-label"></p>
+    <label for="store">Tienda destino (borrador)</label>
+    <select id="store"></select>
+    <p id="store-meta"></p>
+    <button type="button" id="capture" class="secondary">Capturar ficha → borrador</button>
+    <button type="button" id="change-token" class="linkish">Cambiar token</button>
+  </div>
+
   <p id="status"></p>
-  <p>Abre un producto AliExpress (/item/…) y pulsa el botón verde o Capturar. Chrome → Extensiones → Modo desarrollador → Cargar descomprimida.</p>
   <script src="config.js"></script>
   <script src="popup.js"></script>
 </body>

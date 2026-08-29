@@ -82,8 +82,8 @@
                     <p class="font-semibold text-ink">Plugin Chrome</p>
                     <ol class="list-decimal space-y-1 pl-4">
                         <li>Descarga el ZIP e instálalo en <code>chrome://extensions</code> (modo desarrollador → cargar descomprimida).</li>
-                        <li>Copia el token, ábrelo en el popup de la extensión y pulsa Guardar.</li>
-                        <li>En una ficha AliExpress pulsa <strong>Enviar a Product Hunter</strong>.</li>
+                        <li>Copia el token, ábrelo en el popup de la extensión y pulsa <strong>Guardar y validar</strong>.</li>
+                        <li>Elige la tienda destino y en una ficha AliExpress pulsa <strong>Enviar a borrador</strong>.</li>
                     </ol>
                     <p class="break-all">Origen: <code>{{ $pluginOrigin ?? url('/') }}</code></p>
                     <p>Token: <code id="ph-plugin-token" class="select-all">{{ $pluginToken ?? '' }}</code>

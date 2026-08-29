@@ -9,6 +9,7 @@ function defaults() {
   return {
     origin: d.origin || '',
     capture_path: d.capture_path || '/admin/lab/cj/plugin-capture',
+    bootstrap_path: d.bootstrap_path || '/admin/lab/cj/plugin-bootstrap',
     hunter_path: d.hunter_path || '/admin/lab/cj'
   };
 }
@@ -36,7 +37,6 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           function textLen(el) {
             return el ? String(el.innerText || '').replace(/\s+/g, ' ').trim().length : 0;
           }
-          // Forzar carga de la descripción (AE la trae lazy al hacer scroll / click en el ancla)
           try {
             var toc = document.querySelector('a[href="#nav-description"], a.comet-v2-anchor-link[title*="escrip" i]');
             if (toc) {
@@ -126,12 +126,17 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         sendResponse({ ok: false, error: 'No pude leer la página' });
         return;
       }
-      var cfg = await chrome.storage.sync.get(['origin', 'token']);
+      var cfg = await chrome.storage.sync.get(['origin', 'token', 'store_id']);
       var d = defaults();
       var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
       var token = String(cfg.token || '');
+      var storeId = parseInt(msg.store_id != null ? msg.store_id : cfg.store_id, 10) || 0;
       if (!origin || !token) {
         sendResponse({ ok: false, error: 'Configura URL y token en el popup' });
+        return;
+      }
+      if (!storeId) {
+        sendResponse({ ok: false, error: 'Elige una tienda en el popup' });
         return;
       }
       var res = await fetch(origin + d.capture_path, {
@@ -143,6 +148,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         },
         body: JSON.stringify({
           token: token,
+          store_id: storeId,
           url: payload.url,
           html: payload.html,
           snapshot: payload.snapshot || {}
@@ -153,10 +159,15 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         sendResponse({ ok: false, error: json.error || ('HTTP ' + res.status) });
         return;
       }
-      if (json.open_url) {
-        await chrome.tabs.create({ url: json.open_url });
-      }
-      sendResponse({ ok: true, title: json.title || '' });
+      sendResponse({
+        ok: true,
+        drafted: true,
+        title: json.title || '',
+        store_name: json.store_name || '',
+        product_id: json.product_id || null,
+        edit_url: json.edit_url || '',
+        message: json.message || ('Producto enviado a borrador' + (json.store_name ? (' en «' + json.store_name + '»') : ''))
+      });
     } catch (e) {
       sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
     }

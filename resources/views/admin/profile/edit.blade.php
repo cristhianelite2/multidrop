@@ -8,7 +8,7 @@
     <div class="admin-blocks">
         <div class="admin-card p-5 sm:p-6">
             <h2 class="font-display text-lg font-bold text-ink mb-4">Datos</h2>
-            <form method="post" action="{{ route('admin.profile.update') }}" class="space-y-4">
+            <form method="post" action="{{ route('admin.profile.update') }}" class="space-y-4" data-no-fixed-actions>
                 @csrf
                 @method('PUT')
                 <div>
@@ -23,13 +23,15 @@
                     <label for="phone" class="mb-1.5 block text-sm font-medium text-ink-soft">Teléfono</label>
                     <input id="phone" name="phone" value="{{ old('phone', $user->phone) }}" class="admin-input">
                 </div>
-                <button type="submit" class="admin-btn">Guardar perfil</button>
+                <div class="admin-form-actions flex flex-wrap gap-3 pt-1">
+                    <button type="submit" class="admin-btn">Guardar perfil</button>
+                </div>
             </form>
         </div>
 
         <div class="admin-card p-5 sm:p-6">
             <h2 class="font-display text-lg font-bold text-ink mb-4">Contraseña</h2>
-            <form method="post" action="{{ route('admin.profile.password') }}" class="space-y-4">
+            <form method="post" action="{{ route('admin.profile.password') }}" class="space-y-4" data-no-fixed-actions>
                 @csrf
                 @method('PUT')
                 <div>
@@ -44,7 +46,9 @@
                     <label for="password_confirmation" class="mb-1.5 block text-sm font-medium text-ink-soft">Confirmar</label>
                     <input id="password_confirmation" type="password" name="password_confirmation" required class="admin-input">
                 </div>
-                <button type="submit" class="admin-btn">Cambiar contraseña</button>
+                <div class="admin-form-actions flex flex-wrap gap-3 pt-1">
+                    <button type="submit" class="admin-btn">Cambiar contraseña</button>
+                </div>
             </form>
         </div>
         <div class="admin-card p-5 sm:p-6 admin-card-span-2">

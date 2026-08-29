@@ -169,6 +169,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-capture', [LabController::class, 'pluginCapture'])
         ->name('lab.cj.plugin-capture');
+    Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-bootstrap', [LabController::class, 'pluginBootstrap'])
+        ->name('lab.cj.plugin-bootstrap');
 
     Route::middleware(['cloudflare.access', 'auth', 'admin.active', 'admin.store'])->group(function () {
         Route::middleware('permission:admin.access,lab.dashboard')->group(function () {

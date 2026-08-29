@@ -885,7 +885,19 @@
             .md-review__flag .fi { font-size: 1rem; }
         }
         .md-review__photos, .md-comment__photos { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+        .md-review__photos a, .md-comment__photos a { display:block; cursor:zoom-in; border-radius:10px; overflow:hidden; }
         .md-review__photos img, .md-comment__photos img { width:72px; height:72px; object-fit:cover; border-radius:10px; }
+        .md-photo-lightbox { position:fixed; inset:0; z-index:12000; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.78); }
+        .md-photo-lightbox[hidden] { display:none !important; }
+        .md-photo-lightbox__inner { position:relative; max-width:min(960px,100%); max-height:min(90vh,100%); }
+        .md-photo-lightbox__img { display:block; max-width:100%; max-height:min(82vh,900px); margin:0 auto; border-radius:12px; object-fit:contain; background:#0f172a; box-shadow:0 20px 50px rgba(0,0,0,.35); }
+        .md-photo-lightbox__close, .md-photo-lightbox__nav { position:absolute; border:0; cursor:pointer; color:#fff; background:rgba(15,23,42,.72); border-radius:999px; width:40px; height:40px; display:inline-flex; align-items:center; justify-content:center; }
+        .md-photo-lightbox__close { top:-12px; right:-12px; font-size:22px; }
+        .md-photo-lightbox__nav { top:50%; transform:translateY(-50%); font-size:28px; }
+        .md-photo-lightbox__nav[hidden] { display:none !important; }
+        .md-photo-lightbox__prev { left:-8px; }
+        .md-photo-lightbox__next { right:-8px; }
+        .md-photo-lightbox__counter { position:absolute; left:50%; bottom:-28px; transform:translateX(-50%); color:#fff; font-size:12px; opacity:.85; white-space:nowrap; }
         .md-pdp-short, .md-lede { color:#64748b; line-height:1.55; overflow-wrap:anywhere; }
         .md-product__specs[hidden] { display:none !important; }
         .md-pdp-long { line-height:1.65; font-size:.95rem; }
@@ -915,6 +927,7 @@
     @endif
     <style id="md-pdp-social">
         .md-review__photos, .md-comment__photos { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+        .md-review__photos a, .md-comment__photos a { display:block; cursor:zoom-in; border-radius:10px; overflow:hidden; }
         .md-review__photos img, .md-comment__photos img {
             display:block !important;
             width:72px;
@@ -923,6 +936,17 @@
             border-radius:10px;
             background:#e2e8f0;
         }
+        .md-photo-lightbox { position:fixed; inset:0; z-index:12000; display:flex; align-items:center; justify-content:center; padding:16px; background:rgba(15,23,42,.78); }
+        .md-photo-lightbox[hidden] { display:none !important; }
+        .md-photo-lightbox__inner { position:relative; max-width:min(960px,100%); max-height:min(90vh,100%); }
+        .md-photo-lightbox__img { display:block; max-width:100%; max-height:min(82vh,900px); margin:0 auto; border-radius:12px; object-fit:contain; background:#0f172a; }
+        .md-photo-lightbox__close, .md-photo-lightbox__nav { position:absolute; border:0; cursor:pointer; color:#fff; background:rgba(15,23,42,.72); border-radius:999px; width:40px; height:40px; display:inline-flex; align-items:center; justify-content:center; }
+        .md-photo-lightbox__close { top:-12px; right:-12px; font-size:22px; }
+        .md-photo-lightbox__nav { top:50%; transform:translateY(-50%); font-size:28px; }
+        .md-photo-lightbox__nav[hidden] { display:none !important; }
+        .md-photo-lightbox__prev { left:-8px; }
+        .md-photo-lightbox__next { right:-8px; }
+        .md-photo-lightbox__counter { position:absolute; left:50%; bottom:-28px; transform:translateX(-50%); color:#fff; font-size:12px; opacity:.85; }
     </style>
     <style id="md-qty-contrast">
         /* Stepper claro + texto oscuro (legible en temas oscuros y en summary arena) */
@@ -2934,6 +2958,114 @@ function mdHideCheckoutRedirect() {
       return url.indexOf('//') === 0 ? 'https:' + url : url;
     });
   }
+
+  var mdPhotoLightboxState = { urls: [], index: 0 };
+
+  function ensurePhotoLightbox() {
+    var el = document.getElementById('md-photo-lightbox');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'md-photo-lightbox';
+    el.className = 'md-photo-lightbox';
+    el.setAttribute('hidden', '');
+    el.setAttribute('role', 'dialog');
+    el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-label', 'Foto de reseña');
+    el.innerHTML =
+      '<div class="md-photo-lightbox__inner">' +
+        '<button type="button" class="md-photo-lightbox__close" aria-label="Cerrar">&times;</button>' +
+        '<button type="button" class="md-photo-lightbox__nav md-photo-lightbox__prev" aria-label="Anterior" hidden>&lsaquo;</button>' +
+        '<img class="md-photo-lightbox__img" src="" alt="" referrerpolicy="no-referrer">' +
+        '<button type="button" class="md-photo-lightbox__nav md-photo-lightbox__next" aria-label="Siguiente" hidden>&rsaquo;</button>' +
+        '<div class="md-photo-lightbox__counter" hidden></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.addEventListener('click', function (e) {
+      if (e.target === el || e.target.classList.contains('md-photo-lightbox__close')) {
+        closePhotoLightbox();
+      }
+    });
+    el.querySelector('.md-photo-lightbox__prev').addEventListener('click', function (e) {
+      e.stopPropagation();
+      showPhotoLightboxIndex(mdPhotoLightboxState.index - 1);
+    });
+    el.querySelector('.md-photo-lightbox__next').addEventListener('click', function (e) {
+      e.stopPropagation();
+      showPhotoLightboxIndex(mdPhotoLightboxState.index + 1);
+    });
+    return el;
+  }
+
+  function showPhotoLightboxIndex(index) {
+    var urls = mdPhotoLightboxState.urls || [];
+    if (!urls.length) return;
+    if (index < 0) index = urls.length - 1;
+    if (index >= urls.length) index = 0;
+    mdPhotoLightboxState.index = index;
+    var el = ensurePhotoLightbox();
+    var img = el.querySelector('.md-photo-lightbox__img');
+    var prev = el.querySelector('.md-photo-lightbox__prev');
+    var next = el.querySelector('.md-photo-lightbox__next');
+    var counter = el.querySelector('.md-photo-lightbox__counter');
+    img.src = urls[index];
+    img.alt = 'Foto ' + (index + 1);
+    var multi = urls.length > 1;
+    prev.hidden = !multi;
+    next.hidden = !multi;
+    if (multi) {
+      counter.hidden = false;
+      counter.textContent = (index + 1) + ' / ' + urls.length;
+    } else {
+      counter.hidden = true;
+      counter.textContent = '';
+    }
+  }
+
+  function openPhotoLightbox(urls, startIndex) {
+    urls = (Array.isArray(urls) ? urls : []).filter(Boolean);
+    if (!urls.length) return;
+    mdPhotoLightboxState.urls = urls;
+    ensurePhotoLightbox().hidden = false;
+    document.documentElement.style.overflow = 'hidden';
+    showPhotoLightboxIndex(startIndex || 0);
+  }
+
+  function closePhotoLightbox() {
+    var el = document.getElementById('md-photo-lightbox');
+    if (!el) return;
+    el.hidden = true;
+    var img = el.querySelector('.md-photo-lightbox__img');
+    if (img) img.removeAttribute('src');
+    mdPhotoLightboxState = { urls: [], index: 0 };
+    document.documentElement.style.overflow = '';
+  }
+
+  document.addEventListener('click', function (e) {
+    var link = e.target && e.target.closest
+      ? e.target.closest('.md-review__photos a, .md-comment__photos a')
+      : null;
+    if (!link) return;
+    var wrap = link.closest('.md-review__photos, .md-comment__photos');
+    if (!wrap) return;
+    e.preventDefault();
+    var urls = Array.prototype.map.call(wrap.querySelectorAll('a'), function (a) {
+      return a.getAttribute('href') || '';
+    }).filter(Boolean);
+    var start = urls.indexOf(link.getAttribute('href') || '');
+    openPhotoLightbox(urls, start >= 0 ? start : 0);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    var el = document.getElementById('md-photo-lightbox');
+    if (!el || el.hidden) return;
+    if (e.key === 'Escape') {
+      closePhotoLightbox();
+    } else if (e.key === 'ArrowLeft') {
+      showPhotoLightboxIndex(mdPhotoLightboxState.index - 1);
+    } else if (e.key === 'ArrowRight') {
+      showPhotoLightboxIndex(mdPhotoLightboxState.index + 1);
+    }
+  });
 
   function renderSocialList(root, items, kind) {
     if (!root) return;

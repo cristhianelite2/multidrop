@@ -1,8 +1,8 @@
 @extends('layouts.admin')
 
-@section('title', 'CJ Search')
-@section('heading', 'CJ Search')
-@section('subheading', 'Prompt → keywords MIIA → catálogo CJ (listV2)')
+@section('title', 'Product Hunter')
+@section('heading', 'Product Hunter')
+@section('subheading', 'AliExpress o CJ: extrae la ficha, busca coincidencias en CJ y elige qué importar')
 
 @section('content')
     @php
@@ -20,7 +20,7 @@
     @endphp
 
     <div class="admin-card p-5 sm:p-6 mb-5 space-y-4">
-        <h2 class="font-display text-lg font-bold text-ink">Búsqueda</h2>
+        <h2 class="font-display text-lg font-bold text-ink">Product Hunter</h2>
         <div class="flex flex-wrap items-center gap-2 text-sm text-ink-soft">
             <span class="admin-badge bg-mist text-ink-soft">Tienda activa</span>
             <span class="font-semibold text-ink">{{ $store?->name ?? '—' }}</span>
@@ -48,6 +48,59 @@
             <span class="text-xs text-ink-soft/55">Búsqueda catálogo global (MX sin almacén CJ local)</span>
         </div>
 
+        <div class="rounded-xl border border-line bg-mist/30 p-3 sm:p-4 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <label for="cj-crawl-url" class="text-sm font-medium text-ink-soft">URL AliExpress, CJ, PID o SKU</label>
+                <span class="text-[11px] text-ink-soft/50">AliExpress → busca en CJ · CJ → detalle directo</span>
+            </div>
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                <input type="text" id="cj-crawl-url" class="admin-input flex-1"
+                       placeholder="https://es.aliexpress.com/item/10050….html  o  URL/PID de CJ"
+                       autocomplete="off">
+                <button type="button" id="cj-crawl-btn" class="admin-btn shrink-0">
+                    Buscar
+                </button>
+            </div>
+            <p id="cj-crawl-status" class="hidden text-xs text-ink-soft/60"></p>
+        </div>
+
+        <details class="rounded-xl border border-line bg-white p-3 sm:p-4" id="ph-html-box">
+            <summary class="cursor-pointer text-sm font-medium text-ink">Pegar HTML de AliExpress / plugin Chrome</summary>
+            <p class="mt-2 text-xs text-ink-soft/70">
+                Si Cloudflare o el scrape fallan: abre la ficha en el navegador, copia el HTML (o usa el plugin) y pégalo aquí.
+                Extrae título, precio, envío, variantes y reseñas cuando vengan en la página.
+            </p>
+            <div class="mt-3 grid gap-3 lg:grid-cols-2">
+                <div class="space-y-2">
+                    <label class="text-xs font-medium text-ink-soft">HTML o JSON del plugin</label>
+                    <textarea id="ph-html-input" rows="7" class="admin-input font-mono text-xs" placeholder="Pega el HTML de la ficha, o el JSON {url, html, snapshot}"></textarea>
+                    <input type="url" id="ph-html-url" class="admin-input text-sm" placeholder="URL del item (opcional si ya va en el HTML)">
+                    <p class="text-[11px] text-ink-soft/55">Tip: en AliExpress, abre la pestaña <strong>Descripción</strong> (#nav-description) y espera a que cargue el contenido antes de copiar el HTML. El enlace del menú solo no basta.</p>
+                    <button type="button" id="ph-html-btn" class="admin-btn">Parsear HTML</button>
+                </div>
+                <div class="space-y-2 rounded-xl border border-dashed border-line bg-mist/30 p-3 text-xs text-ink-soft/80">
+                    <p class="font-semibold text-ink">Plugin Chrome</p>
+                    <ol class="list-decimal space-y-1 pl-4">
+                        <li>Descarga el ZIP e instálalo en <code>chrome://extensions</code> (modo desarrollador → cargar descomprimida).</li>
+                        <li>Copia el token, ábrelo en el popup de la extensión y pulsa Guardar.</li>
+                        <li>En una ficha AliExpress pulsa <strong>Enviar a Product Hunter</strong>.</li>
+                    </ol>
+                    <p class="break-all">Origen: <code>{{ $pluginOrigin ?? url('/') }}</code></p>
+                    <p>Token: <code id="ph-plugin-token" class="select-all">{{ $pluginToken ?? '' }}</code>
+                        <button type="button" class="ml-1 text-teal hover:underline" id="ph-copy-token">Copiar</button>
+                    </p>
+                    <div class="flex flex-wrap gap-2 pt-1">
+                        <a href="{{ $pluginDownloadUrl ?? route('admin.lab.cj.extension') }}" class="admin-btn !px-3 !py-1.5 text-xs">Descargar plugin (.zip)</a>
+                        <form method="post" action="{{ route('admin.lab.cj.plugin-token') }}" onsubmit="return confirm('Se invalidará el token anterior en la extensión.');">
+                            @csrf
+                            <button type="submit" class="admin-btn-secondary !px-3 !py-1.5 text-xs">Regenerar token</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </details>
+
+        <p class="text-xs font-semibold uppercase tracking-wide text-ink-soft/45">Buscar solo en CJ</p>
         <div class="flex flex-wrap gap-2">
             <a href="{{ route('admin.lab.cj', ['mode' => 'prompt']) }}"
                class="admin-badge {{ $mode === 'prompt' ? 'bg-teal/10 text-teal ring-1 ring-teal/20' : 'bg-mist text-ink-soft' }}">
@@ -57,22 +110,6 @@
                class="admin-badge {{ $mode === 'keyword' ? 'bg-teal/10 text-teal ring-1 ring-teal/20' : 'bg-mist text-ink-soft' }}">
                 Keyword directa
             </a>
-        </div>
-
-        <div class="rounded-xl border border-line bg-mist/30 p-3 sm:p-4 space-y-2">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <label for="cj-crawl-url" class="text-sm font-medium text-ink-soft">URL / PID / SKU de CJ Dropshipping</label>
-                <span class="text-[11px] text-ink-soft/50">Crawler → detalle en modal</span>
-            </div>
-            <div class="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-                <input type="text" id="cj-crawl-url" class="admin-input flex-1"
-                       placeholder="https://cjdropshipping.com/product/…-p-1669594923043139584.html"
-                       autocomplete="off">
-                <button type="button" id="cj-crawl-btn" class="admin-btn shrink-0" @disabled(! $has_cj_token)>
-                    Ver producto
-                </button>
-            </div>
-            <p id="cj-crawl-status" class="hidden text-xs text-ink-soft/60"></p>
         </div>
 
         @if($mode === 'prompt')
@@ -148,6 +185,134 @@
                 <button type="submit" class="admin-btn">Buscar en CJ</button>
             </form>
         @endif
+    </div>
+
+    <div id="ph-hunt" class="hidden mb-5 space-y-4">
+        <div class="admin-card p-5 sm:p-6 space-y-4" id="ph-ae-card" data-collapse-default="0">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <h2 class="font-display text-lg font-bold text-ink">Ficha AliExpress</h2>
+                    <p id="ph-ae-meta" class="mt-1 text-xs text-ink-soft/60"></p>
+                </div>
+                <span id="ph-ae-mode" class="admin-badge bg-mist text-ink-soft"></span>
+            </div>
+
+            <div class="grid gap-5 lg:grid-cols-[minmax(0,320px)_1fr]">
+                <div class="space-y-3">
+                    <img id="ph-ae-img" src="" alt="" class="ph-ae-zoom aspect-square w-full cursor-zoom-in rounded-xl border border-line object-contain bg-white">
+                    <div id="ph-ae-thumbs" class="flex flex-wrap gap-1.5"></div>
+                    <div>
+                        <h3 class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Videos</h3>
+                        <div id="ph-ae-videos" class="space-y-2"></div>
+                    </div>
+                </div>
+                <div class="min-w-0 flex flex-col gap-4">
+                    <h3 id="ph-ae-title" class="font-display text-lg sm:text-xl font-bold text-ink leading-snug"></h3>
+
+                    <div class="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+                        <div class="border-b border-line bg-gradient-to-br from-teal/5 via-white to-mist/30 px-4 py-3">
+                            <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Precio</p>
+                            <p id="ph-ae-price" class="mt-0.5 text-2xl font-bold text-teal"></p>
+                        </div>
+                        <div class="grid divide-y border-line sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                            <div class="px-4 py-3">
+                                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Envío</p>
+                                <p id="ph-ae-ship" class="mt-1 text-sm font-medium text-ink"></p>
+                            </div>
+                            <div class="px-4 py-3">
+                                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Entrega estimada</p>
+                                <p id="ph-ae-ship-time" class="mt-1 text-sm text-ink-soft"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ph-ae-badges" class="flex flex-wrap gap-2"></div>
+                </div>
+            </div>
+
+            <div id="ph-ae-variants-wrap">
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <h3 id="ph-ae-variants-title" class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Variaciones</h3>
+                    <span id="ph-ae-variant-count" class="text-[11px] text-ink-soft/50"></span>
+                </div>
+                <div id="ph-ae-attributes" class="hidden mb-3 grid gap-2 sm:grid-cols-2"></div>
+                <div id="ph-ae-variants-table-wrap" class="overflow-auto rounded-xl border border-line">
+                    <table class="min-w-full text-xs">
+                        <thead class="bg-mist/60 text-ink-soft/70">
+                            <tr>
+                                <th class="px-2 py-1.5 text-left font-medium">Img</th>
+                                <th class="px-2 py-1.5 text-left font-medium">Variante</th>
+                                <th class="px-2 py-1.5 text-left font-medium">SKU</th>
+                                <th class="px-2 py-1.5 text-left font-medium">Precio</th>
+                                <th class="px-2 py-1.5 text-left font-medium">Stock</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ph-ae-variants"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="ph-ae-details-wrap" class="hidden">
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <button type="button" class="ph-ae-collapse-btn group inline-flex items-center gap-1.5 text-left" data-target="ph-ae-details-body" aria-expanded="true">
+                        <i class="fa-solid fa-chevron-down text-[10px] text-ink-soft/50 transition-transform group-[.is-collapsed]:-rotate-90"></i>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Detalles</h3>
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <span id="ph-ae-details-count" class="text-[11px] text-ink-soft/50"></span>
+                        <button type="button" class="ph-ae-collapse-link text-[11px] text-teal hover:underline" data-target="ph-ae-details-body">Contraer</button>
+                    </div>
+                </div>
+                <div id="ph-ae-details-body" class="overflow-auto rounded-xl border border-line">
+                    <table class="min-w-full text-xs">
+                        <tbody id="ph-ae-details" class="divide-y divide-line/60"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <button type="button" class="ph-ae-collapse-btn group inline-flex items-center gap-1.5 text-left" data-target="ph-ae-desc" aria-expanded="true">
+                        <i class="fa-solid fa-chevron-down text-[10px] text-ink-soft/50 transition-transform group-[.is-collapsed]:-rotate-90"></i>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Descripción</h3>
+                    </button>
+                    <button type="button" class="ph-ae-collapse-link text-[11px] text-teal hover:underline" data-target="ph-ae-desc">Contraer</button>
+                </div>
+                <div id="ph-ae-desc" class="ph-ae-desc max-h-[32rem] overflow-auto rounded-xl border border-line bg-white p-4 text-sm text-ink leading-relaxed"></div>
+            </div>
+
+            <div>
+                <div class="mb-1.5 flex items-center justify-between gap-2">
+                    <button type="button" class="ph-ae-collapse-btn group inline-flex items-center gap-1.5 text-left" data-target="ph-ae-reviews" aria-expanded="true">
+                        <i class="fa-solid fa-chevron-down text-[10px] text-ink-soft/50 transition-transform group-[.is-collapsed]:-rotate-90"></i>
+                        <h3 class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Reseñas</h3>
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <span id="ph-ae-review-count" class="text-[11px] text-ink-soft/50"></span>
+                        <button type="button" class="ph-ae-collapse-link text-[11px] text-teal hover:underline" data-target="ph-ae-reviews">Contraer</button>
+                    </div>
+                </div>
+                <div id="ph-ae-reviews" class="max-h-[28rem] overflow-auto space-y-2"></div>
+            </div>
+
+            <label class="flex items-center gap-2 rounded-xl border border-line bg-mist/40 px-3 py-2 text-sm cursor-pointer">
+                <input type="radio" name="ph-choice" id="ph-choice-ae" value="aliexpress" checked>
+                <span>Ninguno me gusta — importar AliExpress (cumplimiento manual)</span>
+            </label>
+        </div>
+
+        <div class="admin-card p-5 sm:p-6 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2 class="font-display text-lg font-bold text-ink">Coincidencias en CJ</h2>
+                <span id="ph-cj-count" class="admin-badge bg-mist text-ink-soft">0</span>
+            </div>
+            <p id="ph-cj-empty" class="hidden text-sm text-ink-soft/60">No encontré un equivalente claro en CJ. Puedes importar AliExpress o buscar por keyword abajo.</p>
+            <div id="ph-cj-grid" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
+        </div>
+        <div class="flex flex-wrap items-center gap-3">
+            <button type="button" id="ph-import-btn" class="admin-btn">+ Catálogo</button>
+            <p id="ph-import-status" class="hidden text-xs text-ink-soft/60"></p>
+        </div>
     </div>
 
     @if($error)
@@ -468,6 +633,10 @@
   var importUrl = @json($importUrl ?? route('admin.lab.cj.import'));
   var improvePromptUrl = @json($improvePromptUrl ?? route('admin.lab.cj.improve-prompt'));
   var crawlUrl = @json($crawlUrl ?? route('admin.lab.cj.crawl'));
+  var huntUrl = @json($huntUrl ?? route('admin.lab.cj.hunt'));
+  var huntHtmlUrl = @json($huntHtmlUrl ?? route('admin.lab.cj.hunt-html'));
+  var captureUrlBase = @json(url('/admin/lab/cj/capture'));
+  var importAliExpressUrl = @json($importAliExpressUrl ?? route('admin.lab.cj.import-aliexpress'));
   var videosUrlBase = @json(url('/admin/lab/cj/videos'));
   var imagesUrlBase = @json(url('/admin/lab/cj/images'));
   var csrf = $('meta[name="csrf-token"]').attr('content');
@@ -477,6 +646,7 @@
   var imageQueue = [];
   var imageQueueRunning = false;
   var crawlProduct = null;
+  var huntAe = null;
   var displayCurrency = @json($displayCurrency ?? 'MXN');
 
   function escapeHtml(str) {
@@ -485,6 +655,31 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  function countryFlagIso(code) {
+    var iso = String(code || '').trim().toLowerCase();
+    if (iso === 'uk') iso = 'gb';
+    return /^[a-z]{2}$/.test(iso) ? iso : '';
+  }
+
+  function countryFlagEl(code) {
+    var iso = countryFlagIso(code);
+    if (!iso) return null;
+    return $('<span class="market-flag fi fi-' + iso + '"/>').attr('title', String(code).toUpperCase());
+  }
+
+  function reviewAvatarEl(r) {
+    var $wrap = $('<div class="shrink-0"/>');
+    if (r.avatar) {
+      var $av = aeImg(r.avatar, r.author || '').addClass('h-10 w-10 rounded-full object-cover border border-line bg-white');
+      bindAeImgFallback($av, r.avatar);
+      $wrap.append($av);
+    } else {
+      var initial = String(r.author || 'C').trim().charAt(0).toUpperCase() || 'C';
+      $wrap.append($('<div class="flex h-10 w-10 items-center justify-center rounded-full border border-line bg-mist text-[11px] font-semibold text-ink-soft"/>').text(initial));
+    }
+    return $wrap;
   }
 
   function closeCrawlModal() {
@@ -645,15 +840,489 @@
     $('#cj-crawl-modal-body').removeClass('hidden');
   }
 
+  function looksLikeAliExpress(url) {
+    return /aliexpress\./i.test(url) || /^(100\d{10,16}|\d{13,16})$/.test(url);
+  }
+
+  function runHunt(url) {
+    var $btn = $('#cj-crawl-btn');
+    var $status = $('#cj-crawl-status');
+    var original = $btn.text();
+    $btn.prop('disabled', true).text('Buscando…');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Extrayendo AliExpress y buscando coincidencias en CJ…');
+    $('#ph-hunt').addClass('hidden');
+    huntAe = null;
+
+    $.ajax({
+      url: huntUrl,
+      method: 'POST',
+      dataType: 'json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: { _token: csrf, url: url }
+    }).done(function (res) {
+      if (res && res.success && res.aliexpress) {
+        renderHunt(res);
+        $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal').text('Ficha lista. Elige CJ o AliExpress.');
+      } else {
+        $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text((res && res.error) || 'No se pudo extraer AliExpress');
+      }
+    }).fail(function (xhr) {
+      $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral')
+        .text((xhr.responseJSON && xhr.responseJSON.error) || 'Error al buscar AliExpress');
+    }).always(function () {
+      $btn.prop('disabled', false).text(original);
+    });
+  }
+
+  function formatAeMoney(amount, currency) {
+    if (amount === '' || amount === null || typeof amount === 'undefined' || isNaN(Number(amount))) return '—';
+    var n = Number(amount);
+    var cur = String(currency || '').toUpperCase();
+    return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (cur ? (' ' + cur) : '');
+  }
+
+  function aeImg(url, alt) {
+    var $img = $('<img/>').attr({
+      src: url || '',
+      alt: alt || '',
+      referrerpolicy: 'no-referrer',
+      loading: 'lazy',
+      decoding: 'async'
+    });
+    return $img;
+  }
+
+  function setAeSectionCollapsed(targetId, collapsed) {
+    var $body = $('#' + targetId);
+    if (!$body.length) return;
+    var $btns = $('.ph-ae-collapse-btn[data-target="' + targetId + '"]');
+    var $links = $('.ph-ae-collapse-link[data-target="' + targetId + '"]');
+    if (collapsed) {
+      $body.addClass('hidden');
+      $btns.addClass('is-collapsed').attr('aria-expanded', 'false');
+      $btns.find('i').css('transform', 'rotate(-90deg)');
+      $links.text('Expandir');
+    } else {
+      $body.removeClass('hidden');
+      $btns.removeClass('is-collapsed').attr('aria-expanded', 'true');
+      $btns.find('i').css('transform', 'rotate(0deg)');
+      $links.text('Contraer');
+    }
+  }
+
+  function toggleAeSection(targetId) {
+    var $body = $('#' + targetId);
+    if (!$body.length) return;
+    setAeSectionCollapsed(targetId, !$body.hasClass('hidden'));
+  }
+
+  $(document).on('click', '.ph-ae-collapse-btn, .ph-ae-collapse-link', function (e) {
+    e.preventDefault();
+    var target = $(this).data('target');
+    if (target) toggleAeSection(String(target));
+  });
+
+  function prepareAeHtml(html) {
+    if (!html) return '';
+    var out = String(html);
+    out = out.replace(/<template[^>]*shadowrootmode[^>]*>([\s\S]*?)<\/template>/gi, '$1');
+    out = out.replace(/<template\b[^>]*>[\s\S]*?<\/template>/gi, '');
+    out = out.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '');
+    out = out.replace(/<picture\b[^>]*>[\s\S]*?<\/picture>/gi, '');
+    out = out.replace(/<img\b[^>]*>/gi, '');
+    out = out.replace(/<figure\b[^>]*>[\s\S]*?<\/figure>/gi, '');
+    return out;
+  }
+
+  function bindAeImgFallback($img, fallbackUrl) {
+    if (!$img || !$img.length) return;
+    $img.off('error.phAeImg').on('error.phAeImg', function () {
+      var fb = fallbackUrl || '';
+      if (fb && this.src !== fb) {
+        this.src = fb;
+      }
+    });
+  }
+
+  function openHuntGallery(startIndex) {
+    var ae = huntAe || {};
+    var imgs = (ae.images && ae.images.length) ? ae.images : (ae.image ? [ae.image] : []);
+    if (!imgs.length) return;
+    closeVideoModal();
+    $('#cj-image-modal').removeClass('hidden').addClass('flex');
+    $('body').addClass('overflow-hidden');
+    setGallery(imgs, ae.title || 'Galería AliExpress', ae.product_id || 'ae', startIndex || 0);
+  }
+
+  function renderHunt(res) {
+    huntAe = res.aliexpress || null;
+    var ae = huntAe || {};
+    $('#ph-hunt').removeClass('hidden');
+    $('#ph-ae-title').text(ae.title || 'Producto AliExpress');
+    $('#ph-ae-meta').text((ae.product_id || '') + (ae.url ? ' · ' + ae.url : ''));
+    $('#ph-ae-mode').text(ae.source_note || ae.source_mode || 'AliExpress');
+    var imgs = (ae.images && ae.images.length) ? ae.images : (ae.image ? [ae.image] : []);
+    var mainImg = imgs[0] || '';
+    var $mainImgEl = $('#ph-ae-img');
+    $mainImgEl.attr({
+      src: mainImg,
+      alt: ae.title || '',
+      referrerpolicy: 'no-referrer',
+      loading: 'lazy',
+      decoding: 'async'
+    });
+    bindAeImgFallback($mainImgEl, mainImg);
+    $mainImgEl.off('click.phAe').on('click.phAe', function () { openHuntGallery(0); });
+    var $thumbs = $('#ph-ae-thumbs').empty();
+    if (!imgs.length) {
+      $thumbs.append($('<p class="text-xs text-ink-soft/50"/>').text('Sin imágenes'));
+    }
+    imgs.forEach(function (u, i) {
+      var $t = $('<button type="button" class="h-12 w-12 overflow-hidden rounded-md border border-line bg-white"/>');
+      var $ti = aeImg(u, '').addClass('h-full w-full object-cover');
+      bindAeImgFallback($ti, u);
+      $t.append($ti);
+      if (i === 0) $t.addClass('ring-2 ring-teal');
+      $t.on('click', function () {
+        $('#ph-ae-img').attr('src', u);
+        $thumbs.find('button').removeClass('ring-2 ring-teal');
+        $t.addClass('ring-2 ring-teal');
+      });
+      $t.on('dblclick', function () { openHuntGallery(i); });
+      $thumbs.append($t);
+    });
+
+    var $videos = $('#ph-ae-videos').empty();
+    var vids = ae.videos || [];
+    if (!vids.length) {
+      $videos.append($('<p class="text-xs text-ink-soft/50"/>').text(ae.has_video ? 'Hay video pero no pude extraer la URL.' : 'Sin videos en la captura'));
+    } else {
+      vids.forEach(function (v, i) {
+        var url = v.url || v.play_url || v;
+        if (!url) return;
+        var $wrap = $('<div class="space-y-1"/>');
+        $wrap.append($('<video controls playsinline class="w-full max-h-56 rounded-lg bg-black"/>').attr('src', url));
+        $wrap.append($('<a class="text-[11px] text-teal underline" target="_blank" rel="noopener"/>').attr('href', url).text('Video ' + (i + 1) + ' · abrir'));
+        $videos.append($wrap);
+      });
+    }
+
+    var priceTxt = formatAeMoney(ae.price, ae.currency);
+    if (ae.compare_at_price) priceTxt += ' · antes ' + formatAeMoney(ae.compare_at_price, ae.currency);
+    $('#ph-ae-price').text(ae.price != null && ae.price !== '' ? priceTxt : 'Precio no detectado');
+
+    var $badges = $('#ph-ae-badges').empty();
+    function addBadge(label, cls) {
+      if (!label) return;
+      $badges.append($('<span class="admin-badge ' + (cls || 'bg-mist text-ink-soft') + '"/>').text(label));
+    }
+    if (ae.currency) addBadge(ae.currency, 'bg-teal/10 text-teal');
+    if (ae.rating) addBadge('★ ' + ae.rating, 'bg-amber/10 text-amber');
+    if (ae.review_count != null) addBadge(ae.review_count + ' reseñas');
+    if (ae.orders != null) addBadge(ae.orders + ' pedidos');
+    if (ae.category) addBadge(ae.category);
+
+    var shipTxt = '';
+    if (ae.shipping_price === 0 || (ae.shipping_note && /gratis|free/i.test(ae.shipping_note))) {
+      shipTxt = ae.shipping_note && /gratis|free/i.test(ae.shipping_note) ? ae.shipping_note : 'Envío gratis';
+    } else if (ae.shipping_price != null && ae.shipping_price !== '') {
+      shipTxt = formatAeMoney(ae.shipping_price, ae.shipping_currency || ae.currency);
+      if (ae.shipping_note) shipTxt += ' · ' + ae.shipping_note;
+    } else if (ae.shipping_note) {
+      shipTxt = ae.shipping_note;
+    } else {
+      shipTxt = '—';
+    }
+    $('#ph-ae-ship').text(shipTxt);
+    var shipTime = ae.shipping_time ? String(ae.shipping_time).replace(/^env[ií]o\s*:\s*/i, '').trim() : '';
+    $('#ph-ae-ship-time').text(shipTime || '—');
+
+    var attrs = ae.attributes || [];
+    var vars = ae.variants || [];
+    var singleOption = attrs.length > 0 && (vars.length <= 1 || (vars.length === 1 && vars[0].is_product_option));
+    var $attrBox = $('#ph-ae-attributes').empty();
+    if (singleOption) {
+      $('#ph-ae-variants-title').text('Características del producto');
+      attrs.forEach(function (a) {
+        $attrBox.append(
+          $('<div class="rounded-xl border border-line bg-mist/20 px-3 py-2 text-sm"/>').append(
+            $('<div class="text-[11px] uppercase tracking-wide text-ink-soft/55"/>').text(a.name || 'Opción'),
+            $('<div class="font-medium text-ink"/>').text(a.value || '—')
+          )
+        );
+      });
+      $attrBox.removeClass('hidden');
+      $('#ph-ae-variants-table-wrap').addClass('hidden');
+    } else {
+      $('#ph-ae-variants-title').text('Variaciones');
+      $attrBox.addClass('hidden');
+      $('#ph-ae-variants-table-wrap').removeClass('hidden');
+    }
+
+    $('#ph-ae-variant-count').text(singleOption ? (attrs.length + ' opción') : (vars.length ? (vars.length + ' SKU') : '0'));
+    var $tb = $('#ph-ae-variants').empty();
+    if (!vars.length) {
+      if (!singleOption) {
+        $tb.append('<tr><td colspan="5" class="px-2 py-3 text-ink-soft/50">Sin variaciones detectadas</td></tr>');
+      }
+    } else if (!singleOption) {
+      vars.forEach(function (v) {
+        var $tr = $('<tr class="border-t border-line/60"/>');
+        var $imgTd = $('<td class="px-2 py-1.5"/>');
+        if (v.image) {
+          var $vi = aeImg(v.image, v.name || '').addClass('h-10 w-10 rounded object-cover border border-line bg-mist');
+          bindAeImgFallback($vi, mainImg);
+          $imgTd.append($vi);
+        } else {
+          $imgTd.append($('<span class="text-ink-soft/40"/>').text('—'));
+        }
+        $tr.append(
+          $imgTd,
+          $('<td class="px-2 py-1.5 text-ink"/>').text(v.name || '—'),
+          $('<td class="px-2 py-1.5 text-ink-soft"/>').text(v.sku || v.vid || '—'),
+          $('<td class="px-2 py-1.5"/>').text(v.price != null ? formatAeMoney(v.price, ae.currency) : '—'),
+          $('<td class="px-2 py-1.5"/>').text(v.stock != null ? v.stock : '—')
+        );
+        $tb.append($tr);
+      });
+    } else if (singleOption && vars.length === 1) {
+      var v = vars[0];
+      var optImg = v.image || mainImg;
+      if (optImg) {
+        var $optWrap = $('<div class="sm:col-span-2 flex items-center gap-3 rounded-xl border border-line bg-white p-3"/>');
+        var $optImg = aeImg(optImg, v.name || '').addClass('h-20 w-20 shrink-0 rounded-lg border border-line object-cover bg-mist');
+        bindAeImgFallback($optImg, mainImg);
+        $optWrap.append(
+          $optImg,
+          $('<div class="min-w-0"/>').append(
+            $('<div class="text-[11px] uppercase tracking-wide text-ink-soft/55"/>').text('Opción seleccionada'),
+            $('<div class="font-medium text-ink"/>').text(v.name || attrs.map(function (a) { return a.name + ': ' + a.value; }).join(' · '))
+          )
+        );
+        $attrBox.prepend($optWrap);
+      }
+    }
+
+    var $rev = $('#ph-ae-reviews').empty();
+    var revMeta = [];
+    if (ae.rating) revMeta.push('★ ' + ae.rating);
+    if (ae.review_count) revMeta.push(ae.review_count + ' reseñas');
+    if (ae.orders) revMeta.push(ae.orders + ' pedidos');
+    $('#ph-ae-review-count').text(revMeta.join(' · ') || ((ae.reviews || []).length + ' en captura'));
+    var reviews = ae.reviews || [];
+    if (!reviews.length) {
+      $rev.append($('<p class="text-xs text-ink-soft/50"/>').text('Sin reseñas disponibles para este producto.'));
+    } else {
+      reviews.forEach(function (r) {
+        var score = parseInt(r.score, 10) || 0;
+        var stars = score > 0 ? ('★★★★★'.slice(0, score) + '☆☆☆☆☆'.slice(0, 5 - score)) : '';
+        var $art = $('<article class="flex gap-3 rounded-lg border border-line/70 bg-mist/20 p-3 text-xs"/>');
+        var $body = $('<div class="min-w-0 flex-1"/>');
+        $art.append(reviewAvatarEl(r));
+        $body.append(
+          $('<div class="mb-1 flex flex-wrap items-center gap-1.5"/>').append(
+            $('<strong class="text-ink"/>').text(r.author || 'Comprador'),
+            countryFlagEl(r.country),
+            stars ? $('<span class="text-amber"/>').text(stars) : null,
+            r.date ? $('<span class="text-ink-soft/50"/>').text(r.date) : null
+          )
+        );
+        if (r.sku_info) $body.append($('<p class="mb-1 text-[11px] text-ink-soft/60"/>').text(r.sku_info));
+        if (r.comment) $body.append($('<p class="text-ink-soft whitespace-pre-wrap leading-relaxed"/>').text(r.comment));
+        else if (score > 0) $body.append($('<p class="text-ink-soft/50 italic"/>').text('Solo calificación (sin comentario de texto)'));
+        if (r.images && r.images.length) {
+          var $photos = $('<div class="mt-1.5 flex flex-wrap gap-1"/>');
+          r.images.forEach(function (url) {
+            var $a = $('<a target="_blank" rel="noopener"/>').attr('href', url);
+            var $ri = aeImg(url, '').addClass('h-12 w-12 rounded object-cover border border-line');
+            bindAeImgFallback($ri, url);
+            $photos.append($a.append($ri));
+          });
+          $body.append($photos);
+        }
+        $art.append($body);
+        $rev.append($art);
+      });
+    }
+
+    var desc = prepareAeHtml(ae.description_html || ae.description || ae.description_short || '');
+    var $desc = $('#ph-ae-desc').empty();
+    if (desc && /<[a-z][\s\S]*>/i.test(String(desc))) {
+      $desc.html(desc);
+    } else if (desc) {
+      $desc.text(desc);
+    } else {
+      $desc.append($('<p class="text-ink-soft/50"/>').text('Sin descripción en la captura.'));
+    }
+    setAeSectionCollapsed('ph-ae-desc', false);
+    setAeSectionCollapsed('ph-ae-reviews', false);
+    setAeSectionCollapsed('ph-ae-details-body', false);
+
+    var details = ae.details || [];
+    var $detailsWrap = $('#ph-ae-details-wrap');
+    var $detailsBody = $('#ph-ae-details').empty();
+    if (details.length) {
+      $detailsWrap.removeClass('hidden');
+      $('#ph-ae-details-count').text(details.length + ' característica(s)');
+      details.forEach(function (d) {
+        $detailsBody.append(
+          '<tr class="hover:bg-mist/20">' +
+            '<th class="w-2/5 bg-mist/30 px-3 py-2 text-left font-medium text-ink-soft align-top">' + escapeHtml(d.name || '—') + '</th>' +
+            '<td class="px-3 py-2 text-ink align-top">' + escapeHtml(d.value || '—') + '</td>' +
+          '</tr>'
+        );
+      });
+    } else {
+      $detailsWrap.addClass('hidden');
+      $('#ph-ae-details-count').text('');
+    }
+
+    $('#ph-choice-ae').prop('checked', true);
+
+    var matches = res.matches || [];
+    $('#ph-cj-count').text(matches.length);
+    var $grid = $('#ph-cj-grid').empty();
+    if (!matches.length) {
+      $('#ph-cj-empty').removeClass('hidden');
+    } else {
+      $('#ph-cj-empty').addClass('hidden');
+      matches.forEach(function (m) {
+        var pid = String(m.pid || '');
+        var $card = $('<label class="flex cursor-pointer flex-col gap-2 rounded-xl border border-line bg-white p-3"/>');
+        $card.append(
+          $('<div class="flex items-start gap-2"/>').append(
+            $('<input type="radio" name="ph-choice" class="mt-1 ph-cj-radio"/>')
+              .val(pid)
+              .attr('data-pid', pid)
+              .attr('data-sku', m.sku || '')
+              .attr('data-title', m.title || '')
+              .attr('data-image', m.image || '')
+              .attr('data-category', m.category || '')
+              .attr('data-cj-url', m.cj_url || '')
+              .attr('data-weight', m.weight || '')
+              .attr('data-has-video', m.has_video ? '1' : '0')
+              .attr('data-price-usd', m.price || '')
+              .attr('data-cost-usd', m.price || '')
+              .attr('data-ship-usd', (m.pricing && m.pricing.ship_usd != null) ? m.pricing.ship_usd : '')
+              .attr('data-sell-usd', (m.pricing && m.pricing.sell_usd != null) ? m.pricing.sell_usd : ''),
+            $('<img/>').attr('src', m.image || '').addClass('h-16 w-16 rounded-lg object-cover border border-line bg-mist'),
+            $('<div class="min-w-0 flex-1"/>').append(
+              $('<div class="text-sm font-semibold text-ink leading-snug"/>').text(m.title || 'CJ'),
+              $('<div class="mt-1 flex flex-wrap gap-1"/>').append(
+                $('<span class="admin-badge bg-teal/10 text-teal"/>').text(m.match_by || 'cj'),
+                m.in_catalog ? $('<span class="admin-badge bg-mist text-ink-soft"/>').text('En catálogo') : null
+              ),
+              $('<div class="mt-1 text-xs text-ink-soft/70"/>').text(
+                (m.pricing && m.pricing.sell_usd != null) ? ('Sugerido ~$' + m.pricing.sell_usd + ' USD') : (m.price != null ? ('$' + m.price) : '')
+              )
+            )
+          )
+        );
+        var $actions = $('<div class="flex gap-2"/>');
+        $actions.append(
+          $('<button type="button" class="admin-btn-secondary !px-2 !py-1 text-xs ph-cj-preview"/>').text('Ver').attr('data-pid', pid)
+        );
+        $card.append($actions);
+        $grid.append($card);
+      });
+    }
+  }
+
+  function runHuntHtml() {
+    var raw = String($('#ph-html-input').val() || '').trim();
+    var url = String($('#ph-html-url').val() || $('#cj-crawl-url').val() || '').trim();
+    if (!raw) {
+      alert('Pega el HTML (o el JSON del plugin) primero.');
+      return;
+    }
+    var payload = { url: url, html: raw };
+    if (raw.charAt(0) === '{') {
+      try {
+        var decoded = JSON.parse(raw);
+        if (decoded && (decoded.html || decoded.snapshot)) {
+          payload.html = decoded.html || '';
+          payload.snapshot = decoded.snapshot || {};
+          if (!payload.url && decoded.url) payload.url = decoded.url;
+        }
+      } catch (e) {}
+    }
+    var $btn = $('#ph-html-btn');
+    var $status = $('#cj-crawl-status');
+    var original = $btn.text();
+    $btn.prop('disabled', true).text('Parseando…');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Parseando HTML pegado…');
+    $('#ph-hunt').addClass('hidden');
+    $.ajax({
+      url: huntHtmlUrl,
+      method: 'POST',
+      dataType: 'json',
+      contentType: 'application/json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      data: JSON.stringify(payload)
+    }).done(function (res) {
+      if (res && res.success && res.aliexpress) {
+        renderHunt(res);
+        $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal').text('Ficha lista desde HTML.');
+      } else {
+        $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text((res && res.error) || 'No se pudo parsear');
+      }
+    }).fail(function (xhr) {
+      $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral')
+        .text((xhr.responseJSON && xhr.responseJSON.error) || 'Error al parsear HTML');
+    }).always(function () {
+      $btn.prop('disabled', false).text(original);
+    });
+  }
+
+  $('#ph-html-btn').on('click', runHuntHtml);
+  $('#ph-copy-token').on('click', function () {
+    var t = String($('#ph-plugin-token').text() || '');
+    if (!t) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(t).then(function () {
+        $('#ph-copy-token').text('Copiado');
+        setTimeout(function () { $('#ph-copy-token').text('Copiar'); }, 1500);
+      });
+    }
+  });
+
+  (function loadCaptureFromPlugin() {
+    var id = '';
+    try { id = String(new URLSearchParams(location.search).get('capture') || ''); } catch (e) { id = ''; }
+    if (!id) return;
+    $('#cj-crawl-status').removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Cargando captura del plugin…');
+    $.ajax({
+      url: captureUrlBase + '/' + encodeURIComponent(id),
+      method: 'GET',
+      dataType: 'json',
+      headers: { 'Accept': 'application/json' }
+    }).done(function (res) {
+      if (res && res.success && res.aliexpress) {
+        renderHunt(res);
+        $('#cj-crawl-status').removeClass('text-ink-soft/60 text-coral').addClass('text-teal').text('Captura del plugin lista.');
+      } else {
+        $('#cj-crawl-status').removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text((res && res.error) || 'Captura no disponible');
+      }
+    }).fail(function (xhr) {
+      $('#cj-crawl-status').removeClass('text-ink-soft/60 text-teal').addClass('text-coral')
+        .text((xhr.responseJSON && xhr.responseJSON.error) || 'No se pudo cargar la captura');
+    });
+  })();
+
   function runCrawl() {
     var url = String($('#cj-crawl-url').val() || '').trim();
     var $btn = $('#cj-crawl-btn');
     var $status = $('#cj-crawl-status');
     if (!url) {
-      alert('Pega una URL de CJ, un PID o un SKU.');
+      alert('Pega una URL de AliExpress o CJ, un PID o un SKU.');
       return;
     }
     if ($btn.prop('disabled')) return;
+
+    if (looksLikeAliExpress(url)) {
+      runHunt(url);
+      return;
+    }
 
     var original = $btn.text();
     $btn.prop('disabled', true).text('Crawleando…');
@@ -1111,6 +1780,87 @@
     } else {
       window.prompt('PID:', pid);
     }
+  });
+
+  $(document).on('click', '.ph-cj-preview', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var pid = String($(this).attr('data-pid') || '');
+    if (!pid) return;
+    $('#cj-crawl-url').val(pid);
+    runCrawl();
+  });
+
+  $('#ph-import-btn').on('click', function () {
+    var $btn = $(this);
+    var $st = $('#ph-import-status').removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Importando…');
+    var $checked = $('input[name="ph-choice"]:checked');
+    var choice = String($checked.val() || 'aliexpress');
+    if ($btn.prop('disabled')) return;
+    $btn.prop('disabled', true);
+
+    function doneImport(res) {
+      if (res && res.success) {
+        $st.removeClass('text-ink-soft/60 text-coral').addClass('text-teal').text(res.message || 'Listo');
+        var msg = res.message || 'Agregado';
+        if (res.edit_url && confirm(msg + '\n\n¿Abrir el producto en el catálogo?')) {
+          window.open(res.edit_url, '_blank');
+        }
+      } else {
+        $st.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text((res && res.error) || 'No se pudo importar');
+      }
+      $btn.prop('disabled', false);
+    }
+    function failImport(xhr) {
+      var err = (xhr.responseJSON && (xhr.responseJSON.error || xhr.responseJSON.message)) || 'Error al importar';
+      $st.removeClass('text-ink-soft/60 text-teal').addClass('text-coral').text(err);
+      $btn.prop('disabled', false);
+    }
+
+    if (choice === 'aliexpress') {
+      if (!huntAe) {
+        alert('No hay ficha AliExpress');
+        $btn.prop('disabled', false);
+        return;
+      }
+      $.ajax({
+        url: importAliExpressUrl,
+        method: 'POST',
+        contentType: 'application/json',
+        dataType: 'json',
+        headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        data: JSON.stringify({
+          product: huntAe,
+          url: huntAe.url || '',
+          product_id: huntAe.product_id || '',
+          title: huntAe.title || '',
+          image: huntAe.image || ''
+        })
+      }).done(doneImport).fail(failImport);
+      return;
+    }
+
+    $.ajax({
+      url: importUrl,
+      method: 'POST',
+      dataType: 'json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: {
+        _token: csrf,
+        pid: $checked.attr('data-pid'),
+        sku: $checked.attr('data-sku'),
+        title: $checked.attr('data-title'),
+        image: $checked.attr('data-image'),
+        category: $checked.attr('data-category'),
+        cj_url: $checked.attr('data-cj-url'),
+        weight: $checked.attr('data-weight'),
+        has_video: $checked.attr('data-has-video') === '1' ? 1 : 0,
+        price_usd: $checked.attr('data-price-usd'),
+        cost_usd: $checked.attr('data-cost-usd'),
+        ship_usd: $checked.attr('data-ship-usd'),
+        sell_usd: $checked.attr('data-sell-usd')
+      }
+    }).done(doneImport).fail(failImport);
   });
 
   $(document).on('click', '.cj-add-catalog', function () {

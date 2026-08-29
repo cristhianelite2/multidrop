@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Multidrop Hunter</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 0; padding: 12px; width: 320px; color: #134e4a; }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    label { display: block; font-weight: 600; margin: 8px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #99f6e4; border-radius: 8px; }
+    button { margin-top: 10px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: #0f766e; color: #fff; font-weight: 600; cursor: pointer; }
+    button.secondary { background: #115e59; margin-top: 6px; }
+    p { margin: 8px 0 0; font-size: 11px; color: #5b7c79; }
+    #status { min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>Multidrop · AliExpress</h1>
+  <label for="origin">URL de Product Hunter (origen)</label>
+  <input id="origin" placeholder="http://127.0.0.1:8003" autocomplete="off">
+  <label for="token">Token del plugin</label>
+  <input id="token" placeholder="pégalo desde Product Hunter" autocomplete="off">
+  <button type="button" id="save">Guardar</button>
+  <button type="button" id="capture" class="secondary">Capturar ficha de esta pestaña</button>
+  <p id="status"></p>
+  <p>Abre un producto AliExpress (/item/…) y pulsa el botón verde o Capturar. Chrome → Extensiones → Modo desarrollador → Cargar descomprimida.</p>
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

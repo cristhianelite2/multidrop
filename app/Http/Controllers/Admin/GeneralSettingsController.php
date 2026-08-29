@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Domain\AI\AiTaskRouter;
+use App\Domain\Scraping\CloudflareBrowserRenderer;
+use App\Domain\Suppliers\AliExpress\AliExpressAffiliateClient;
 use App\Domain\Suppliers\Cj\CjConnector;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
@@ -51,6 +53,10 @@ class GeneralSettingsController extends Controller
             'turnstile_secret' => (bool) PlatformSetting::getValue('cloudflare.turnstile.secret_key') || (bool) config('cloudflare.turnstile.secret_key'),
             'turnstile_site' => (bool) ($turnstile->siteKey()),
             'resend_api_key' => (bool) PlatformSetting::getValue('platform.mail.resend_api_key') || (bool) config('services.resend.key'),
+            'aliexpress_app_key' => (bool) PlatformSetting::getValue('aliexpress.app_key') || (bool) config('aliexpress.app_key'),
+            'aliexpress_app_secret' => (bool) PlatformSetting::getValue('aliexpress.app_secret') || (bool) config('aliexpress.app_secret'),
+            'cf_api_token' => (bool) PlatformSetting::getValue('cloudflare.api_token') || (bool) config('cloudflare.api_token'),
+            'cf_account_id' => (bool) PlatformSetting::getValue('cloudflare.account_id') || (bool) config('cloudflare.account_id'),
         ];
 
         $accessToken = PlatformSetting::getValue('cj.access_token', config('cj.access_token'));
@@ -65,6 +71,32 @@ class GeneralSettingsController extends Controller
             'last_test_at' => PlatformSetting::getValue('cj.last_test_at'),
             'last_test_ok' => filter_var(PlatformSetting::getValue('cj.last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
             'last_test_message' => PlatformSetting::getValue('cj.last_test_message'),
+        ];
+
+        $aliexpress = [
+            'app_key' => $hasDb['aliexpress_app_key'] ? '********' : '',
+            'app_secret' => $hasDb['aliexpress_app_secret'] ? '********' : '',
+            'tracking_id' => PlatformSetting::getValue('aliexpress.tracking_id', config('aliexpress.tracking_id')),
+            'ship_to' => PlatformSetting::getValue('aliexpress.ship_to', config('aliexpress.ship_to', 'MX')) ?: 'MX',
+            'has_app_key' => $hasDb['aliexpress_app_key'],
+            'has_app_secret' => $hasDb['aliexpress_app_secret'],
+            'last_test_at' => PlatformSetting::getValue('aliexpress.last_test_at'),
+            'last_test_ok' => filter_var(PlatformSetting::getValue('aliexpress.last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
+            'last_test_message' => PlatformSetting::getValue('aliexpress.last_test_message'),
+            'test_product_id' => config('aliexpress.test_product_id'),
+        ];
+
+        $cfBrowser = [
+            'account_id' => PlatformSetting::getValue('cloudflare.account_id', config('cloudflare.account_id')) ?: '',
+            'api_token' => $hasDb['cf_api_token'] ? '********' : '',
+            'enabled' => (bool) config('cloudflare.enabled'),
+            'has_token' => $hasDb['cf_api_token'],
+            'has_account' => $hasDb['cf_account_id'] || trim((string) config('cloudflare.account_id')) !== '',
+            'ready' => app(CloudflareBrowserRenderer::class)->enabled(),
+            'last_test_at' => PlatformSetting::getValue('cloudflare.browser_last_test_at'),
+            'last_test_ok' => filter_var(PlatformSetting::getValue('cloudflare.browser_last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
+            'last_test_message' => PlatformSetting::getValue('cloudflare.browser_last_test_message'),
+            'docs' => config('cloudflare.docs.browser_rendering'),
         ];
 
         $aiEngines = $aiRouter->listEngines();
@@ -86,6 +118,7 @@ class GeneralSettingsController extends Controller
             'ai_crawl_ack' => filter_var(PlatformSetting::getValue('cloudflare.ai_crawl_ack', '0'), FILTER_VALIDATE_BOOLEAN),
             'access_enabled' => (bool) config('cloudflare.access.enabled'),
             'turnstile_ready' => $turnstile->enabled(),
+            'browser_ready' => $cfBrowser['ready'],
             'docs' => config('cloudflare.docs', []),
             'max_orders_per_hour' => (int) PlatformSetting::getValue(
                 'fraud.max_orders_per_hour',
@@ -158,6 +191,8 @@ class GeneralSettingsController extends Controller
             'payments' => $payments,
             'hasDb' => $hasDb,
             'cj' => $cjData,
+            'aliexpress' => $aliexpress,
+            'cfBrowser' => $cfBrowser,
             'ai' => $ai,
             'security' => $security,
             'contact' => $contact->all(),
@@ -379,10 +414,59 @@ class GeneralSettingsController extends Controller
         return $this->testJson($request, true, $msg);
     }
 
+    public function saveAliExpress(Request $request)
+    {
+        $data = $request->validate([
+            'aliexpress_app_key' => ['nullable', 'string', 'max:120'],
+            'aliexpress_app_secret' => ['nullable', 'string', 'max:255'],
+            'aliexpress_tracking_id' => ['nullable', 'string', 'max:80'],
+            'aliexpress_ship_to' => ['nullable', 'string', 'size:2'],
+        ]);
+
+        $key = $data['aliexpress_app_key'] ?? '';
+        if ($key !== '' && $key !== '********') {
+            PlatformSetting::put('aliexpress.app_key', $key, 'aliexpress');
+            config(['aliexpress.app_key' => $key]);
+        }
+        $this->putSecretIfPresent('aliexpress.app_secret', $data['aliexpress_app_secret'] ?? null, 'aliexpress');
+        PlatformSetting::put('aliexpress.tracking_id', trim((string) ($data['aliexpress_tracking_id'] ?? '')) ?: null, 'aliexpress');
+        $ship = strtoupper(trim((string) ($data['aliexpress_ship_to'] ?? 'MX'))) ?: 'MX';
+        PlatformSetting::put('aliexpress.ship_to', $ship, 'aliexpress');
+        config([
+            'aliexpress.tracking_id' => PlatformSetting::getValue('aliexpress.tracking_id'),
+            'aliexpress.ship_to' => $ship,
+        ]);
+
+        return back()->with('success', 'Credenciales de AliExpress Affiliate guardadas.');
+    }
+
+    public function saveCloudflareBrowser(Request $request)
+    {
+        $data = $request->validate([
+            'cf_account_id' => ['nullable', 'string', 'max:64'],
+            'cf_api_token' => ['nullable', 'string', 'max:500'],
+            'cf_browser_rendering' => ['nullable', 'boolean'],
+        ]);
+
+        $account = trim((string) ($data['cf_account_id'] ?? ''));
+        if ($account !== '' && $account !== '********') {
+            PlatformSetting::put('cloudflare.account_id', $account, 'cloudflare');
+            config(['cloudflare.account_id' => $account]);
+        }
+        $this->putSecretIfPresent('cloudflare.api_token', $data['cf_api_token'] ?? null, 'cloudflare');
+        $enabled = $request->boolean('cf_browser_rendering');
+        PlatformSetting::put('cloudflare.browser_rendering', $enabled ? '1' : '0', 'cloudflare');
+        config(['cloudflare.enabled' => $enabled]);
+
+        return back()->with('success', $enabled
+            ? 'Cloudflare Browser Rendering activado. Product Hunter lo usará para AliExpress.'
+            : 'Cloudflare Browser Rendering guardado (apagado).');
+    }
+
     public function testApi(Request $request)
     {
         $data = $request->validate([
-            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile'])],
+            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile', 'aliexpress', 'cloudflare_browser'])],
         ]);
 
         $ok = false;
@@ -489,6 +573,42 @@ class GeneralSettingsController extends Controller
                     $ok = (bool) $site && (bool) $secret;
                     $message = $ok ? 'Turnstile: site y secret guardados' : 'Falta site key o secret';
                     break;
+                case 'aliexpress':
+                    $this->applyAliExpressFromRequest($request);
+                    $client = app(AliExpressAffiliateClient::class);
+                    if (! $client->isConfigured()) {
+                        return $this->testJson($request, false, 'Guarda primero App Key y App Secret de AliExpress Affiliate.');
+                    }
+                    $testId = trim((string) $request->input('aliexpress_test_product_id', ''));
+                    if ($testId === '' || $testId === '********') {
+                        $testId = (string) config('aliexpress.test_product_id');
+                    }
+                    $ae = $client->productDetail($testId);
+                    $ok = (bool) ($ae['success'] ?? false);
+                    $message = $ok
+                        ? ('AliExpress Affiliate OK · producto '.$testId)
+                        : ('AliExpress: '.($ae['error'] ?? 'falló'));
+                    PlatformSetting::put('aliexpress.last_test_at', now()->toIso8601String(), 'aliexpress');
+                    PlatformSetting::put('aliexpress.last_test_ok', $ok ? '1' : '0', 'aliexpress');
+                    PlatformSetting::put('aliexpress.last_test_message', mb_substr($message, 0, 240), 'aliexpress');
+                    break;
+                case 'cloudflare_browser':
+                    $this->applyCloudflareBrowserFromRequest($request);
+                    $account = trim((string) config('cloudflare.account_id'));
+                    $token = trim((string) config('cloudflare.api_token'));
+                    if ($account === '' || $token === '') {
+                        return $this->testJson($request, false, 'Guarda Account ID y API Token de Cloudflare.');
+                    }
+                    config(['cloudflare.enabled' => true]);
+                    $renderer = app(CloudflareBrowserRenderer::class);
+                    $testUrl = trim((string) $request->input('cf_browser_test_url', ''));
+                    $probe = $renderer->test($testUrl !== '' ? $testUrl : null);
+                    $ok = (bool) ($probe['success'] ?? false);
+                    $message = (string) ($probe['message'] ?? ($ok ? 'OK' : 'Falló'));
+                    PlatformSetting::put('cloudflare.browser_last_test_at', now()->toIso8601String(), 'cloudflare');
+                    PlatformSetting::put('cloudflare.browser_last_test_ok', $ok ? '1' : '0', 'cloudflare');
+                    PlatformSetting::put('cloudflare.browser_last_test_message', mb_substr($message, 0, 240), 'cloudflare');
+                    break;
             }
         } catch (\Throwable $e) {
             return $this->testJson($request, false, 'Prueba falló: '.$e->getMessage());
@@ -583,6 +703,44 @@ class GeneralSettingsController extends Controller
         config(['cj.api_key' => $stored]);
 
         return $stored ?: null;
+    }
+
+    protected function applyAliExpressFromRequest(Request $request): void
+    {
+        $key = $request->input('aliexpress_app_key');
+        if (is_string($key) && $key !== '' && $key !== '********') {
+            PlatformSetting::put('aliexpress.app_key', $key, 'aliexpress');
+            config(['aliexpress.app_key' => $key]);
+        }
+        $secret = $request->input('aliexpress_app_secret');
+        if (is_string($secret) && $secret !== '' && $secret !== '********') {
+            PlatformSetting::put('aliexpress.app_secret', $secret, 'aliexpress', true);
+            config(['aliexpress.app_secret' => $secret]);
+        }
+        $tracking = $request->input('aliexpress_tracking_id');
+        if (is_string($tracking) && $tracking !== '') {
+            PlatformSetting::put('aliexpress.tracking_id', $tracking, 'aliexpress');
+            config(['aliexpress.tracking_id' => $tracking]);
+        }
+    }
+
+    protected function applyCloudflareBrowserFromRequest(Request $request): void
+    {
+        $account = $request->input('cf_account_id');
+        if (is_string($account) && $account !== '' && $account !== '********') {
+            PlatformSetting::put('cloudflare.account_id', $account, 'cloudflare');
+            config(['cloudflare.account_id' => $account]);
+        }
+        $token = $request->input('cf_api_token');
+        if (is_string($token) && $token !== '' && $token !== '********') {
+            PlatformSetting::put('cloudflare.api_token', $token, 'cloudflare', true);
+            config(['cloudflare.api_token' => $token]);
+        }
+        if ($request->has('cf_browser_rendering')) {
+            $on = $request->boolean('cf_browser_rendering');
+            PlatformSetting::put('cloudflare.browser_rendering', $on ? '1' : '0', 'cloudflare');
+            config(['cloudflare.enabled' => $on]);
+        }
     }
 
     protected function syncCursorMcpQuietly(): void

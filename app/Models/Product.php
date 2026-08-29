@@ -63,6 +63,21 @@ class Product extends Model
         return $pid !== '' ? $pid : null;
     }
 
+    public function isFromAliExpress(): bool
+    {
+        $source = (string) data_get($this->verified_data, 'source', '');
+
+        return in_array($source, ['aliexpress', 'aliexpress_es'], true)
+            && (string) data_get($this->verified_data, 'aliexpress_product_id', '') !== '';
+    }
+
+    public function aliexpressProductId(): ?string
+    {
+        $id = (string) data_get($this->verified_data, 'aliexpress_product_id', '');
+
+        return $id !== '' ? $id : null;
+    }
+
     /**
      * @return array<string, array{name?: string, description?: string, badge?: string}>
      */
@@ -176,6 +191,30 @@ class Product extends Model
         }
 
         return count($this->comments());
+    }
+
+    /**
+     * @return list<array{name: string, value: string}>
+     */
+    public function details(): array
+    {
+        $list = data_get($this->verified_data, 'details', []);
+        if (! is_array($list)) {
+            return [];
+        }
+        $out = [];
+        foreach ($list as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $name = trim((string) ($row['name'] ?? ''));
+            $value = trim((string) ($row['value'] ?? ''));
+            if ($name !== '' && $value !== '') {
+                $out[] = ['name' => $name, 'value' => $value];
+            }
+        }
+
+        return $out;
     }
 
     /**

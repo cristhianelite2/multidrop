@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -21,6 +22,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if (str_starts_with((string) config('app.url'), 'https://')) {
+            URL::forceScheme('https');
+        }
+
         Blade::if('canperm', function (string ...$permissions) {
             $user = Auth::user();
             if (! $user) {
@@ -36,6 +41,8 @@ class AppServiceProvider extends ServiceProvider
 
         $this->applyPaymentSettingsFromDb();
         $this->applyCjSettingsFromDb();
+        $this->applyAliExpressSettingsFromDb();
+        $this->applyCloudflareSettingsFromDb();
         $this->applyAiSettingsFromDb();
         $this->applyMailSettingsFromDb();
     }
@@ -107,6 +114,55 @@ class AppServiceProvider extends ServiceProvider
             if ($value !== null && $value !== '') {
                 config([$configKey => $value]);
             }
+        }
+    }
+
+    protected function applyAliExpressSettingsFromDb(): void
+    {
+        try {
+            if (! Schema::hasTable('platform_settings')) {
+                return;
+            }
+        } catch (\Throwable) {
+            return;
+        }
+
+        $map = [
+            'aliexpress.app_key' => 'aliexpress.app_key',
+            'aliexpress.app_secret' => 'aliexpress.app_secret',
+            'aliexpress.tracking_id' => 'aliexpress.tracking_id',
+            'aliexpress.ship_to' => 'aliexpress.ship_to',
+        ];
+
+        foreach ($map as $dbKey => $configKey) {
+            $value = PlatformSetting::getValue($dbKey);
+            if ($value !== null && $value !== '') {
+                config([$configKey => $value]);
+            }
+        }
+    }
+
+    protected function applyCloudflareSettingsFromDb(): void
+    {
+        try {
+            if (! Schema::hasTable('platform_settings')) {
+                return;
+            }
+        } catch (\Throwable) {
+            return;
+        }
+
+        $account = PlatformSetting::getValue('cloudflare.account_id');
+        if ($account !== null && $account !== '') {
+            config(['cloudflare.account_id' => $account]);
+        }
+        $token = PlatformSetting::getValue('cloudflare.api_token');
+        if ($token !== null && $token !== '') {
+            config(['cloudflare.api_token' => $token]);
+        }
+        $enabled = PlatformSetting::getValue('cloudflare.browser_rendering');
+        if ($enabled !== null && $enabled !== '') {
+            config(['cloudflare.enabled' => filter_var($enabled, FILTER_VALIDATE_BOOLEAN)]);
         }
     }
 

@@ -51,8 +51,8 @@
                         </a>
                     @endcanperm
                     @canperm('lab.cj')
-                        <a href="{{ route('admin.lab.cj') }}" class="admin-nav-link {{ $navActive('admin.lab.cj*') ? 'admin-nav-link-active' : '' }}" title="CJ Search">
-                            <span class="admin-nav-ico"><i class="fa-solid fa-magnifying-glass"></i></span><span class="admin-nav-txt">CJ Search</span>
+                        <a href="{{ route('admin.lab.cj') }}" class="admin-nav-link {{ $navActive('admin.lab.cj*') ? 'admin-nav-link-active' : '' }}" title="Product Hunter">
+                            <span class="admin-nav-ico"><i class="fa-solid fa-magnifying-glass"></i></span><span class="admin-nav-txt">Product Hunter</span>
                         </a>
                     @endcanperm
                 </div>
@@ -213,7 +213,7 @@
                 @endif
             @endcanperm
             @canperm('lab.cj')
-                <a href="{{ route('admin.lab.cj') }}" class="admin-nav-link">CJ Search</a>
+                <a href="{{ route('admin.lab.cj') }}" class="admin-nav-link">Product Hunter</a>
             @endcanperm
             @canperm('settings.general')
                 <a href="{{ route('admin.settings.general') }}" class="admin-nav-link">General</a>

@@ -10,6 +10,16 @@
         $hasMiia = $has_miia ?? false;
         $currencies = $currencies ?? [];
         $localeCurrencyMap = $locale_currency_map ?? [];
+        $filters = $filters ?? [
+            'q' => '',
+            'status' => '',
+            'source' => '',
+            'flag' => '',
+            'sort' => 'newest',
+            'per_page' => 20,
+        ];
+        $activeFilters = (int) ($active_filters ?? 0);
+        $hasFilters = $activeFilters > 0 || ($filters['sort'] ?? 'newest') !== 'newest' || (int) ($filters['per_page'] ?? 20) !== 20;
     @endphp
 
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -22,6 +32,86 @@
             <a href="{{ route('admin.store.products.create') }}" class="admin-btn">Nuevo producto</a>
         </div>
     </div>
+
+    <form method="get" action="{{ route('admin.store.products.index') }}" id="products-filter-form" class="admin-card mb-5 p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+                <h2 class="font-display text-base font-bold text-ink">Buscar y filtrar</h2>
+                @if($activeFilters > 0)
+                    <span class="admin-badge bg-teal/10 text-teal">{{ $activeFilters }} activo(s)</span>
+                @endif
+            </div>
+            @if($hasFilters)
+                <a href="{{ route('admin.store.products.index') }}" class="text-xs text-ink-soft/60 hover:text-teal underline">Limpiar filtros</a>
+            @endif
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div class="sm:col-span-2 lg:col-span-2 xl:col-span-2">
+                <label class="mb-1 block text-[11px] font-medium text-ink-soft/60">Búsqueda</label>
+                <input type="search" name="q" value="{{ $filters['q'] }}" class="admin-input !py-1.5 text-sm"
+                       placeholder="Nombre, SKU, ID, CJ PID, AliExpress ID…" autocomplete="off">
+            </div>
+            <div>
+                <label class="mb-1 block text-[11px] font-medium text-ink-soft/60">Estado</label>
+                <select name="status" class="admin-input !py-1.5 text-sm">
+                    <option value="">Todos</option>
+                    <option value="live" @selected($filters['status'] === 'live')>Publicado</option>
+                    <option value="draft" @selected($filters['status'] === 'draft')>Borrador</option>
+                    <option value="paused" @selected($filters['status'] === 'paused')>Pausado</option>
+                    <option value="archived" @selected($filters['status'] === 'archived')>Archivado</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-[11px] font-medium text-ink-soft/60">Origen</label>
+                <select name="source" class="admin-input !py-1.5 text-sm">
+                    <option value="">Todos</option>
+                    <option value="cj" @selected($filters['source'] === 'cj')>CJ Dropshipping</option>
+                    <option value="aliexpress" @selected($filters['source'] === 'aliexpress')>AliExpress</option>
+                    <option value="manual" @selected($filters['source'] === 'manual')>Manual</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-[11px] font-medium text-ink-soft/60">Marca</label>
+                <select name="flag" class="admin-input !py-1.5 text-sm">
+                    <option value="">Todas</option>
+                    <option value="star" @selected($filters['flag'] === 'star')>Producto estrella</option>
+                    <option value="featured" @selected($filters['flag'] === 'featured')>Destacado</option>
+                    <option value="has_variants" @selected($filters['flag'] === 'has_variants')>Con variantes</option>
+                    <option value="no_variants" @selected($filters['flag'] === 'no_variants')>Sin variantes</option>
+                    <option value="no_image" @selected($filters['flag'] === 'no_image')>Sin imagen</option>
+                </select>
+            </div>
+            <div>
+                <label class="mb-1 block text-[11px] font-medium text-ink-soft/60">Ordenar</label>
+                <select name="sort" class="admin-input !py-1.5 text-sm">
+                    <option value="newest" @selected($filters['sort'] === 'newest')>Más recientes</option>
+                    <option value="oldest" @selected($filters['sort'] === 'oldest')>Más antiguos</option>
+                    <option value="name_asc" @selected($filters['sort'] === 'name_asc')>Nombre A–Z</option>
+                    <option value="name_desc" @selected($filters['sort'] === 'name_desc')>Nombre Z–A</option>
+                    <option value="price_asc" @selected($filters['sort'] === 'price_asc')>Precio ↑</option>
+                    <option value="price_desc" @selected($filters['sort'] === 'price_desc')>Precio ↓</option>
+                    <option value="stock_desc" @selected($filters['sort'] === 'stock_desc')>Stock ↓</option>
+                </select>
+            </div>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-ink-soft/55">
+                <label class="inline-flex items-center gap-1.5">
+                    <span>Por página</span>
+                    <select name="per_page" class="admin-input !py-1 !px-2 !w-auto text-xs">
+                        <option value="20" @selected((int) $filters['per_page'] === 20)>20</option>
+                        <option value="50" @selected((int) $filters['per_page'] === 50)>50</option>
+                        <option value="100" @selected((int) $filters['per_page'] === 100)>100</option>
+                    </select>
+                </label>
+                <span>·</span>
+                <span>{{ $products->total() }} resultado{{ $products->total() === 1 ? '' : 's' }}</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="submit" class="admin-btn !py-1.5 !px-3 text-sm">Filtrar</button>
+            </div>
+        </div>
+    </form>
 
     {{-- La barra bulk se renderiza fuera del flujo del documento (ver @push al final) --}}
 
@@ -36,8 +126,12 @@
         <div id="bulk-toolbar-placeholder" style="display:none"></div>
 
         <div class="admin-card overflow-hidden">
-            <div class="border-b border-line px-4 py-3">
+            <div class="border-b border-line px-4 py-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-display text-base font-bold text-ink">Catálogo</h2>
+                <span class="text-xs text-ink-soft/55">
+                    {{ $products->firstItem() ? $products->firstItem().'–'.$products->lastItem() : '0' }}
+                    de {{ $products->total() }}
+                </span>
             </div>
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm">
@@ -80,6 +174,7 @@
                                 }
                             }
                             $isCj = $product->isFromCj();
+                            $isAe = $product->isFromAliExpress();
                         @endphp
                         <tr class="border-b border-line/70 last:border-0 hover:bg-mist/20 cursor-pointer" data-product-row>
                             <td class="px-3 py-2 align-middle">
@@ -89,6 +184,7 @@
                                     value="{{ $product->id }}"
                                     class="bulk-row-check rounded border-line text-teal focus:ring-teal/30"
                                     data-cj="{{ $isCj ? '1' : '0' }}"
+                                    data-ae="{{ $isAe ? '1' : '0' }}"
                                 >
                             </td>
                             <td class="px-3 py-2" style="max-width:260px">
@@ -104,7 +200,11 @@
                                             @if($product->sku)
                                                 <span class="text-[11px] text-ink-soft/55" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ $product->sku }}</span>
                                             @endif
-                                            @if($isCj)<span class="admin-badge bg-amber/10 text-amber !text-[10px] shrink-0">CJ</span>@endif
+                                            @if($isCj)
+                                                <span class="admin-badge bg-amber/10 text-amber !text-[10px] shrink-0" title="CJ Dropshipping">CJ</span>
+                                            @elseif($isAe)
+                                                <span class="admin-badge bg-orange-50 text-orange-600 !text-[10px] shrink-0" title="AliExpress">AE</span>
+                                            @endif
                                             @if($store->isStarProduct($product))
                                                 <span class="admin-badge bg-amber/15 text-amber !text-[10px] shrink-0">★</span>
                                             @elseif($product->is_featured)
@@ -158,7 +258,16 @@
                             </td>
                         </tr>
                     @empty
-                        <tr><td colspan="7" class="px-4 py-10 text-center text-ink-soft/60">Sin productos en este sitio.</td></tr>
+                        <tr>
+                            <td colspan="7" class="px-4 py-10 text-center text-ink-soft/60">
+                                @if($hasFilters)
+                                    Ningún producto coincide con los filtros.
+                                    <a href="{{ route('admin.store.products.index') }}" class="text-teal underline">Limpiar filtros</a>
+                                @else
+                                    Sin productos en este sitio.
+                                @endif
+                            </td>
+                        </tr>
                     @endforelse
                     </tbody>
                 </table>
@@ -190,6 +299,10 @@
   var hasMiia = @json($hasMiia);
   var localesJson = @json($locales);
   var currenciesJson = @json($currencies);
+
+  $('#products-filter-form').on('change', 'select', function () {
+    $('#products-filter-form').trigger('submit');
+  });
 
   /* ── 1. Crear el toolbar como overlay en el <body> ───────────── */
   var localeOpts = '<option value="">Idioma\u2026</option>';

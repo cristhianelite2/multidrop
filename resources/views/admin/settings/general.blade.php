@@ -2,7 +2,7 @@
 
 @section('title', 'General')
 @section('heading', 'General')
-@section('subheading', 'APIs, contacto, Resend, pagos y CJ Dropshipping de toda la plataforma. Cada tienda configura lo suyo en su propio General.')
+@section('subheading', 'APIs, contacto, Resend, pagos, CJ Dropshipping, AliExpress y Cloudflare Browser Rendering.')
 
 @section('content')
     @php $pixels = $pixels ?? ['ga_measurement_id' => '', 'meta_pixel_id' => '']; @endphp
@@ -11,6 +11,8 @@
             <p class="mb-2 hidden text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55 lg:block">Secciones</p>
             <div class="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
                 <a href="#sec-cj">CJ / MCP</a>
+                <a href="#sec-aliexpress">AliExpress</a>
+                <a href="#sec-cf-browser">Browser Rendering</a>
                 <a href="#sec-ai">Inteligencia artificial</a>
                 <a href="#sec-payments">Pagos</a>
                 <a href="#sec-security">Seguridad</a>
@@ -207,6 +209,162 @@
                 </div>
             @endif
         </div>
+    </div>
+
+    <div class="admin-card p-5 sm:p-6 space-y-6" id="sec-aliexpress">
+        @php $ae = $aliexpress ?? []; @endphp
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="font-display text-lg font-bold text-ink">AliExpress Affiliate</h2>
+                <p class="mt-1 text-sm text-ink-soft/70">
+                    Ficha de producto para Product Hunter (imágenes, precio, categoría). No coloca pedidos en AliExpress.
+                    Orden de extracción: API Affiliate → <a href="#sec-cf-browser" class="text-teal hover:underline">Cloudflare Browser Rendering</a> → scrape HTTP.
+                </p>
+            </div>
+            <a href="https://portals.aliexpress.com/" target="_blank" rel="noopener" class="text-sm font-medium text-teal hover:underline">
+                Portals Affiliate ↗
+            </a>
+        </div>
+
+        <form method="post" action="{{ route('admin.settings.general.aliexpress.save') }}" class="space-y-4 rounded-2xl border border-line bg-mist/40 p-4" id="ae-api-form">
+            @csrf
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-ink">App Key, Secret y Tracking ID</h3>
+                @if($ae['has_app_key'] ?? false)
+                    <span class="admin-badge bg-teal/10 text-teal">App Key guardada</span>
+                @else
+                    <span class="admin-badge bg-coral/10 text-coral">Sin configurar</span>
+                @endif
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">App Key {{ ($hasDb['aliexpress_app_key'] ?? false) ? '(guardada · deja ******** para no cambiar)' : '' }}</label>
+                    <input name="aliexpress_app_key" id="aliexpress_app_key" value="{{ old('aliexpress_app_key', $ae['app_key'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off" placeholder="tu App Key">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">App Secret {{ ($hasDb['aliexpress_app_secret'] ?? false) ? '(guardado · deja ********)' : '' }}</label>
+                    <input name="aliexpress_app_secret" id="aliexpress_app_secret" type="password" value="{{ old('aliexpress_app_secret', $ae['app_secret'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Tracking ID (PID)</label>
+                    <input name="aliexpress_tracking_id" id="aliexpress_tracking_id" value="{{ old('aliexpress_tracking_id', $ae['tracking_id'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off" placeholder="tu tracking id">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">País de envío (ISO-2)</label>
+                    <input name="aliexpress_ship_to" id="aliexpress_ship_to" value="{{ old('aliexpress_ship_to', $ae['ship_to'] ?? 'MX') }}" class="admin-input font-mono text-sm uppercase" maxlength="2">
+                </div>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">ID de producto para la prueba (opcional)</label>
+                <input id="aliexpress_test_product_id" value="{{ $ae['test_product_id'] ?? '' }}" class="admin-input font-mono text-sm" placeholder="1005005993442954">
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="submit" class="admin-btn">Guardar AliExpress</button>
+                <button type="button" class="js-api-test admin-btn-secondary" data-provider="aliexpress" data-url="{{ route('admin.settings.general.api.test') }}">Probar API</button>
+            </div>
+            @include('admin.settings.partials.api-help', [
+                'title' => 'Cómo obtener la API de AliExpress Affiliate',
+                'steps' => [
+                    'Entra a <a class="text-teal hover:underline" href="https://portals.aliexpress.com/" target="_blank" rel="noopener">AliExpress Affiliate (Portals)</a> e inicia sesión (o crea cuenta de afiliado, es gratis).',
+                    'Ve a <strong>Account → API</strong> o <strong>App management</strong> y crea una app. Copia <strong>App Key</strong> y <strong>App Secret</strong>.',
+                    'En el mismo portal copia tu <strong>Tracking ID</strong> (a veces llamado PID).',
+                    'Pega los tres datos aquí, pulsa <strong>Guardar AliExpress</strong> y luego <strong>Probar API</strong>. La prueba llama <code>aliexpress.affiliate.productdetail.get</code>.',
+                    'Si la prueba falla, Product Hunter usa Cloudflare Browser Rendering (si está activo) y luego scrape HTTP. La API mejora título, precio e imágenes oficiales.',
+                ],
+            ])
+            @php $cfb = $cfBrowser ?? []; @endphp
+            <p class="text-xs text-ink-soft/70">
+                Crawler Cloudflare:
+                @if(!empty($cfb['ready']))
+                    <span class="font-medium text-teal">activo</span>
+                @else
+                    <span class="font-medium text-coral">apagado</span> — configúralo en
+                    <a href="#sec-cf-browser" class="text-teal hover:underline">Browser Rendering</a>.
+                @endif
+            </p>
+            @if(($ae['last_test_at'] ?? null))
+                <p class="js-api-test-last text-xs {{ ($ae['last_test_ok'] ?? false) ? 'text-teal' : 'text-coral' }}">
+                    Última prueba: {{ \Illuminate\Support\Carbon::parse($ae['last_test_at'])->diffForHumans() }}
+                    — {{ $ae['last_test_message'] ?? '' }}
+                </p>
+            @else
+                <p class="js-api-test-last text-xs text-ink-soft/55 hidden"></p>
+            @endif
+        </form>
+    </div>
+
+    <div class="admin-card p-5 sm:p-6 space-y-6" id="sec-cf-browser">
+        @php $cfb = $cfBrowser ?? []; @endphp
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="font-display text-lg font-bold text-ink">Cloudflare Browser Rendering</h2>
+                <p class="mt-1 text-sm text-ink-soft/70">
+                    Chromium remoto de Cloudflare (producto <strong>Browser Run</strong>, API sigue llamándose Browser Rendering).
+                    Renderiza el JavaScript de AliExpress sin pegarle al droplet. Product Hunter lo usa si está activo.
+                </p>
+            </div>
+            <a href="{{ $cfb['docs'] ?? 'https://developers.cloudflare.com/browser-run/quick-actions/content-endpoint/' }}" target="_blank" rel="noopener" class="text-sm font-medium text-teal hover:underline">
+                Docs Cloudflare ↗
+            </a>
+        </div>
+
+        <form method="post" action="{{ route('admin.settings.general.cloudflare-browser.save') }}" class="space-y-4 rounded-2xl border border-line bg-mist/40 p-4" id="cf-browser-form">
+            @csrf
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-ink">Account ID y API Token</h3>
+                @if(!empty($cfb['ready']))
+                    <span class="admin-badge bg-teal/10 text-teal">Listo para crawlear</span>
+                @elseif(!empty($cfb['has_token']) && !empty($cfb['has_account']))
+                    <span class="admin-badge bg-amber-100 text-amber-800">Credenciales guardadas · apagado</span>
+                @else
+                    <span class="admin-badge bg-coral/10 text-coral">Sin configurar</span>
+                @endif
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Account ID {{ !empty($cfb['has_account']) ? '(deja el valor para no cambiar)' : '' }}</label>
+                    <input name="cf_account_id" id="cf_account_id" value="{{ old('cf_account_id', $cfb['account_id'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off" placeholder="32 caracteres hex">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">API Token {{ !empty($cfb['has_token']) ? '(guardado · deja ********)' : '' }}</label>
+                    <input name="cf_api_token" id="cf_api_token" type="password" value="{{ old('cf_api_token', $cfb['api_token'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off" placeholder="token custom Account → Browser Rendering → Edit">
+                </div>
+            </div>
+            <div>
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">URL de prueba (opcional)</label>
+                <input id="cf_browser_test_url" value="https://example.com/" class="admin-input font-mono text-sm" placeholder="https://example.com/">
+                <p class="mt-1 text-[11px] text-ink-soft/55">Por defecto example.com (no gasta cuota en AliExpress). Puedes pegar un item AE para una prueba real.</p>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm text-ink-soft">
+                <input type="hidden" name="cf_browser_rendering" value="0">
+                <input type="checkbox" name="cf_browser_rendering" id="cf_browser_rendering" value="1" @checked(old('cf_browser_rendering', $cfb['enabled'] ?? false))>
+                Activar Browser Rendering en Product Hunter
+            </label>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="submit" class="admin-btn">Guardar Cloudflare</button>
+                <button type="button" class="js-api-test admin-btn-secondary" data-provider="cloudflare_browser" data-url="{{ route('admin.settings.general.api.test') }}">Probar API</button>
+            </div>
+            @include('admin.settings.partials.api-help', [
+                'title' => 'Cómo crear el token (no hay plantilla)',
+                'steps' => [
+                    '<strong>Account ID:</strong> en el dashboard pulsa buscar (<kbd>Ctrl+K</kbd>) y elige <strong>Copy account ID</strong>. También está en <a class="text-teal hover:underline" href="https://dash.cloudflare.com/?to=/:account/workers-and-pages" target="_blank" rel="noopener">Compute → Workers &amp; Pages</a> → Account details.',
+                    'Abre <a class="text-teal hover:underline" href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">My Profile → API Tokens</a> y pulsa <strong>Create Token</strong>.',
+                    'En esa pantalla <strong>no uses ninguna plantilla</strong> (Edit zone DNS, Edit Cloudflare Workers, Workers AI, etc. no sirven). Arriba, en <strong>Custom token</strong>, pulsa <strong>Get started</strong>.',
+                    'Nombre el token (ej. <code>multidrop-browser</code>). En <strong>Permissions</strong> añade <em>una</em> fila con los tres desplegables: 1) <strong>Account</strong> · 2) <strong>Browser Rendering</strong> (si no sale, busca <strong>Browser Run</strong>) · 3) <strong>Edit</strong>. Queda: Account / Browser Rendering / Edit.',
+                    'En <strong>Account Resources</strong> deja <strong>Include → All accounts</strong>, o solo la cuenta de ese Account ID. <strong>Continue to summary → Create Token</strong>. Copia el secreto (solo se muestra una vez; los nuevos empiezan por <code>cfut_</code>).',
+                    'Pega Account ID y token aquí, marca <strong>Activar</strong>, <strong>Guardar Cloudflare</strong> y <strong>Probar API</strong> (example.com). Si Probar API responde 401, el token no tiene ese permiso o el Account ID no es de esa cuenta.',
+                    'Plan: el Free incluye ~10 min/día de navegador; Paid ~10 h/mes y luego 0,09 USD/h. No hace falta un Worker desplegado: usamos la REST <code>/browser-rendering/content</code>.',
+                ],
+            ])
+            @if(($cfb['last_test_at'] ?? null))
+                <p class="js-api-test-last text-xs {{ ($cfb['last_test_ok'] ?? false) ? 'text-teal' : 'text-coral' }}">
+                    Última prueba: {{ \Illuminate\Support\Carbon::parse($cfb['last_test_at'])->diffForHumans() }}
+                    — {{ $cfb['last_test_message'] ?? '' }}
+                </p>
+            @else
+                <p class="js-api-test-last text-xs text-ink-soft/55 hidden"></p>
+            @endif
+        </form>
     </div>
 
     <form method="post" action="{{ route('admin.settings.general.update') }}" class="mt-6 space-y-6">
@@ -426,6 +584,11 @@
                     @else
                         <span class="admin-badge bg-mist text-ink-soft">Access OFF</span>
                     @endif
+                    @if(!empty($sec['browser_ready']))
+                        <span class="admin-badge bg-teal/10 text-teal">Browser Rendering ON</span>
+                    @else
+                        <a href="#sec-cf-browser" class="admin-badge bg-mist text-ink-soft hover:bg-mist/80">Browser Rendering OFF</a>
+                    @endif
                     @include('admin.settings.partials.api-test-btn', ['provider' => 'turnstile'])
                 </div>
             </div>
@@ -458,6 +621,10 @@
                     @if(!empty($docs['turnstile']))
                         — <a class="text-teal hover:underline" href="{{ $docs['turnstile'] }}" target="_blank" rel="noopener">docs ↗</a>
                     @endif
+                </li>
+                <li>
+                    Crawler AliExpress: <a href="#sec-cf-browser" class="text-teal hover:underline">Cloudflare Browser Rendering</a>
+                    (token <strong>custom</strong>: Account → Browser Rendering → Edit; no hay plantilla).
                 </li>
                 <li>
                     (Opcional) Cloudflare Access para <code>/admin</code> vía
@@ -512,7 +679,7 @@
                     <h2 class="font-display text-lg font-bold text-ink">Monedas y conversión</h2>
                     <p class="mt-1 text-sm text-ink-soft/70">
                         Moneda base y tasas (1 <span class="font-mono" id="fx-base-label">{{ $currency['base'] }}</span> = X).
-                        Usadas al cambiar moneda en productos, CJ Search e importaciones.
+                        Usadas al cambiar moneda en productos, Product Hunter e importaciones.
                     </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
@@ -791,6 +958,18 @@
     var payload = { _token: csrf };
     if (provider === 'cj') {
       payload.cj_api_key = $('#cj_api_key').val() || '';
+    } else if (provider === 'aliexpress') {
+      payload.provider = 'aliexpress';
+      payload.aliexpress_app_key = $('#aliexpress_app_key').val() || '';
+      payload.aliexpress_app_secret = $('#aliexpress_app_secret').val() || '';
+      payload.aliexpress_tracking_id = $('#aliexpress_tracking_id').val() || '';
+      payload.aliexpress_test_product_id = $('#aliexpress_test_product_id').val() || '';
+    } else if (provider === 'cloudflare_browser') {
+      payload.provider = 'cloudflare_browser';
+      payload.cf_account_id = $('#cf_account_id').val() || '';
+      payload.cf_api_token = $('#cf_api_token').val() || '';
+      payload.cf_browser_rendering = $('#cf_browser_rendering').is(':checked') ? '1' : '0';
+      payload.cf_browser_test_url = $('#cf_browser_test_url').val() || '';
     } else {
       payload.provider = provider;
     }
@@ -811,7 +990,7 @@
       if (provider === 'miia' && res && Array.isArray(res.engines)) {
         fillAiEngineSelects(res.engines);
       }
-      if (provider === 'cj') {
+      if (provider === 'cj' || provider === 'aliexpress' || provider === 'cloudflare_browser') {
         var $last = $btn.closest('form').find('.js-api-test-last');
         if ($last.length) {
           $last.removeClass('hidden text-teal text-coral')

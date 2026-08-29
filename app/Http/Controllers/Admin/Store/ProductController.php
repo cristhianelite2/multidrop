@@ -20,20 +20,127 @@ class ProductController extends Controller
 {
     use ResolvesCurrentStore;
 
-    public function index(StoreContext $storeContext)
+    public function index(Request $request, StoreContext $storeContext)
     {
         $store = $this->currentStoreOrFail($storeContext);
-        $products = Product::query()
+
+        $filters = [
+            'q' => trim((string) $request->input('q', '')),
+            'status' => (string) $request->input('status', ''),
+            'source' => (string) $request->input('source', ''),
+            'flag' => (string) $request->input('flag', ''),
+            'sort' => (string) $request->input('sort', 'newest'),
+            'per_page' => (int) $request->input('per_page', 20),
+        ];
+
+        if (! in_array($filters['status'], ['', 'draft', 'live', 'paused', 'archived'], true)) {
+            $filters['status'] = '';
+        }
+        if (! in_array($filters['source'], ['', 'cj', 'aliexpress', 'manual'], true)) {
+            $filters['source'] = '';
+        }
+        if (! in_array($filters['flag'], ['', 'featured', 'star', 'has_variants', 'no_variants', 'no_image'], true)) {
+            $filters['flag'] = '';
+        }
+        if (! in_array($filters['sort'], ['newest', 'oldest', 'name_asc', 'name_desc', 'price_asc', 'price_desc', 'stock_desc'], true)) {
+            $filters['sort'] = 'newest';
+        }
+        if (! in_array($filters['per_page'], [20, 50, 100], true)) {
+            $filters['per_page'] = 20;
+        }
+
+        $query = Product::query()
             ->where('store_id', $store->id)
-            ->withCount('variants')
-            ->orderByDesc('id')
-            ->paginate(20);
+            ->withCount('variants');
+
+        if ($filters['q'] !== '') {
+            $q = $filters['q'];
+            $like = '%'.$q.'%';
+            $query->where(function ($w) use ($like, $q) {
+                $w->where('name', 'like', $like)
+                    ->orWhere('sku', 'like', $like)
+                    ->orWhere('slug', 'like', $like)
+                    ->orWhere('badge', 'like', $like)
+                    ->orWhere('verified_data->cj_pid', 'like', $like)
+                    ->orWhere('verified_data->aliexpress_product_id', 'like', $like)
+                    ->orWhere('verified_data->product_sku', 'like', $like);
+                if (ctype_digit($q)) {
+                    $w->orWhere('id', (int) $q);
+                }
+            });
+        }
+
+        if ($filters['status'] !== '') {
+            $query->where('status', $filters['status']);
+        }
+
+        if ($filters['source'] === 'cj') {
+            $query->where('verified_data->source', 'cj')
+                ->whereNotNull('verified_data->cj_pid')
+                ->where('verified_data->cj_pid', '!=', '');
+        } elseif ($filters['source'] === 'aliexpress') {
+            $query->whereIn('verified_data->source', ['aliexpress', 'aliexpress_es'])
+                ->whereNotNull('verified_data->aliexpress_product_id')
+                ->where('verified_data->aliexpress_product_id', '!=', '');
+        } elseif ($filters['source'] === 'manual') {
+            // Ni CJ completo ni AliExpress completo
+            $query->where(function ($w) {
+                $w->where(function ($notCj) {
+                    $notCj->whereNull('verified_data->source')
+                        ->orWhere('verified_data->source', '!=', 'cj')
+                        ->orWhereNull('verified_data->cj_pid')
+                        ->orWhere('verified_data->cj_pid', '');
+                })->where(function ($notAe) {
+                    $notAe->whereNull('verified_data->source')
+                        ->orWhereNotIn('verified_data->source', ['aliexpress', 'aliexpress_es'])
+                        ->orWhereNull('verified_data->aliexpress_product_id')
+                        ->orWhere('verified_data->aliexpress_product_id', '');
+                });
+            });
+        }
+
+        if ($filters['flag'] === 'featured') {
+            $query->where('is_featured', true);
+        } elseif ($filters['flag'] === 'star') {
+            $starId = $store->starProductId();
+            if ($starId) {
+                $query->where('id', $starId);
+            } else {
+                $query->whereRaw('0 = 1');
+            }
+        } elseif ($filters['flag'] === 'has_variants') {
+            $query->has('variants');
+        } elseif ($filters['flag'] === 'no_variants') {
+            $query->doesntHave('variants');
+        } elseif ($filters['flag'] === 'no_image') {
+            $query->where(function ($w) {
+                $w->whereNull('image_url')->orWhere('image_url', '');
+            });
+        }
+
+        match ($filters['sort']) {
+            'oldest' => $query->orderBy('id'),
+            'name_asc' => $query->orderBy('name')->orderByDesc('id'),
+            'name_desc' => $query->orderByDesc('name')->orderByDesc('id'),
+            'price_asc' => $query->orderBy('price')->orderByDesc('id'),
+            'price_desc' => $query->orderByDesc('price')->orderByDesc('id'),
+            'stock_desc' => $query->orderByDesc('stock')->orderByDesc('id'),
+            default => $query->orderByDesc('id'),
+        };
+
+        $products = $query->paginate($filters['per_page'])->withQueryString();
 
         $currency = app(CurrencyService::class);
+        $activeFilters = collect($filters)
+            ->except(['sort', 'per_page'])
+            ->filter(fn ($v) => $v !== '' && $v !== null)
+            ->count();
 
         return view('admin.store.products.index', [
             'store' => $store,
             'products' => $products,
+            'filters' => $filters,
+            'active_filters' => $activeFilters,
             'locales' => $this->availableLocales($store),
             'has_miia' => (bool) config('ai.providers.miia.api_key')
                 || (bool) \App\Models\PlatformSetting::getValue('ai.miia.api_key'),
@@ -132,6 +239,7 @@ class ProductController extends Controller
         $data['slug'] = $this->uniqueSlug($store->id, $data['slug'] ?? Str::slug($data['name']), $product->id);
         $data['is_featured'] = $request->boolean('is_featured');
         $data['creative_data'] = $this->mergeCreativeFromRequest($request, $product);
+        $data['verified_data'] = $this->mergeVerifiedFromRequest($request, $product);
         $product->update($data);
 
         if ($request->boolean('is_star')) {
@@ -546,6 +654,14 @@ class ProductController extends Controller
             $data['compare_at_price'] = $currency->roundAmount((float) $data['compare_at_price'], $data['currency']);
         }
 
+        if (array_key_exists('description', $data)) {
+            $data['description'] = app(\App\Services\Storefront\ProductDescriptionHtml::class)
+                ->normalizeSpaces((string) ($data['description'] ?? ''));
+            if ($data['description'] === '') {
+                $data['description'] = null;
+            }
+        }
+
         return $data;
     }
 
@@ -625,6 +741,97 @@ class ProductController extends Controller
         $creative['prices'] = $prices;
 
         return $creative;
+    }
+
+    protected function mergeVerifiedFromRequest(Request $request, Product $product): array
+    {
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+
+        if ($request->has('verified_rating_avg')) {
+            $avg = $request->input('verified_rating_avg');
+            $verified['rating_avg'] = ($avg !== null && $avg !== '') ? round((float) $avg, 2) : null;
+            $verified['rating'] = $verified['rating_avg'];
+        }
+
+        if ($request->has('verified_review_count')) {
+            $count = $request->input('verified_review_count');
+            $verified['review_count'] = ($count !== null && $count !== '') ? max(0, (int) $count) : null;
+        }
+
+        if ($request->has('verified_reviews_present')) {
+            $reviewsIn = $request->input('verified_reviews', []);
+            $reviews = [];
+            if (is_array($reviewsIn)) {
+                foreach ($reviewsIn as $row) {
+                    if (! is_array($row) || filter_var($row['_delete'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                        continue;
+                    }
+                    $author = trim((string) ($row['author'] ?? ''));
+                    $comment = trim((string) ($row['comment'] ?? ''));
+                    $score = (int) ($row['score'] ?? 0);
+                    if ($author === '' && $comment === '' && ($score < 1 || $score > 5)) {
+                        continue;
+                    }
+                    $images = [];
+                    $imgsRaw = trim((string) ($row['images'] ?? ''));
+                    if ($imgsRaw !== '') {
+                        foreach (preg_split('/[\n,]+/', $imgsRaw) ?: [] as $url) {
+                            $url = trim($url);
+                            if ($url !== '') {
+                                $images[] = $url;
+                            }
+                        }
+                    }
+                    $country = strtoupper(trim((string) ($row['country'] ?? '')));
+                    if ($country === 'UK') {
+                        $country = 'GB';
+                    }
+                    $reviews[] = array_filter([
+                        'author' => $author !== '' ? mb_substr($author, 0, 80) : 'Comprador',
+                        'score' => ($score >= 1 && $score <= 5) ? $score : null,
+                        'comment' => $comment !== '' ? mb_substr($comment, 0, 4000) : null,
+                        'country' => preg_match('/^[A-Z]{2}$/', $country) ? $country : null,
+                        'avatar' => trim((string) ($row['avatar'] ?? '')) ?: null,
+                        'date' => trim((string) ($row['date'] ?? '')) ?: null,
+                        'sku_info' => trim((string) ($row['sku_info'] ?? '')) ?: null,
+                        'images' => $images,
+                    ], fn ($v) => $v !== null && $v !== []);
+                }
+            }
+            $verified['reviews'] = $reviews;
+            $verified['comments'] = array_values(array_filter(
+                $reviews,
+                fn ($r) => trim((string) ($r['comment'] ?? '')) !== '' || ! empty($r['images'])
+            ));
+            $verified['comment_count'] = count($verified['comments']);
+            if (! $request->filled('verified_review_count')) {
+                $verified['review_count'] = count($reviews);
+            }
+        }
+
+        if ($request->has('verified_details_present')) {
+            $detailsIn = $request->input('verified_details', []);
+            $details = [];
+            if (is_array($detailsIn)) {
+                foreach ($detailsIn as $row) {
+                    if (! is_array($row) || filter_var($row['_delete'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+                        continue;
+                    }
+                    $name = trim((string) ($row['name'] ?? ''));
+                    $value = trim((string) ($row['value'] ?? ''));
+                    if ($name === '' || $value === '') {
+                        continue;
+                    }
+                    $details[] = [
+                        'name' => mb_substr($name, 0, 120),
+                        'value' => mb_substr($value, 0, 500),
+                    ];
+                }
+            }
+            $verified['details'] = $details;
+        }
+
+        return $verified;
     }
 
     /**

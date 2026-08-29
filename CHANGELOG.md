@@ -2,6 +2,25 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-08-29
+
+### Product Hunter / AliExpress
+- Importación por URL, HTML pegado y extensión Chrome (`aliexpress-hunter`).
+- Extracción de variantes desde DOM (`data-sku-col` / imágenes SKU), no solo la opción seleccionada.
+- URL de origen canónica `/item/{id}.html` (ignora trackers tipo Criteo).
+- Descripción en texto plano con espacios colapsados al importar y al guardar.
+- UI: colapsar/expandir detalles, descripción y reseñas; miniaturas de variantes con `referrerpolicy`.
+
+### Catálogo admin
+- Origen AE vs CJ en listado y ficha; reseñas/detalles/rating editables.
+- Sync AE guarda reviews, details y rating en `verified_data`.
+
+### Storefront
+- Lightbox modal al clic en fotos de reseñas/comentarios (flechas y Esc).
+
+### Infra / config
+- Cloudflare Browser Rendering y ajustes de settings generales para scraping AE.
+
 ## 2026-08-27
 
 ### Marketing

@@ -56,14 +56,32 @@ class ProductDescriptionHtml
         if ($parsed !== null) {
             $text = $parsed['short'] !== '' ? $parsed['short'] : $parsed['plain'];
 
-            return $this->firstSentences($text, $max);
+            return $this->firstSentences($this->normalizeSpaces($text), $max);
         }
-        $plain = trim(strip_tags($this->fullyDecode($value)));
+        $plain = $this->normalizeSpaces($value);
         if ($plain === '' || str_starts_with($plain, '{')) {
             return '';
         }
 
         return $this->firstSentences($plain, $max);
+    }
+
+    /**
+     * Quita HTML/entidades y deja como máximo un espacio entre palabras.
+     */
+    public function normalizeSpaces(string $value): string
+    {
+        $value = $this->fullyDecode($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/i', ' ', $value) ?? $value;
+        $value = strip_tags($value);
+        $value = str_replace(["\u{00A0}", "\xC2\xA0", "\t", "\r", "\n"], ' ', $value);
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     public function clean(string $html): string

@@ -62,6 +62,65 @@ class CjConnector implements SupplierInterface
     }
 
     /**
+     * Búsqueda visual CJ si el endpoint existe. Si 404 / no soportado, lista vacía (no se finge match).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function searchByImage(string $imageUrl): array
+    {
+        $imageUrl = trim($imageUrl);
+        if ($imageUrl === '' || ! preg_match('#^https?://#i', $imageUrl)) {
+            return [];
+        }
+
+        $attempts = [
+            ['POST', '/product/queryByImage', [], ['imageUrl' => $imageUrl]],
+            ['POST', '/product/queryByImage', [], ['imgUrl' => $imageUrl]],
+        ];
+
+        foreach ($attempts as [$method, $path, $query, $body]) {
+            $result = $this->request($method, $path, $query, $body);
+            if (! ($result['success'] ?? false)) {
+                continue;
+            }
+            $rows = [];
+            if (isset($result['data']) && is_array($result['data'])) {
+                $normalized = $this->normalizeListV2Payload($result);
+                $rows = is_array($normalized['list'] ?? null) ? $normalized['list'] : [];
+            }
+            if ($rows === []) {
+                $raw = $result['data'] ?? [];
+                $maybe = $raw['list'] ?? $raw['content'] ?? $raw;
+                if (is_array($maybe) && isset($maybe['pid'])) {
+                    $maybe = [$maybe];
+                }
+                if (is_array($maybe)) {
+                    foreach ($maybe as $row) {
+                        if (is_array($row) && ! empty($row['pid'] ?? $row['id'] ?? null)) {
+                            $rows[] = self::normalizeListItem($this->mapCatalogFields($row));
+                        }
+                    }
+                }
+            }
+            if ($rows !== []) {
+                $out = [];
+                foreach ($rows as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+                    $out[] = isset($row['title'])
+                        ? $row
+                        : self::normalizeListItem($this->mapCatalogFields($row));
+                }
+
+                return array_slice($out, 0, 8);
+            }
+        }
+
+        return [];
+    }
+
+    /**
      * Países donde CJ suele tener inventario filtrable; el resto se busca global.
      */
     protected function supportsInventoryCountry(string $code): bool

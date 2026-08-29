@@ -16,7 +16,7 @@ class AdminAccessSeeder extends Seeder
             ['name' => 'Acceso al panel', 'slug' => 'admin.access', 'group' => 'admin', 'description' => 'Entrar al lab interno'],
             ['name' => 'Ver dashboard', 'slug' => 'lab.dashboard', 'group' => 'lab', 'description' => null],
             ['name' => 'Discovery IA', 'slug' => 'lab.discovery', 'group' => 'lab', 'description' => null],
-            ['name' => 'CJ Search', 'slug' => 'lab.cj', 'group' => 'lab', 'description' => null],
+            ['name' => 'Product Hunter', 'slug' => 'lab.cj', 'group' => 'lab', 'description' => 'Buscar e importar productos de AliExpress o CJ'],
             ['name' => 'Product Score', 'slug' => 'lab.score', 'group' => 'lab', 'description' => null],
             ['name' => 'Administrar tienda', 'slug' => 'store.manage', 'group' => 'store', 'description' => 'Productos, promos, upsell, ruleta del sitio activo'],
             ['name' => 'Configuración general', 'slug' => 'settings.general', 'group' => 'settings', 'description' => 'Pagos y llaves de plataforma'],

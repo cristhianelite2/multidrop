@@ -18,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Cloudflare Tunnel / proxy termina TLS; Apache ve HTTP en 127.0.0.1
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'cloudflare.access' => CloudflareAccess::class,
             'admin.active' => EnsureAdminActive::class,
@@ -30,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->validateCsrfTokens(except: [
             'webhooks/*',
+            'admin/lab/cj/plugin-capture',
         ]);
 
         $middleware->redirectGuestsTo(function ($request) {

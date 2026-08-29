@@ -167,6 +167,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
         ->middleware('auth')
         ->name('logout');
 
+    Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-capture', [LabController::class, 'pluginCapture'])
+        ->name('lab.cj.plugin-capture');
+
     Route::middleware(['cloudflare.access', 'auth', 'admin.active', 'admin.store'])->group(function () {
         Route::middleware('permission:admin.access,lab.dashboard')->group(function () {
             Route::get('/', fn () => redirect()->route('admin.dashboard'));
@@ -350,6 +353,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/settings/general/currency/fetch', [GeneralSettingsController::class, 'fetchCurrencyRates'])->name('settings.general.currency.fetch');
             Route::post('/settings/general/cj/authorize', [GeneralSettingsController::class, 'authorizeCj'])->name('settings.general.cj.authorize');
             Route::post('/settings/general/cj/test', [GeneralSettingsController::class, 'testCj'])->name('settings.general.cj.test');
+            Route::post('/settings/general/aliexpress', [GeneralSettingsController::class, 'saveAliExpress'])->name('settings.general.aliexpress.save');
+            Route::post('/settings/general/cloudflare-browser', [GeneralSettingsController::class, 'saveCloudflareBrowser'])->name('settings.general.cloudflare-browser.save');
             Route::post('/settings/general/api/test', [GeneralSettingsController::class, 'testApi'])->name('settings.general.api.test');
             Route::get('/settings/general/ai/engines', [GeneralSettingsController::class, 'aiEngines'])->name('settings.general.ai.engines');
         });
@@ -365,6 +370,12 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/lab/cj/import', [LabController::class, 'importCjProduct'])->name('lab.cj.import');
             Route::post('/lab/cj/improve-prompt', [LabController::class, 'improvePrompt'])->name('lab.cj.improve-prompt');
             Route::post('/lab/cj/crawl', [LabController::class, 'crawlProduct'])->name('lab.cj.crawl');
+            Route::post('/lab/cj/hunt', [LabController::class, 'huntFromUrl'])->name('lab.cj.hunt');
+            Route::post('/lab/cj/hunt-html', [LabController::class, 'huntFromHtml'])->name('lab.cj.hunt-html');
+            Route::get('/lab/cj/capture/{id}', [LabController::class, 'captureResult'])->name('lab.cj.capture');
+            Route::get('/lab/cj/chrome-extension', [LabController::class, 'downloadChromeExtension'])->name('lab.cj.extension');
+            Route::post('/lab/cj/plugin-token', [LabController::class, 'regeneratePluginToken'])->name('lab.cj.plugin-token');
+            Route::post('/lab/cj/import-aliexpress', [LabController::class, 'importAliExpressProduct'])->name('lab.cj.import-aliexpress');
             Route::get('/lab/cj/videos/{pid}', [LabController::class, 'productVideos'])->name('lab.cj.videos');
             Route::get('/lab/cj/images/{pid}', [LabController::class, 'productImages'])->name('lab.cj.images');
             Route::get('/lab/cj/video-proxy', [LabController::class, 'videoProxy'])->name('lab.cj.video-proxy');

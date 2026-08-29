@@ -113,6 +113,7 @@ class StorefrontProductMapper
             'comment_count' => $p->commentCount(),
             'reviews' => $full ? $reviews : array_slice($reviews, 0, 4),
             'comments' => $full ? $comments : array_slice($comments, 0, 4),
+            'details' => $full ? $p->details() : array_slice($p->details(), 0, 20),
             'variants' => $variants,
             'variant_count' => count($variants),
             'has_video' => $videos['has_video'],

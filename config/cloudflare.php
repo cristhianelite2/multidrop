@@ -6,13 +6,20 @@ return [
     |--------------------------------------------------------------------------
     | Cloudflare Browser Rendering (scraping asistido)
     |--------------------------------------------------------------------------
-    | Docs: https://developers.cloudflare.com/browser-rendering/
-    | Requiere CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN con permiso Browser Rendering.
+    | Docs: https://developers.cloudflare.com/browser-run/quick-actions/content-endpoint/
+    | Token custom (no hay plantilla): Account → Browser Rendering → Edit.
     */
 
     'account_id' => env('CLOUDFLARE_ACCOUNT_ID'),
     'api_token' => env('CLOUDFLARE_API_TOKEN'),
     'enabled' => (bool) env('CLOUDFLARE_BROWSER_RENDERING', false),
+    'timeout' => (int) env('CLOUDFLARE_BROWSER_TIMEOUT', 90),
+    'goto_timeout_ms' => (int) env('CLOUDFLARE_BROWSER_GOTO_MS', 30000),
+    'wait_until' => env('CLOUDFLARE_BROWSER_WAIT_UNTIL', 'networkidle2'),
+    'user_agent' => env(
+        'CLOUDFLARE_BROWSER_UA',
+        'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36'
+    ),
 
     /*
     |--------------------------------------------------------------------------
@@ -59,6 +66,7 @@ return [
     | Se configuran en el dashboard de Cloudflare; aquí solo checklist + docs.
     */
     'docs' => [
+        'browser_rendering' => 'https://developers.cloudflare.com/browser-run/quick-actions/content-endpoint/',
         'bot_fight' => 'https://developers.cloudflare.com/bots/get-started/bot-fight-mode/',
         'ai_crawl' => 'https://developers.cloudflare.com/bots/concepts/bot/#ai-crawlers',
         'turnstile' => 'https://developers.cloudflare.com/turnstile/get-started/',

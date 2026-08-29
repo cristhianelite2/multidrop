@@ -23,11 +23,43 @@
     }
     $cjVariants = $product->exists ? $product->variants : collect();
     $isCj = $product->exists && $product->isFromCj();
+    $isAe = $product->exists && $product->isFromAliExpress();
     $cjReviews = $product->exists ? $product->reviews() : [];
     $cjComments = $product->exists ? $product->comments() : [];
     $cjRatingAvg = $product->exists ? $product->ratingAvg() : null;
     $cjReviewCount = $product->exists ? $product->reviewCount() : 0;
     $cjCommentCount = $product->exists ? $product->commentCount() : 0;
+    $cjDetails = $product->exists ? $product->details() : [];
+    $editableReviews = old('verified_reviews', $cjReviews);
+    if (! is_array($editableReviews)) {
+        $editableReviews = [];
+    }
+    $editableDetails = old('verified_details', $cjDetails);
+    if (! is_array($editableDetails)) {
+        $editableDetails = [];
+    }
+    $editableRating = old('verified_rating_avg', $cjRatingAvg ?? $verified['rating_avg'] ?? $verified['rating'] ?? '');
+    $editableReviewCount = old('verified_review_count', $cjReviewCount);
+    $sourceOriginLabel = $isCj ? 'CJ Dropshipping' : ($isAe ? 'AliExpress' : 'Manual');
+    $sourceOriginUrl = $isAe
+        ? (string) ($verified['aliexpress_url'] ?? '')
+        : ($isCj ? (string) ($verified['cj_url'] ?? '') : '');
+    if ($isAe) {
+        $aePid = (string) ($verified['aliexpress_product_id'] ?? '');
+        $badOrigin = $sourceOriginUrl === ''
+            || ! preg_match('#^https?://(?:[a-z0-9-]+\.)*aliexpress\.#i', $sourceOriginUrl)
+            || ! preg_match('#/(?:item|i)/\d{10,20}#i', $sourceOriginUrl);
+        if ($badOrigin && $aePid !== '' && preg_match('/^\d{10,20}$/', $aePid)) {
+            $sourceOriginUrl = 'https://www.aliexpress.com/item/'.$aePid.'.html';
+        }
+    }
+    $sourceCaptureLabel = match ((string) ($verified['source_mode'] ?? '')) {
+        'html' => 'HTML pegado (Product Hunter)',
+        'plugin' => 'Plugin / captura del navegador',
+        'cloudflare' => 'Cloudflare Browser Rendering',
+        'scrape' => 'Scrape HTML directo',
+        default => trim((string) ($verified['source_note'] ?? '')),
+    };
     $locales = $locales ?? [];
     $hasMiia = $has_miia ?? false;
 
@@ -40,6 +72,18 @@
     }
     if (trim((string) ($translations[$defaultLocale]['description'] ?? '')) === '' && $product->description) {
         $translations[$defaultLocale]['description'] = $product->description;
+    }
+    $descHtml = app(\App\Services\Storefront\ProductDescriptionHtml::class);
+    foreach ($translations as $locKey => $row) {
+        if (! is_array($row)) {
+            continue;
+        }
+        if (! empty($row['description'])) {
+            $translations[$locKey]['description'] = $descHtml->normalizeSpaces((string) $row['description']);
+        }
+    }
+    if (! empty($product->description)) {
+        $product->setAttribute('description', $descHtml->normalizeSpaces((string) $product->description));
     }
     if (trim((string) ($translations[$defaultLocale]['badge'] ?? '')) === '' && $product->badge) {
         $translations[$defaultLocale]['badge'] = $product->badge;
@@ -570,15 +614,45 @@
     @if($product->exists)
         <div class="admin-card p-5 sm:p-6 space-y-4 admin-card-span-2">
             <div class="flex flex-wrap items-center justify-between gap-2">
-                <h2 class="font-display text-lg font-bold text-ink">Fuente CJ Dropshipping</h2>
+                <h2 class="font-display text-lg font-bold text-ink">
+                    @if($isAe)
+                        Origen del producto
+                    @elseif($isCj)
+                        Fuente CJ Dropshipping
+                    @else
+                        Origen del producto
+                    @endif
+                </h2>
                 @if($isCj)
                     <span class="admin-badge bg-teal/10 text-teal">PID {{ $verified['cj_pid'] ?? '—' }}</span>
+                @elseif($isAe)
+                    <span class="admin-badge bg-amber/10 text-amber">AliExpress · {{ $verified['aliexpress_product_id'] ?? '—' }}</span>
                 @else
-                    <span class="admin-badge bg-mist text-ink-soft">Sin origen CJ</span>
+                    <span class="admin-badge bg-mist text-ink-soft">Sin proveedor vinculado</span>
                 @endif
             </div>
 
-            @if($isCj)
+            @if($isAe)
+                <div class="grid gap-3 sm:grid-cols-2 text-sm">
+                    <div>
+                        <span class="text-ink-soft/55">Origen</span>
+                        <div class="font-medium text-ink">{{ $sourceOriginLabel }}</div>
+                        @if($sourceCaptureLabel !== '')
+                            <p class="mt-0.5 text-xs text-ink-soft/55">{{ $sourceCaptureLabel }}</p>
+                        @endif
+                    </div>
+                    <div class="sm:col-span-1">
+                        <span class="text-ink-soft/55">URL de origen</span>
+                        @if($sourceOriginUrl !== '')
+                            <div class="mt-0.5 font-medium break-all">
+                                <a class="text-teal underline" href="{{ $sourceOriginUrl }}" target="_blank" rel="noopener">{{ $sourceOriginUrl }}</a>
+                            </div>
+                        @else
+                            <div class="font-medium text-ink-soft/50">—</div>
+                        @endif
+                    </div>
+                </div>
+            @elseif($isCj)
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
                     <div><span class="text-ink-soft/55">SKU CJ</span><div class="font-medium text-ink">{{ $verified['product_sku'] ?? '—' }}</div></div>
                     <div><span class="text-ink-soft/55">Categoría</span><div class="font-medium text-ink">{{ $verified['category'] ?? '—' }}</div></div>
@@ -668,64 +742,7 @@
                 </div>
 
                 <div>
-                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="font-display text-base font-bold text-ink">
-                            Reseñas
-                            @if($cjReviewCount > 0)
-                                ({{ $cjReviewCount }})
-                            @else
-                                ({{ count($cjReviews) }})
-                            @endif
-                        </h3>
-                        <span class="text-xs text-ink-soft/55">
-                            @if($cjRatingAvg !== null)
-                                ★ {{ number_format($cjRatingAvg, 1) }} / 5
-                                @if(!empty($verified['reviews_synced_at']))
-                                    · sync {{ \Illuminate\Support\Carbon::parse($verified['reviews_synced_at'])->diffForHumans() }}
-                                @endif
-                            @else
-                                Rating + comentarios del comprador (CJ)
-                            @endif
-                        </span>
-                    </div>
-                    @if($cjReviews)
-                        <div class="space-y-3 max-h-[28rem] overflow-y-auto rounded-xl border border-line p-3">
-                            @foreach($cjReviews as $review)
-                                <article class="rounded-lg border border-line/70 bg-mist/20 p-3">
-                                    <div class="mb-1 flex flex-wrap items-center gap-2 text-xs">
-                                        <span class="font-semibold text-ink">{{ $review['author'] ?? 'Comprador' }}</span>
-                                        @if(!empty($review['country']))
-                                            <span class="admin-badge bg-mist text-ink-soft">{{ $review['country'] }}</span>
-                                        @endif
-                                        <span class="text-amber font-medium">
-                                            @php $stars = (int) ($review['score'] ?? 0); @endphp
-                                            {{ str_repeat('★', max(0, min(5, $stars))).str_repeat('☆', max(0, 5 - min(5, $stars))) }}
-                                        </span>
-                                        @if(!empty($review['date']))
-                                            <span class="text-ink-soft/50">{{ \Illuminate\Support\Str::limit((string) $review['date'], 32, '') }}</span>
-                                        @endif
-                                    </div>
-                                    @if(!empty($review['comment']))
-                                        <p class="text-sm text-ink-soft whitespace-pre-wrap">{{ $review['comment'] }}</p>
-                                    @endif
-                                    @if(!empty($review['images']) && is_array($review['images']))
-                                        <div class="mt-2 flex flex-wrap gap-2">
-                                            @foreach($review['images'] as $rimg)
-                                                <img src="{{ $rimg }}" alt="" class="h-14 w-14 rounded-md object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity" loading="lazy">
-                                            @endforeach
-                                        </div>
-                                    @endif
-                                </article>
-                            @endforeach
-                        </div>
-                        @if($cjReviewCount > count($cjReviews))
-                            <p class="mt-2 text-xs text-ink-soft/55">
-                                Mostrando {{ count($cjReviews) }} de {{ $cjReviewCount }} reseñas totales en CJ.
-                            </p>
-                        @endif
-                    @else
-                        <p class="text-sm text-ink-soft/55">Sin reseñas aún. Pulsa «Sincronizar desde CJ» para importar rating y comentarios.</p>
-                    @endif
+                    <p class="text-sm text-ink-soft/55">Las reseñas, el ranking y los detalles se editan en la sección <strong class="text-ink">Reseñas, ranking y detalles</strong> más abajo.</p>
                 </div>
 
                 <div>
@@ -835,8 +852,149 @@
                     @endif
                 </div>
             @else
-                <p class="text-sm text-ink-soft/60">Este producto no viene de CJ. Importa desde <a class="text-teal underline" href="{{ route('admin.lab.cj') }}">CJ Search</a>.</p>
+                <p class="text-sm text-ink-soft/60">Producto creado manualmente. Importa desde <a class="text-teal underline" href="{{ route('admin.lab.cj') }}">Product Hunter</a> para vincular un proveedor.</p>
             @endif
+        </div>
+    @endif
+
+    @if($product->exists)
+        <div class="admin-card p-5 sm:p-6 space-y-5 admin-card-span-2">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <h2 class="font-display text-lg font-bold text-ink">Reseñas, ranking y detalles</h2>
+                    <p class="mt-1 text-sm text-ink-soft/60">Edita la prueba social y las características que verá el comprador en la vitrina.</p>
+                </div>
+                @if(!empty($verified['reviews_synced_at']))
+                    <span class="admin-badge bg-mist text-ink-soft text-[11px]">Sync {{ \Illuminate\Support\Carbon::parse($verified['reviews_synced_at'])->diffForHumans() }}</span>
+                @endif
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <input type="hidden" name="verified_reviews_present" value="1">
+                <input type="hidden" name="verified_details_present" value="1">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Rating promedio</label>
+                    <input type="number" step="0.1" min="0" max="5" name="verified_rating_avg"
+                           value="{{ $editableRating !== '' && $editableRating !== null ? number_format((float) $editableRating, 1, '.', '') : '' }}"
+                           class="admin-input" placeholder="4.8">
+                    <p class="mt-1 text-[11px] text-ink-soft/50">Escala 0–5. Se muestra en la ficha del producto.</p>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Total reseñas</label>
+                    <input type="number" step="1" min="0" name="verified_review_count"
+                           value="{{ $editableReviewCount !== '' && $editableReviewCount !== null ? (int) $editableReviewCount : '' }}"
+                           class="admin-input" placeholder="{{ count($editableReviews) }}">
+                    <p class="mt-1 text-[11px] text-ink-soft/50">Número visible junto al rating (puede ser mayor que las filas guardadas).</p>
+                </div>
+            </div>
+
+            <div>
+                <div id="review-toolbar" class="mb-2 flex flex-wrap items-center justify-between gap-2 {{ count($editableReviews) ? '' : 'hidden' }}">
+                    <h3 class="font-display text-base font-bold text-ink">Reseñas (<span id="verified-reviews-count">{{ count($editableReviews) }}</span>)</h3>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" id="btn-delete-reviews" class="admin-btn-secondary !py-1 !px-2 text-xs text-coral" disabled>Eliminar seleccionadas</button>
+                        <button type="button" id="btn-add-review" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir reseña</button>
+                    </div>
+                </div>
+                <div id="review-select-bar" class="mb-2 flex items-center gap-2 text-xs text-ink-soft {{ count($editableReviews) ? '' : 'hidden' }}">
+                    <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                        <input type="checkbox" id="review-check-all" class="rounded border-line text-teal">
+                        <span>Seleccionar todas</span>
+                    </label>
+                </div>
+                <div id="verified-reviews-list" class="max-h-[32rem] overflow-y-auto rounded-xl border border-line divide-y divide-line/70 {{ count($editableReviews) ? '' : 'hidden' }}"></div>
+                <p id="verified-reviews-empty" class="text-sm text-ink-soft/55 {{ count($editableReviews) ? 'hidden' : '' }}">Sin reseñas. Importa desde Product Hunter o añade una manualmente.</p>
+                <div id="verified-reviews-hidden" class="hidden" aria-hidden="true"></div>
+            </div>
+
+            <div id="review-edit-modal" class="fixed inset-0 z-[70] hidden items-center justify-center bg-ink/50 p-4" role="dialog" aria-modal="true" aria-labelledby="review-modal-title">
+                <div class="admin-card w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 shadow-xl">
+                    <div class="mb-4 flex items-start justify-between gap-3">
+                        <h3 id="review-modal-title" class="font-display text-lg font-bold text-ink">Editar reseña</h3>
+                        <button type="button" id="review-modal-close" class="text-ink-soft/50 hover:text-ink text-xl leading-none" aria-label="Cerrar">&times;</button>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">Autor</label>
+                                <input type="text" id="rm-author" class="admin-input text-sm">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">País (ISO)</label>
+                                <div class="flex items-center gap-2">
+                                    <span id="rm-flag" class="market-flag hidden"></span>
+                                    <input type="text" id="rm-country" maxlength="2" class="admin-input text-sm uppercase" placeholder="MX">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">Estrellas (1–5)</label>
+                                <input type="number" id="rm-score" min="1" max="5" step="1" class="admin-input text-sm">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">Fecha</label>
+                                <input type="text" id="rm-date" class="admin-input text-sm" placeholder="06 AGO 2026">
+                            </div>
+                        </div>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">Foto del usuario (URL)</label>
+                                <input type="url" id="rm-avatar" class="admin-input text-sm" placeholder="https://…">
+                            </div>
+                            <div>
+                                <label class="mb-1 block text-sm font-medium text-ink-soft">SKU / variante</label>
+                                <input type="text" id="rm-sku-info" class="admin-input text-sm">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-ink-soft">Comentario</label>
+                            <textarea id="rm-comment" rows="4" class="admin-input text-sm"></textarea>
+                        </div>
+                        <div>
+                            <label class="mb-1 block text-sm font-medium text-ink-soft">Fotos de la reseña (una URL por línea)</label>
+                            <textarea id="rm-images" rows="2" class="admin-input text-xs font-mono"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex flex-wrap justify-end gap-2">
+                        <button type="button" id="review-modal-cancel" class="admin-btn-secondary">Cancelar</button>
+                        <button type="button" id="review-modal-save" class="admin-btn">Guardar reseña</button>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="font-display text-base font-bold text-ink">Detalles / especificaciones ({{ count($editableDetails) }})</h3>
+                    <button type="button" id="btn-add-detail" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir fila</button>
+                </div>
+                <div class="overflow-x-auto rounded-xl border border-line">
+                    <table class="min-w-full text-sm">
+                        <thead>
+                        <tr class="border-b border-line bg-mist/40 text-left text-[10px] uppercase tracking-wide text-ink-soft/50">
+                            <th class="px-3 py-2 w-[38%]">Característica</th>
+                            <th class="px-3 py-2">Valor</th>
+                            <th class="px-2 py-2 w-16"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="verified-details-rows">
+                        @forelse($editableDetails as $di => $detail)
+                            <tr class="verified-detail-row border-t border-line/70">
+                                <td class="px-3 py-2 align-top">
+                                    <input type="text" name="verified_details[{{ $di }}][name]" value="{{ $detail['name'] ?? '' }}" class="admin-input !py-1.5 text-sm w-full">
+                                </td>
+                                <td class="px-3 py-2 align-top">
+                                    <input type="text" name="verified_details[{{ $di }}][value]" value="{{ $detail['value'] ?? '' }}" class="admin-input !py-1.5 text-sm w-full">
+                                </td>
+                                <td class="px-2 py-2 align-top text-right">
+                                    <button type="button" class="js-remove-detail text-xs text-coral hover:underline">Quitar</button>
+                                </td>
+                            </tr>
+                        @empty
+                            <tr id="verified-details-empty"><td colspan="3" class="px-3 py-4 text-sm text-ink-soft/55">Sin detalles. Importa desde AliExpress o añade filas manualmente.</td></tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     @endif
     </div>
@@ -857,6 +1015,14 @@
   var suggestPricesUrl = @json(route('admin.store.products.suggest-prices'));
   var defaultLocale = @json($defaultLocale);
   var activeLocale = String($('#active-locale').val() || defaultLocale);
+
+  function escapeHtml(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 
   function storeGet(locale) {
     return {
@@ -1322,6 +1488,285 @@
     return String($('#product-currency').val() || 'MXN').toUpperCase();
   }
 
+  function suggestCharmCompare(price, currency) {
+    price = Number(price) || 0;
+    currency = String(currency || 'USD').toUpperCase();
+    if (price <= 0) return 0;
+    var up = price * 1.32;
+    if (currency === 'MXN') {
+      var bucket = Math.ceil(up / 100) * 100;
+      var opts = [bucket - 1, bucket + 49, bucket + 99, bucket + 199];
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i] > price) return opts[i];
+      }
+      return bucket + 199;
+    }
+    if (currency === 'JPY' || currency === 'KRW') {
+      var mod = currency === 'KRW' ? 1000 : 100;
+      var b = Math.ceil(up / mod) * mod;
+      return b > price ? b - (currency === 'KRW' ? 100 : 20) : b + mod - 20;
+    }
+    if (currency === 'EUR' || currency === 'CHF' || currency === 'BRL') {
+      return Math.floor(up) + 0.90;
+    }
+    return Math.floor(up) + 0.99;
+  }
+
+  function reindexVerifiedDetails() {
+    $('#verified-details-rows .verified-detail-row').each(function (i) {
+      $(this).find('[name^="verified_details["]').each(function () {
+        var $el = $(this);
+        var field = String($el.attr('name') || '').replace(/^verified_details\[\d+\]/, '');
+        if (field) $el.attr('name', 'verified_details[' + i + ']' + field);
+      });
+    });
+  }
+
+  function reviewCountryIso(code) {
+    var iso = String(code || '').trim().toLowerCase();
+    if (iso === 'uk') iso = 'gb';
+    return /^[a-z]{2}$/.test(iso) ? iso : '';
+  }
+
+  function reviewFlagHtml(code) {
+    var iso = reviewCountryIso(code);
+    if (!iso) return '';
+    return '<span class="market-flag fi fi-' + iso + '" title="' + escapeHtml(String(code).toUpperCase()) + '"></span>';
+  }
+
+  function reviewStarsText(score) {
+    score = parseInt(score, 10) || 0;
+    if (score < 1) return '';
+    return '★★★★★'.slice(0, score) + '☆☆☆☆☆'.slice(0, 5 - score);
+  }
+
+  function reviewImagesToText(images) {
+    if (!images) return '';
+    if (Array.isArray(images)) return images.filter(Boolean).join('\n');
+    return String(images);
+  }
+
+  function reviewImagesFromText(text) {
+    return String(text || '').split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  var verifiedReviewsData = @json(array_values($editableReviews));
+  var reviewModalIdx = null;
+
+  function syncModalReviewFlag() {
+    var iso = reviewCountryIso($('#rm-country').val());
+    var $flag = $('#rm-flag');
+    if (iso) {
+      $flag.removeClass('hidden').attr('class', 'market-flag fi fi-' + iso);
+    } else {
+      $flag.addClass('hidden').removeClass(function (i, c) {
+        return (c.match(/\bfi-\S+/g) || []).join(' ');
+      });
+    }
+  }
+
+  function syncReviewsHiddenInputs() {
+    var $hidden = $('#verified-reviews-hidden').empty();
+    verifiedReviewsData.forEach(function (r, i) {
+      var prefix = 'verified_reviews[' + i + ']';
+      var fields = {
+        author: r.author || '',
+        country: r.country || '',
+        score: r.score != null && r.score !== '' ? r.score : '',
+        date: r.date || '',
+        avatar: r.avatar || '',
+        sku_info: r.sku_info || '',
+        comment: r.comment || '',
+        images: reviewImagesToText(r.images)
+      };
+      $.each(fields, function (key, val) {
+        $('<input>', { type: 'hidden', name: prefix + '[' + key + ']', value: val }).appendTo($hidden);
+      });
+    });
+  }
+
+  function updateDeleteReviewsBtn() {
+    var n = $('.js-review-check:checked').length;
+    $('#btn-delete-reviews').prop('disabled', n === 0).text(n > 0 ? ('Eliminar (' + n + ')') : 'Eliminar seleccionadas');
+    var total = $('.js-review-check').length;
+    var checked = n === total && total > 0;
+    $('#review-check-all').prop('checked', checked).prop('indeterminate', n > 0 && n < total);
+  }
+
+  function renderReviewsList() {
+    var $list = $('#verified-reviews-list').empty();
+    $('#verified-reviews-count').text(verifiedReviewsData.length);
+    var has = verifiedReviewsData.length > 0;
+    $('#verified-reviews-empty').toggleClass('hidden', has);
+    $('#verified-reviews-list').toggleClass('hidden', !has);
+    $('#review-toolbar').toggleClass('hidden', !has);
+    $('#review-select-bar').toggleClass('hidden', !has);
+    $('#review-check-all').prop('checked', false).prop('indeterminate', false);
+    if (!has) {
+      syncReviewsHiddenInputs();
+      updateDeleteReviewsBtn();
+      return;
+    }
+    verifiedReviewsData.forEach(function (r, i) {
+      var score = parseInt(r.score, 10) || 0;
+      var comment = String(r.comment || '').trim();
+      var excerpt = comment;
+      if (excerpt.length > 160) excerpt = excerpt.slice(0, 160) + '…';
+      if (!excerpt && score > 0) excerpt = 'Solo calificación (sin comentario de texto)';
+      var avatar = String(r.avatar || '').trim();
+      var initial = (String(r.author || 'C').trim().charAt(0) || 'C').toUpperCase();
+      var imgHtml = avatar
+        ? '<img src="' + escapeHtml(avatar) + '" alt="" class="h-9 w-9 shrink-0 rounded-full border border-line object-cover bg-white" loading="lazy" referrerpolicy="no-referrer">'
+        : '<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-mist text-[11px] font-semibold text-ink-soft">' + escapeHtml(initial) + '</div>';
+        var $row = $(
+        '<div class="verified-review-item flex items-start gap-3 px-3 py-2.5 hover:bg-mist/25 cursor-pointer" data-index="' + i + '" title="Clic para seleccionar">' +
+          '<input type="checkbox" class="js-review-check mt-1.5 shrink-0 rounded border-line text-teal">' +
+          imgHtml +
+          '<div class="min-w-0 flex-1 js-review-body">' +
+            '<div class="flex flex-wrap items-center gap-1.5 text-xs">' +
+              '<strong class="text-ink">' + escapeHtml(r.author || 'Comprador') + '</strong>' +
+              reviewFlagHtml(r.country) +
+              (score > 0 ? '<span class="text-amber font-medium">' + reviewStarsText(score) + '</span>' : '') +
+              (r.date ? '<span class="text-ink-soft/50">' + escapeHtml(r.date) + '</span>' : '') +
+            '</div>' +
+            (r.sku_info ? '<p class="mt-0.5 text-[10px] text-ink-soft/60">' + escapeHtml(r.sku_info) + '</p>' : '') +
+            (excerpt ? '<p class="mt-1 text-sm text-ink-soft leading-snug whitespace-pre-wrap">' + escapeHtml(excerpt) + '</p>' : '') +
+            ((r.images && r.images.length) ? '<p class="mt-1 text-[10px] text-ink-soft/50">' + r.images.length + ' foto(s)</p>' : '') +
+          '</div>' +
+          '<button type="button" class="js-edit-review admin-btn-secondary !py-1 !px-2.5 text-xs shrink-0">Editar</button>' +
+        '</div>'
+      );
+      $list.append($row);
+    });
+    syncReviewsHiddenInputs();
+    updateDeleteReviewsBtn();
+  }
+
+  function openReviewModal(idx) {
+    reviewModalIdx = idx;
+    var r = idx === null ? {} : (verifiedReviewsData[idx] || {});
+    $('#review-modal-title').text(idx === null ? 'Nueva reseña' : 'Editar reseña');
+    $('#rm-author').val(r.author || '');
+    $('#rm-country').val(r.country || '');
+    $('#rm-score').val(r.score != null && r.score !== '' ? r.score : '');
+    $('#rm-date').val(r.date || '');
+    $('#rm-avatar').val(r.avatar || '');
+    $('#rm-sku-info').val(r.sku_info || '');
+    $('#rm-comment').val(r.comment || '');
+    $('#rm-images').val(reviewImagesToText(r.images));
+    syncModalReviewFlag();
+    $('#review-edit-modal').removeClass('hidden').addClass('flex');
+    $('body').css('overflow', 'hidden');
+  }
+
+  function closeReviewModal() {
+    $('#review-edit-modal').addClass('hidden').removeClass('flex');
+    reviewModalIdx = null;
+    if (!$('#cj-image-modal').hasClass('flex') && !$('#cj-crawl-modal').hasClass('flex')) {
+      $('body').css('overflow', '');
+    }
+  }
+
+  function saveReviewModal() {
+    var r = {
+      author: String($('#rm-author').val() || '').trim(),
+      country: String($('#rm-country').val() || '').trim().toUpperCase(),
+      score: $('#rm-score').val() !== '' ? parseInt($('#rm-score').val(), 10) : null,
+      date: String($('#rm-date').val() || '').trim(),
+      avatar: String($('#rm-avatar').val() || '').trim(),
+      sku_info: String($('#rm-sku-info').val() || '').trim(),
+      comment: String($('#rm-comment').val() || '').trim(),
+      images: reviewImagesFromText($('#rm-images').val())
+    };
+    if (!r.author && !r.comment && !(r.score >= 1 && r.score <= 5)) {
+      alert('Indica al menos autor, comentario o calificación.');
+      return;
+    }
+    if (reviewModalIdx === null) {
+      verifiedReviewsData.push(r);
+    } else {
+      verifiedReviewsData[reviewModalIdx] = r;
+    }
+    renderReviewsList();
+    closeReviewModal();
+  }
+
+  $('#btn-add-review').on('click', function () { openReviewModal(null); });
+  $(document).on('click', '.js-edit-review', function () {
+    var idx = parseInt($(this).closest('.verified-review-item').attr('data-index'), 10);
+    if (!isNaN(idx)) openReviewModal(idx);
+  });
+  $('#review-modal-save').on('click', saveReviewModal);
+  $('#review-modal-cancel, #review-modal-close').on('click', closeReviewModal);
+  $('#review-edit-modal').on('click', function (e) {
+    if (e.target === this) closeReviewModal();
+  });
+  $('#rm-country').on('input', syncModalReviewFlag);
+  $(document).on('keydown.reviewModal', function (e) {
+    if (e.key === 'Escape' && $('#review-edit-modal').hasClass('flex')) closeReviewModal();
+  });
+
+  $('#review-check-all').on('change', function () {
+    var on = $(this).is(':checked');
+    $('.js-review-check').prop('checked', on).each(function () {
+      $(this).closest('.verified-review-item').toggleClass('bg-teal/5 ring-1 ring-inset ring-teal/20', on);
+    });
+    updateDeleteReviewsBtn();
+  });
+  $(document).on('change', '.js-review-check', function () {
+    $(this).closest('.verified-review-item').toggleClass('bg-teal/5 ring-1 ring-inset ring-teal/20', $(this).is(':checked'));
+    updateDeleteReviewsBtn();
+  });
+
+  $(document).on('click', '.verified-review-item', function (e) {
+    var $t = $(e.target);
+    if ($t.closest('.js-edit-review').length) return;
+    if ($t.is('a, button, input, textarea, select, label') || $t.closest('a, button, input, textarea, select, label').length) return;
+    var $cb = $(this).find('.js-review-check');
+    $cb.prop('checked', !$cb.prop('checked')).trigger('change');
+  });
+
+  $('#btn-delete-reviews').on('click', function () {
+    var indexes = [];
+    $('.js-review-check:checked').each(function () {
+      var idx = parseInt($(this).closest('.verified-review-item').attr('data-index'), 10);
+      if (!isNaN(idx)) indexes.push(idx);
+    });
+    if (!indexes.length) return;
+    if (!confirm('¿Eliminar ' + indexes.length + ' reseña(s) seleccionada(s)?')) return;
+    indexes.sort(function (a, b) { return b - a; });
+    indexes.forEach(function (i) { verifiedReviewsData.splice(i, 1); });
+    renderReviewsList();
+  });
+
+  $('#product-form').on('submit', function () {
+    syncReviewsHiddenInputs();
+  });
+
+  renderReviewsList();
+
+  function detailRowHtml(idx) {
+    return '<tr class="verified-detail-row border-t border-line/70">' +
+      '<td class="px-3 py-2 align-top"><input type="text" name="verified_details[' + idx + '][name]" class="admin-input !py-1.5 text-sm w-full"></td>' +
+      '<td class="px-3 py-2 align-top"><input type="text" name="verified_details[' + idx + '][value]" class="admin-input !py-1.5 text-sm w-full"></td>' +
+      '<td class="px-2 py-2 align-top text-right"><button type="button" class="js-remove-detail text-xs text-coral hover:underline">Quitar</button></td>' +
+    '</tr>';
+  }
+
+  $('#btn-add-detail').on('click', function () {
+    $('#verified-details-empty').remove();
+    var idx = $('#verified-details-rows .verified-detail-row').length;
+    $('#verified-details-rows').append(detailRowHtml(idx));
+  });
+
+  $(document).on('click', '.js-remove-detail', function () {
+    $(this).closest('.verified-detail-row').remove();
+    reindexVerifiedDetails();
+    if (!$('#verified-details-rows .verified-detail-row').length) {
+      $('#verified-details-rows').html('<tr id="verified-details-empty"><td colspan="3" class="px-3 py-4 text-sm text-ink-soft/55">Sin detalles. Importa desde AliExpress o añade filas manualmente.</td></tr>');
+    }
+  });
+
   function currencyMeta(code) {
     code = String(code || '').toUpperCase();
     for (var i = 0; i < storefrontCurrencies.length; i++) {
@@ -1563,6 +2008,7 @@
   $('#suggest-ai-prices').on('click', function () {
     var $btn = $(this);
     var $status = $('#suggest-prices-status');
+    var base = baseCurrency();
     var currencies = [];
     $('#currency-price-rows .currency-price-row').each(function () {
       var $row = $(this);
@@ -1570,6 +2016,9 @@
       if (!/^[A-Z]{3}$/.test(code)) return;
       currencies.push({ code: code, rounding: rowRounding($row) });
     });
+    if (!currencies.some(function (c) { return String(c.code).toUpperCase() === base; })) {
+      currencies.unshift({ code: base, rounding: 'auto' });
+    }
     if (!currencies.length) {
       alert('Añade al menos una moneda en la tabla para sugerir precios.');
       return;
@@ -1605,18 +2054,31 @@
       }
       var n = 0;
       var base = baseCurrency();
+      var baseRow = res.prices[base] || null;
       $.each(res.prices, function (code, row) {
         if (!row || row.price == null) return;
         upsertCurrencyPriceRow(code, row.price, row.compare_at_price, true, true);
         if (String(code).toUpperCase() === base) {
           setMoneyInput($('#product-price'), row.price);
-          if (row.compare_at_price) {
+          if (row.compare_at_price != null && Number(row.compare_at_price) > Number(row.price)) {
             setMoneyInput($('input[name="compare_at_price"]'), row.compare_at_price);
           }
           $('#product-price').trigger('change');
         }
         n++;
       });
+      if (baseRow && baseRow.price != null) {
+        setMoneyInput($('#product-price'), baseRow.price);
+        if (baseRow.compare_at_price != null && Number(baseRow.compare_at_price) > Number(baseRow.price)) {
+          setMoneyInput($('input[name="compare_at_price"]'), baseRow.compare_at_price);
+        } else {
+          var charmCompare = suggestCharmCompare(Number(baseRow.price), base);
+          if (charmCompare > Number(baseRow.price)) {
+            setMoneyInput($('input[name="compare_at_price"]'), charmCompare);
+          }
+        }
+        $('input[name="compare_at_price"]').trigger('change');
+      }
       $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal')
         .text(res.message || ('Precios sugeridos en ' + n + ' moneda(s). Guarda el producto.'));
       if (window.AdminToast) AdminToast.success(res.message || 'Precios sugeridos');

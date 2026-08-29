@@ -6,8 +6,11 @@ use App\Domain\AI\AiTaskRouter;
 use App\Domain\Discovery\ProductDiscoveryService;
 use App\Domain\Scoring\CjPricingEstimator;
 use App\Domain\Scoring\ProductScoreService;
+use App\Domain\Suppliers\AliExpress\AliExpressProductFetcher;
+use App\Domain\Suppliers\AliExpress\AliExpressProductSyncService;
 use App\Domain\Suppliers\Cj\CjChatGptMcpSearchService;
 use App\Domain\Suppliers\Cj\CjConnector;
+use App\Domain\Suppliers\Cj\CjProductMatcher;
 use App\Domain\Suppliers\Cj\CjProductSyncService;
 use App\Domain\Suppliers\Contracts\SupplierInterface;
 use App\Http\Controllers\Controller;
@@ -121,6 +124,12 @@ class LabController extends Controller
             'importUrl' => route('admin.lab.cj.import'),
             'improvePromptUrl' => route('admin.lab.cj.improve-prompt'),
             'crawlUrl' => route('admin.lab.cj.crawl'),
+            'huntUrl' => route('admin.lab.cj.hunt'),
+            'huntHtmlUrl' => route('admin.lab.cj.hunt-html'),
+            'pluginDownloadUrl' => route('admin.lab.cj.extension'),
+            'pluginToken' => $this->ensurePluginToken(),
+            'pluginOrigin' => rtrim(request()->getSchemeAndHttpHost(), '/'),
+            'importAliExpressUrl' => route('admin.lab.cj.import-aliexpress'),
             'videosUrl' => url('/admin/lab/cj/videos'),
             'imagesUrl' => url('/admin/lab/cj/images'),
             'videoProxyUrl' => route('admin.lab.cj.video-proxy'),
@@ -292,6 +301,369 @@ class LabController extends Controller
             'message' => $created
                 ? 'Agregado al catálogo de «'.$store->name.'» con '.$variantCount.' variante(s) (borrador).'
                 : 'Producto CJ actualizado en «'.$store->name.'» ('.$variantCount.' variante(s)).',
+        ]);
+    }
+
+    public function huntFromUrl(
+        Request $request,
+        StoreContext $storeContext,
+        AliExpressProductFetcher $fetcher,
+        CjProductMatcher $matcher
+    ) {
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:2000'],
+        ]);
+        @set_time_limit(180);
+
+        $input = trim($data['url']);
+        if (! AliExpressProductFetcher::looksLikeAliExpress($input)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Esa entrada no parece AliExpress. Usa una URL de item o el crawler de CJ.',
+            ], 422);
+        }
+
+        $fetched = $fetcher->fetch($input);
+        if (! ($fetched['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $fetched['error'] ?? 'No se pudo extraer AliExpress',
+            ], 422);
+        }
+
+        return $this->huntAliExpressPayload($fetched['product'], $storeContext, $matcher);
+    }
+
+    public function huntFromHtml(
+        Request $request,
+        StoreContext $storeContext,
+        AliExpressProductFetcher $fetcher,
+        CjProductMatcher $matcher
+    ) {
+        $data = $request->validate([
+            'url' => ['nullable', 'string', 'max:2000'],
+            'html' => ['nullable', 'string', 'max:2500000'],
+            'snapshot' => ['nullable', 'array'],
+        ]);
+        @set_time_limit(120);
+
+        $html = (string) ($data['html'] ?? '');
+        $snapshot = is_array($data['snapshot'] ?? null) ? $data['snapshot'] : [];
+        $url = trim((string) ($data['url'] ?? ''));
+
+        $trimmed = ltrim($html);
+        if ($trimmed !== '' && str_starts_with($trimmed, '{')) {
+            $decoded = json_decode($html, true);
+            if (is_array($decoded) && (isset($decoded['html']) || isset($decoded['snapshot']))) {
+                $html = (string) ($decoded['html'] ?? '');
+                if (isset($decoded['snapshot']) && is_array($decoded['snapshot'])) {
+                    $snapshot = $decoded['snapshot'];
+                }
+                if ($url === '' && ! empty($decoded['url'])) {
+                    $url = (string) $decoded['url'];
+                }
+            }
+        }
+
+        $fetched = $fetcher->parseFromCapture($html, $url, $snapshot);
+        if (! ($fetched['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $fetched['error'] ?? 'No se pudo parsear el HTML',
+            ], 422);
+        }
+
+        return $this->huntAliExpressPayload($fetched['product'], $storeContext, $matcher);
+    }
+
+    public function pluginCapture(Request $request, AliExpressProductFetcher $fetcher, CjProductMatcher $matcher)
+    {
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $expected = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
+        $token = (string) $request->input('token', $request->header('X-Multidrop-Token', ''));
+        if ($expected === '' || ! hash_equals($expected, $token)) {
+            return response()->json(['success' => false, 'error' => 'Token del plugin inválido. Cópialo de Product Hunter.'], 401)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $html = (string) $request->input('html', '');
+        $url = (string) $request->input('url', '');
+        $snapshot = $request->input('snapshot');
+        if (! is_array($snapshot)) {
+            $snapshot = [];
+        }
+        if (strlen($html) > 2500000) {
+            $html = substr($html, 0, 2500000);
+        }
+
+        $fetched = $fetcher->parseFromCapture($html, $url, $snapshot);
+        if (! ($fetched['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $fetched['error'] ?? 'No se pudo parsear',
+            ], 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $ae = $fetched['product'];
+        $country = 'MX';
+        $firstStore = \App\Models\Store::query()->orderBy('id')->first();
+        $code = strtoupper((string) ($firstStore?->market?->code ?? 'MX'));
+        $country = $code === 'UK' ? 'GB' : ($code !== '' ? $code : 'MX');
+        $matches = [];
+        $matchError = null;
+        try {
+            $matches = $matcher->match($ae, $country);
+        } catch (\Throwable $e) {
+            $matchError = $e->getMessage();
+        }
+
+        $id = (string) Str::uuid();
+        \Illuminate\Support\Facades\Cache::put('ae_plugin_capture_'.$id, [
+            'success' => true,
+            'source' => 'aliexpress',
+            'aliexpress' => $ae,
+            'matches' => $matches,
+            'match_error' => $matchError,
+        ], now()->addMinutes(20));
+
+        $open = url('/admin/lab/cj?capture='.$id);
+
+        return response()->json([
+            'success' => true,
+            'capture_id' => $id,
+            'open_url' => $open,
+            'title' => $ae['title'] ?? '',
+        ])->withHeaders($this->pluginCorsHeaders());
+    }
+
+    public function captureResult(string $id)
+    {
+        $payload = \Illuminate\Support\Facades\Cache::get('ae_plugin_capture_'.$id);
+        if (! is_array($payload)) {
+            return response()->json(['success' => false, 'error' => 'Captura expirada. Vuelve a enviar desde el plugin.'], 404);
+        }
+
+        return response()->json($payload);
+    }
+
+    public function regeneratePluginToken()
+    {
+        $token = Str::lower(Str::random(40));
+        \App\Models\PlatformSetting::put('aliexpress.plugin_token', $token, 'aliexpress', true);
+
+        return back()->with('success', 'Token del plugin regenerado. Actualízalo en la extensión.');
+    }
+
+    public function downloadChromeExtension(Request $request)
+    {
+        $dir = resource_path('extensions/aliexpress-hunter');
+        if (! is_dir($dir)) {
+            abort(404, 'Extensión no encontrada');
+        }
+
+        $origin = rtrim($request->getSchemeAndHttpHost(), '/');
+        $token = $this->ensurePluginToken();
+        $tmp = storage_path('app/aliexpress-hunter.zip');
+        if (is_file($tmp)) {
+            @unlink($tmp);
+        }
+
+        if (! class_exists(\ZipArchive::class)) {
+            abort(500, 'ZIP no disponible en PHP (extensión zip)');
+        }
+        $zip = new \ZipArchive;
+        if ($zip->open($tmp, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'No pude crear el ZIP');
+        }
+
+        $configJs = 'window.MULTIDROP_DEFAULTS = '.json_encode([
+            'origin' => $origin,
+            'capture_path' => '/admin/lab/cj/plugin-capture',
+            'hunter_path' => '/admin/lab/cj',
+        ], JSON_UNESCAPED_SLASHES).";\n";
+        $zip->addFromString('config.js', $configJs);
+
+        $manifest = json_decode((string) file_get_contents($dir.'/manifest.json'), true) ?: [];
+        $hosts = [
+            'https://*.aliexpress.com/*',
+            'https://*.aliexpress.us/*',
+            'https://*.aliexpress.ru/*',
+            $origin.'/*',
+        ];
+        $manifest['host_permissions'] = array_values(array_unique($hosts));
+        $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+        foreach (['background.js', 'content.js', 'content.css', 'popup.html', 'popup.js', 'README.txt'] as $file) {
+            $path = $dir.'/'.$file;
+            if (is_file($path)) {
+                $zip->addFile($path, $file);
+            }
+        }
+
+        foreach ([16, 48, 128] as $size) {
+            $zip->addFromString('icons/icon'.$size.'.png', $this->pluginIconPng($size));
+        }
+
+        $zip->close();
+
+        return response()->download($tmp, 'multidrop-aliexpress-hunter.zip')->deleteFileAfterSend(true);
+    }
+
+    /**
+     * @param  array<string, mixed>  $ae
+     */
+    protected function huntAliExpressPayload(array $ae, StoreContext $storeContext, CjProductMatcher $matcher)
+    {
+        $store = $storeContext->current();
+        $country = strtoupper((string) ($store?->market?->code ?? 'MX'));
+        if ($country === 'UK') {
+            $country = 'GB';
+        }
+
+        $matches = [];
+        $matchError = null;
+        try {
+            $matches = $matcher->match($ae, $country);
+        } catch (\Throwable $e) {
+            $matchError = $e->getMessage();
+        }
+
+        $catalogPids = $this->catalogCjPids($store);
+        $inAeCatalog = false;
+        if ($store && ! empty($ae['product_id'])) {
+            $inAeCatalog = Product::query()
+                ->where('store_id', $store->id)
+                ->where('verified_data->aliexpress_product_id', $ae['product_id'])
+                ->exists();
+        }
+        $ae['in_catalog'] = $inAeCatalog;
+
+        foreach ($matches as &$m) {
+            $m['in_catalog'] = in_array((string) ($m['pid'] ?? ''), $catalogPids, true);
+        }
+        unset($m);
+
+        return response()->json([
+            'success' => true,
+            'source' => 'aliexpress',
+            'aliexpress' => $ae,
+            'matches' => $matches,
+            'match_error' => $matchError,
+            'store_id' => $store?->id,
+            'has_store' => (bool) $store,
+        ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function pluginCorsHeaders(): array
+    {
+        return [
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => 'POST, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, X-Multidrop-Token, Accept',
+            'Access-Control-Max-Age' => '86400',
+        ];
+    }
+
+    protected function ensurePluginToken(): string
+    {
+        $token = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
+        if ($token === '') {
+            $token = Str::lower(Str::random(40));
+            \App\Models\PlatformSetting::put('aliexpress.plugin_token', $token, 'aliexpress', true);
+        }
+
+        return $token;
+    }
+
+    protected function pluginIconPng(int $size): string
+    {
+        if (! function_exists('imagecreatetruecolor')) {
+            return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==') ?: '';
+        }
+        $im = imagecreatetruecolor($size, $size);
+        imagesavealpha($im, true);
+        $transparent = imagecolorallocatealpha($im, 0, 0, 0, 127);
+        imagefill($im, 0, 0, $transparent);
+        $teal = imagecolorallocate($im, 15, 118, 110);
+        $white = imagecolorallocate($im, 255, 255, 255);
+        imagefilledellipse($im, (int) ($size / 2), (int) ($size / 2), $size - 2, $size - 2, $teal);
+        imagestring($im, 5, (int) ($size / 2 - 4), (int) ($size / 2 - 8), 'M', $white);
+        ob_start();
+        imagepng($im);
+        $png = (string) ob_get_clean();
+        imagedestroy($im);
+
+        return $png;
+    }
+
+    public function importAliExpressProduct(
+        Request $request,
+        StoreContext $storeContext,
+        AliExpressProductFetcher $fetcher,
+        AliExpressProductSyncService $sync
+    ) {
+        $store = $storeContext->current();
+        if (! $store) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Selecciona una tienda activa en el switcher.',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'url' => ['nullable', 'string', 'max:2000'],
+            'product_id' => ['nullable', 'string', 'max:32'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'image' => ['nullable', 'string', 'max:1000'],
+            'product' => ['nullable', 'array'],
+        ]);
+
+        $detail = is_array($data['product'] ?? null) ? $data['product'] : null;
+        if (! is_array($detail) || empty($detail['product_id'])) {
+            $ref = (string) ($data['url'] ?: $data['product_id'] ?: '');
+            if ($ref === '') {
+                return response()->json(['success' => false, 'error' => 'Falta URL o product_id de AliExpress'], 422);
+            }
+            $fetched = $fetcher->fetch($ref);
+            if (! ($fetched['success'] ?? false)) {
+                return response()->json(['success' => false, 'error' => $fetched['error'] ?? 'No se pudo extraer AliExpress'], 422);
+            }
+            $detail = $fetched['product'];
+        }
+
+        if (! empty($data['title'])) {
+            $detail['title'] = $data['title'];
+        }
+        if (! empty($data['image'])) {
+            $detail['image'] = $data['image'];
+        }
+
+        $out = $sync->syncToStore($store, $detail);
+        if (! ($out['success'] ?? false)) {
+            return response()->json(['success' => false, 'error' => $out['error'] ?? 'No se pudo importar AliExpress'], 422);
+        }
+
+        /** @var Product $product */
+        $product = $out['product'];
+        $created = (bool) ($out['created'] ?? false);
+        $variantCount = $product->variants()->count();
+
+        return response()->json([
+            'success' => true,
+            'already' => ! $created,
+            'product_id' => $product->id,
+            'edit_url' => route('admin.store.products.edit', $product),
+            'variants' => $variantCount,
+            'source' => 'aliexpress',
+            'message' => $created
+                ? 'AliExpress agregado al catálogo de «'.$store->name.'» como borrador (cumplimiento manual).'
+                : 'Producto AliExpress actualizado en «'.$store->name.'».',
         ]);
     }
 

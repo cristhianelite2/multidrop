@@ -34,6 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'webhooks/*',
             'admin/lab/cj/plugin-capture',
+            'admin/lab/cj/plugin-bootstrap',
         ]);
 
         $middleware->redirectGuestsTo(function ($request) {

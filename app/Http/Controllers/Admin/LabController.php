@@ -15,6 +15,7 @@ use App\Domain\Suppliers\Cj\CjProductSyncService;
 use App\Domain\Suppliers\Contracts\SupplierInterface;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Services\Storage\MediaUrl;
 use App\Services\Admin\StoreContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -669,6 +670,51 @@ class LabController extends Controller
         ];
     }
 
+    /**
+     * @return array{id: int, name: string, sku: ?string, status: string, image_url: ?string, edit_url: string}
+     */
+    protected function formatPluginProduct(Product $product): array
+    {
+        $image = trim((string) ($product->image_url ?? ''));
+        if ($image === '') {
+            $gallery = $product->galleryImages();
+            $image = trim((string) ($gallery[0] ?? ''));
+        }
+        $image = $this->pluginAbsoluteMediaUrl($image);
+
+        return [
+            'id' => $product->id,
+            'name' => $product->name,
+            'sku' => $product->sku,
+            'status' => $product->status,
+            'image_url' => $image !== '' ? $image : null,
+            'edit_url' => route('admin.store.products.edit', $product),
+        ];
+    }
+
+    protected function pluginAbsoluteMediaUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+        if (preg_match('#^https?://#i', $url)) {
+            return $url;
+        }
+
+        $base = rtrim((string) config('app.url'), '/');
+        if (str_starts_with($url, '/')) {
+            return $base.$url;
+        }
+
+        $prefix = MediaUrl::prefix();
+        if (str_starts_with($url, $prefix.'/')) {
+            return $base.'/'.$url;
+        }
+
+        return $url;
+    }
+
     public function pluginProductSearch(Request $request)
     {
         if ($request->isMethod('OPTIONS')) {
@@ -702,14 +748,10 @@ class LabController extends Controller
             ->orderByRaw('CASE WHEN sku = ? THEN 0 WHEN id = ? THEN 1 ELSE 2 END', [$sku, ctype_digit($sku) ? (int) $sku : 0])
             ->limit(8);
 
-        $products = $query->get(['id', 'name', 'sku', 'status', 'image_url'])->map(fn (\App\Models\Product $p) => [
-            'id' => $p->id,
-            'name' => $p->name,
-            'sku' => $p->sku,
-            'status' => $p->status,
-            'image_url' => $p->image_url,
-            'edit_url' => route('admin.store.products.edit', $p),
-        ])->values()->all();
+        $products = $query->get(['id', 'name', 'sku', 'status', 'image_url', 'verified_data'])
+            ->map(fn (Product $p) => $this->formatPluginProduct($p))
+            ->values()
+            ->all();
 
         if ($products === []) {
             return response()->json([

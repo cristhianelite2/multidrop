@@ -91,8 +91,41 @@
     var url = String(imageUrl || '').trim();
     if (!url) return '';
     if (/^https?:\/\//i.test(url)) return url;
-    if (url.charAt(0) === '/') return String(origin || '').replace(/\/+$/, '') + url;
-    return url;
+    var base = String(origin || originEl.value || d.origin || '').replace(/\/+$/, '');
+    if (!base) return url;
+    if (url.charAt(0) === '/') return base + url;
+    if (/^f\//i.test(url)) return base + '/' + url;
+    return base + '/' + url.replace(/^\//, '');
+  }
+
+  async function fetchProductBySku(origin, token, storeId, sku) {
+    var res = await fetch(apiPath(origin, 'product_search_path'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Multidrop-Token': token
+      },
+      body: JSON.stringify({ token: token, store_id: storeId, sku: sku })
+    });
+    var json = await res.json().catch(function () { return {}; });
+    if (!res.ok || !json.success) throw new Error(json.error || ('HTTP ' + res.status));
+    return json.product;
+  }
+
+  async function refreshStoredProduct(cfg, origin, token) {
+    if (!cfg.selected_product_id) return;
+    var needsRefresh = !cfg.selected_product_image_url
+      || !cfg.selected_product_name
+      || String(cfg.selected_product_name).indexOf('Producto #') === 0;
+    if (!needsRefresh) return;
+    var storeId = parseInt(cfg.store_id, 10) || 0;
+    var sku = String(cfg.selected_product_sku || cfg.selected_product_id || '').trim();
+    if (!storeId || !sku || !token) return;
+    try {
+      var product = await fetchProductBySku(origin, token, storeId, sku);
+      showSelectedProduct(product, origin);
+    } catch (e) {}
   }
 
   function showSelectedProduct(product, origin) {
@@ -186,6 +219,7 @@
             sku: cfg.selected_product_sku || '',
             image_url: cfg.selected_product_image_url || ''
           }, origin);
+          refreshStoredProduct(cfg, origin, cfg.token);
         }
       }).catch(function () {
         chrome.storage.sync.set({ token_ok: false });
@@ -273,18 +307,8 @@
     setStatus('Buscando producto…');
     document.getElementById('search-sku').disabled = true;
     try {
-      var res = await fetch(apiPath(origin, 'product_search_path'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Multidrop-Token': token
-        },
-        body: JSON.stringify({ token: token, store_id: storeId, sku: sku })
-      });
-      var json = await res.json().catch(function () { return {}; });
-      if (!res.ok || !json.success) throw new Error(json.error || ('HTTP ' + res.status));
-      showSelectedProduct(json.product, origin);
+      var json = await fetchProductBySku(origin, token, storeId, sku);
+      showSelectedProduct(json, origin);
       setExtractOpen(true);
       setStatus('Producto encontrado. Abre AE/CJ y pulsa Extraer.', 'ok');
     } catch (e) {

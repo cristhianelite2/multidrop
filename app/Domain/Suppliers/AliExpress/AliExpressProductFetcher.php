@@ -192,41 +192,45 @@ class AliExpressProductFetcher
             }
         }
 
+        $mediaOnlyExtract = $sections !== [] && array_diff($sections, ['videos', 'images']) === [];
+
         $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
-        if ($h1 !== '' && (str_starts_with((string) $product['title'], 'Producto AliExpress') || ($product['title'] ?? '') === '')) {
+        if ($h1 !== '' && (str_starts_with((string) ($product['title'] ?? ''), 'Producto AliExpress') || ($product['title'] ?? '') === '')) {
             $product['title'] = mb_substr($h1, 0, 255);
         }
-        $ogImage = $this->absUrl((string) ($snapshot['ogImage'] ?? ''));
-        if ($ogImage !== '' && ($product['image'] ?? '') === '') {
-            $product['image'] = $ogImage;
-            array_unshift($product['images'], $ogImage);
-            $product['images'] = array_values(array_unique(array_filter($product['images'])));
-        }
-        $priceHint = trim((string) ($snapshot['priceText'] ?? $snapshot['price'] ?? ''));
-        if ($priceHint !== '') {
-            $hintPrice = $this->toFloat($priceHint);
-            $hintCur = $this->detectCurrencyFromText($priceHint);
-            if ($hintPrice) {
-                $product['price'] = $hintPrice;
+        if (! $mediaOnlyExtract) {
+            $ogImage = $this->absUrl((string) ($snapshot['ogImage'] ?? ''));
+            if ($ogImage !== '' && ($product['image'] ?? '') === '') {
+                $product['image'] = $ogImage;
+                array_unshift($product['images'], $ogImage);
+                $product['images'] = array_values(array_unique(array_filter($product['images'] ?? [])));
             }
-            if ($hintCur) {
-                $product['currency'] = $hintCur;
+            $priceHint = trim((string) ($snapshot['priceText'] ?? $snapshot['price'] ?? ''));
+            if ($priceHint !== '') {
+                $hintPrice = $this->toFloat($priceHint);
+                $hintCur = $this->detectCurrencyFromText($priceHint);
+                if ($hintPrice) {
+                    $product['price'] = $hintPrice;
+                }
+                if ($hintCur) {
+                    $product['currency'] = $hintCur;
+                }
             }
-        }
-        $shipHint = trim((string) ($snapshot['shippingText'] ?? $snapshot['deliveryText'] ?? ''));
-        if ($shipHint !== '') {
-            if (($product['shipping_note'] ?? null) === null || ($product['shipping_note'] ?? '') === '') {
-                $product['shipping_note'] = mb_substr($shipHint, 0, 180);
-            }
-            if (empty($product['shipping_time'])) {
-                $product['shipping_time'] = $this->shippingTimeFromText($shipHint);
-            }
-            if ($product['shipping_price'] === null && preg_match('/gratis|free\s+shipping|envio\s+0/i', $shipHint)) {
-                $product['shipping_price'] = 0.0;
+            $shipHint = trim((string) ($snapshot['shippingText'] ?? $snapshot['deliveryText'] ?? ''));
+            if ($shipHint !== '') {
+                if (($product['shipping_note'] ?? null) === null || ($product['shipping_note'] ?? '') === '') {
+                    $product['shipping_note'] = mb_substr($shipHint, 0, 180);
+                }
+                if (empty($product['shipping_time'] ?? null)) {
+                    $product['shipping_time'] = $this->shippingTimeFromText($shipHint);
+                }
+                if (($product['shipping_price'] ?? null) === null && preg_match('/gratis|free\s+shipping|envio\s+0/i', $shipHint)) {
+                    $product['shipping_price'] = 0.0;
+                }
             }
         }
 
-        if (($product['description_html'] ?? '') === '' || strlen(strip_tags((string) $product['description_html'])) < 20) {
+        if (! $mediaOnlyExtract && (($product['description_html'] ?? '') === '' || strlen(strip_tags((string) ($product['description_html']))) < 20)) {
             $snapDesc = trim((string) ($snapshot['descriptionHtml'] ?? $snapshot['description_html'] ?? ''));
             if ($snapDesc !== '') {
                 $product['description_html'] = mb_substr($this->sanitizeHtml($snapDesc), 0, 20000);

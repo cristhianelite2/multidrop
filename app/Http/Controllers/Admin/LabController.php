@@ -791,7 +791,7 @@ class LabController extends Controller
             'html' => ['nullable', 'string'],
         ]);
 
-        @set_time_limit(180);
+        @set_time_limit(300);
 
         $store = \App\Models\Store::query()->find((int) $data['store_id']);
         if (! $store) {
@@ -818,21 +818,32 @@ class LabController extends Controller
         }
 
         $url = (string) ($data['url'] ?? '');
-        $fetched = $import->fetchFromPage($url, $html !== '' ? $html : null, $snapshot, $store);
-        if (! ($fetched['success'] ?? false)) {
+        try {
+            $fetched = $import->fetchFromPage($url, $html !== '' ? $html : null, $snapshot, $store);
+            if (! ($fetched['success'] ?? false)) {
+                return response()->json([
+                    'success' => false,
+                    'error' => $fetched['error'] ?? 'No se pudo leer la página actual.',
+                ], 422)->withHeaders($this->pluginCorsHeaders());
+            }
+
+            $mirrorVideos = ! in_array('videos', $data['sections'], true);
+            $out = $import->importFromParsed(
+                $product,
+                $fetched['product'],
+                $data['sections'],
+                $request->boolean('replace'),
+                (string) ($fetched['source'] ?? 'marketplace'),
+                $mirrorVideos
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
             return response()->json([
                 'success' => false,
-                'error' => $fetched['error'] ?? 'No se pudo leer la página actual.',
-            ], 422)->withHeaders($this->pluginCorsHeaders());
+                'error' => 'Error al extraer: '.$e->getMessage(),
+            ], 500)->withHeaders($this->pluginCorsHeaders());
         }
-
-        $out = $import->importFromParsed(
-            $product,
-            $fetched['product'],
-            $data['sections'],
-            $request->boolean('replace'),
-            (string) ($fetched['source'] ?? 'marketplace')
-        );
 
         if (! ($out['success'] ?? false)) {
             return response()->json($out, 422)->withHeaders($this->pluginCorsHeaders());
@@ -840,7 +851,7 @@ class LabController extends Controller
 
         return response()->json(array_merge($out, [
             'product_id' => $product->id,
-            'edit_url' => route('admin.store.products.edit', $product->fresh()),
+            'edit_url' => route('admin.store.products.edit', $product->fresh() ?? $product),
         ]))->withHeaders($this->pluginCorsHeaders());
     }
 

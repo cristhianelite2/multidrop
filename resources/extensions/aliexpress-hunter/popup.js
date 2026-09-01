@@ -340,6 +340,10 @@
       replace: document.getElementById('extract-replace').checked
     }, function (res) {
       btn.disabled = false;
+      if (chrome.runtime.lastError) {
+        setStatus(chrome.runtime.lastError.message || 'La extensión no respondió. Vuelve a intentar.', 'error');
+        return;
+      }
       if (res && res.ok) {
         setStatus(res.message || 'Importado al producto', 'ok');
       } else {

@@ -81,7 +81,7 @@ class ProductSimilarImportService
      * @param  list<string>  $sections
      * @return array{success: bool, message?: string, source?: string, title?: string, imported?: array<string, int>, payload?: array<string, mixed>, error?: string}
      */
-    public function importFromParsed(Product $product, array $remote, array $sections, bool $replace = false, string $source = 'marketplace'): array
+    public function importFromParsed(Product $product, array $remote, array $sections, bool $replace = false, string $source = 'marketplace', bool $mirrorVideos = true): array
     {
         $sections = array_values(array_unique(array_filter($sections, fn ($s) => is_string($s) && $s !== '')));
         if ($sections === []) {
@@ -198,7 +198,14 @@ class ProductSimilarImportService
         $product->verified_data = $verified;
         $product->save();
 
-        $product = $this->mirror->mirrorProduct($product->fresh());
+        $fresh = $product->fresh() ?? $product;
+        try {
+            $product = $this->mirror->mirrorProduct($fresh, $mirrorVideos);
+        } catch (\Throwable $e) {
+            report($e);
+            $product = $fresh;
+        }
+        $product = $product->fresh() ?? $product;
 
         return [
             'success' => true,
@@ -329,6 +336,8 @@ class ProductSimilarImportService
             ];
         }
 
+        $videos = $this->normalizeVideoRows($videos);
+
         $plain = trim(strip_tags((string) ($product['description_html'] ?? $product['description'] ?? '')));
 
         return [
@@ -370,6 +379,8 @@ class ProductSimilarImportService
             ];
         }
 
+        $videos = $this->normalizeVideoRows($videos);
+
         $plain = trim((string) ($product['description'] ?? ''));
         if ($plain === '') {
             $plain = trim(strip_tags((string) ($product['description_html'] ?? '')));
@@ -385,6 +396,60 @@ class ProductSimilarImportService
             'description_html' => (string) ($product['description_html'] ?? $product['description_long'] ?? ''),
             'description_short' => (string) ($product['description_short'] ?? ''),
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $videos
+     * @return list<array{url: string, name: string, cover: ?string}>
+     */
+    protected function normalizeVideoRows(array $videos): array
+    {
+        $rows = [];
+        $mp4Bases = [];
+        foreach ($videos as $video) {
+            if (is_string($video) && trim($video) !== '') {
+                $video = ['url' => trim($video), 'name' => 'Video', 'cover' => null];
+            }
+            if (! is_array($video)) {
+                continue;
+            }
+            $url = trim((string) ($video['url'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $rows[] = [
+                'url' => $url,
+                'name' => trim((string) ($video['name'] ?? '')) ?: 'Video',
+                'cover' => trim((string) ($video['cover'] ?? '')) ?: null,
+            ];
+            if (str_contains(strtolower($url), '.mp4')) {
+                $mp4Bases[$this->videoBaseKey($url)] = true;
+            }
+        }
+
+        $out = [];
+        $seen = [];
+        foreach ($rows as $row) {
+            $url = $row['url'];
+            $key = strtolower($url);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            if (str_contains(strtolower($url), '.m3u8') && isset($mp4Bases[$this->videoBaseKey($url)])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $out[] = $row;
+        }
+
+        return array_slice($out, 0, 8);
+    }
+
+    protected function videoBaseKey(string $url): string
+    {
+        $base = preg_replace('#\.(m3u8|mp4)(\?.*)?$#i', '', strtolower($url));
+
+        return is_string($base) && $base !== '' ? $base : strtolower($url);
     }
 
     /**

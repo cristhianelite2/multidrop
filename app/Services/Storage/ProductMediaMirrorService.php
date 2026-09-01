@@ -30,7 +30,7 @@ class ProductMediaMirrorService
         return $this->lastMirrorReport;
     }
 
-    public function mirrorProduct(Product $product): Product
+    public function mirrorProduct(Product $product, bool $mirrorVideos = true): Product
     {
         $this->lastMirrorReport = [
             'mirrored' => 0,
@@ -70,31 +70,33 @@ class ProductMediaMirrorService
 
         $videos = is_array($verified['videos'] ?? null) ? $verified['videos'] : [];
         $newVideos = [];
-        foreach ($videos as $video) {
-            if (! is_array($video)) {
-                continue;
-            }
-            $row = $video;
-            $url = trim((string) ($video['url'] ?? ''));
-            if ($url !== '') {
-                $mirrored = $this->mirrorRemoteUrl($url, $store, $product, 'videos');
-                if ($mirrored && $mirrored !== $url) {
-                    $row['url'] = $mirrored;
-                    $changed = true;
+        if ($mirrorVideos) {
+            foreach ($videos as $video) {
+                if (! is_array($video)) {
+                    continue;
                 }
-            }
-            $cover = trim((string) ($video['cover'] ?? ''));
-            if ($cover !== '') {
-                $mirroredCover = $this->mirrorRemoteUrl($cover, $store, $product, 'images');
-                if ($mirroredCover && $mirroredCover !== $cover) {
-                    $row['cover'] = $mirroredCover;
-                    $changed = true;
+                $row = $video;
+                $url = trim((string) ($video['url'] ?? ''));
+                if ($url !== '') {
+                    $mirrored = $this->mirrorRemoteUrl($url, $store, $product, 'videos');
+                    if ($mirrored && $mirrored !== $url) {
+                        $row['url'] = $mirrored;
+                        $changed = true;
+                    }
                 }
+                $cover = trim((string) ($video['cover'] ?? ''));
+                if ($cover !== '') {
+                    $mirroredCover = $this->mirrorRemoteUrl($cover, $store, $product, 'images');
+                    if ($mirroredCover && $mirroredCover !== $cover) {
+                        $row['cover'] = $mirroredCover;
+                        $changed = true;
+                    }
+                }
+                $newVideos[] = $row;
             }
-            $newVideos[] = $row;
-        }
-        if ($newVideos !== []) {
-            $verified['videos'] = $newVideos;
+            if ($newVideos !== []) {
+                $verified['videos'] = $newVideos;
+            }
         }
 
         $variants = is_array($verified['variants'] ?? null) ? $verified['variants'] : [];
@@ -175,7 +177,7 @@ class ProductMediaMirrorService
             $this->r2->refreshStoreStats($store);
         }
 
-        return $product->fresh();
+        return $product->fresh() ?? $product;
     }
 
     public function storeUploadedFile(Store $store, Product $product, UploadedFile $file, string $folder): array
@@ -219,6 +221,12 @@ class ProductMediaMirrorService
         }
 
         if (MediaUrl::isMaskedUrl($url)) {
+            $this->lastMirrorReport['skipped']++;
+
+            return $url;
+        }
+
+        if ($folder === 'videos' && str_contains(strtolower($url), '.m3u8')) {
             $this->lastMirrorReport['skipped']++;
 
             return $url;

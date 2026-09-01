@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Store;
 
+use App\Domain\AI\ProductNameCompressionService;
 use App\Domain\AI\ProductPriceSuggestionService;
 use App\Domain\AI\ProductTranslationService;
 use App\Domain\Suppliers\Cj\CjProductSyncService;
@@ -602,6 +603,29 @@ class ProductController extends Controller
         ]);
     }
 
+    public function compressName(
+        Request $request,
+        StoreContext $storeContext,
+        ProductNameCompressionService $compressor
+    ) {
+        $this->currentStoreOrFail($storeContext);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:500'],
+        ]);
+
+        $out = $compressor->compress($data['name']);
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'name' => $out['name'],
+            'message' => 'Nombre acortado con MIIA.',
+        ]);
+    }
+
     public function suggestPrices(
         Request $request,
         StoreContext $storeContext,
@@ -611,6 +635,8 @@ class ProductController extends Controller
 
         $data = $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
+            'purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'purchase_currency' => ['nullable', 'string', 'size:3'],
             'cost_usd' => ['nullable', 'numeric', 'min:0'],
             'ship_usd' => ['nullable', 'numeric', 'min:0'],
             'fees_pct' => ['nullable', 'numeric', 'min:0', 'max:1'],
@@ -641,6 +667,7 @@ class ProductController extends Controller
             'image_url' => ['nullable', 'string', 'max:500'],
             'price' => ['required', 'numeric', 'min:0'],
             'compare_at_price' => ['nullable', 'numeric', 'min:0'],
+            'purchase_price' => ['nullable', 'numeric', 'min:0'],
             'currency' => ['required', 'string', 'size:3', Rule::in(array_keys(app(CurrencyService::class)->rates()))],
             'status' => ['required', Rule::in(['draft', 'live', 'paused', 'archived'])],
             'badge' => ['nullable', 'string', 'max:80'],
@@ -652,6 +679,11 @@ class ProductController extends Controller
         $data['price'] = $currency->roundAmount((float) $data['price'], $data['currency']);
         if (array_key_exists('compare_at_price', $data) && $data['compare_at_price'] !== null && $data['compare_at_price'] !== '') {
             $data['compare_at_price'] = $currency->roundAmount((float) $data['compare_at_price'], $data['currency']);
+        }
+        if (array_key_exists('purchase_price', $data) && $data['purchase_price'] !== null && $data['purchase_price'] !== '') {
+            $data['purchase_price'] = $currency->roundAmount((float) $data['purchase_price'], $data['currency']);
+        } else {
+            $data['purchase_price'] = null;
         }
 
         if (array_key_exists('description', $data)) {

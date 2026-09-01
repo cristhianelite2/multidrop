@@ -83,6 +83,12 @@ return [
             'kind' => 'chat',
             'default_engine' => 'free',
         ],
+        'product_compress_name' => [
+            'label' => 'Acortar nombre de producto',
+            'hint' => 'Título corto para vitrina',
+            'kind' => 'chat',
+            'default_engine' => 'free',
+        ],
         'product_discovery' => [
             'label' => 'Discovery de productos',
             'hint' => 'Keywords y ángulos a partir de un problema',

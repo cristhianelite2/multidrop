@@ -17,6 +17,8 @@ class ProductPriceSuggestionService
     /**
      * @param  array{
      *   name?: string,
+     *   purchase_price?: float,
+     *   purchase_currency?: string,
      *   cost_usd?: float,
      *   ship_usd?: float,
      *   fees_pct?: float,
@@ -86,7 +88,9 @@ class ProductPriceSuggestionService
         }
 
         $name = trim((string) ($input['name'] ?? 'Producto'));
-        $cost = (float) ($input['cost_usd'] ?? 0);
+        $purchasePrice = (float) ($input['purchase_price'] ?? 0);
+        $purchaseCurrency = strtoupper((string) ($input['purchase_currency'] ?? $input['base_currency'] ?? 'USD'));
+        $cost = $this->resolveCostUsd($input);
         $ship = 0.0;
         $landed = $cost;
         $fees = (float) ($input['fees_pct'] ?? 0.045);
@@ -115,7 +119,7 @@ OBLIGATORIO: termina en un número de vitrina de ese mercado.
 - KRW: 9900, 12900, 19900, 29900
 - AED / SEK: mismos criterios locales de "precio bonito", nunca el FX crudo.
 
-El costo/break-even es SOLO contexto. Si en México el costo es ~512, elige 499 o 549, nunca 512.99.
+El costo de compra/break-even es SOLO contexto. Si en México la compra + margen da ~512, elige 499 o 549, nunca 512.99.
 compare_at_price es OBLIGATORIO: un escalón de vitrina arriba (sentido de oferta / "antes vs ahora"). Nunca igual o menor que price.
 No copies el redondeo de la fila (.99 sobre el costo). Tú decides el número.
 
@@ -126,11 +130,12 @@ TXT;
         $user = "Producto: {$name}\n"
             ."Moneda base del form: {$baseCur} · precio actual: {$basePrice}"
             .($compare ? " · compare: {$compare}" : '')
-            ."\nCosto CJ USD: {$cost} (el envío NO entra al precio de vitrina)\n"
+            ."\nPrecio de compra: ".($purchasePrice > 0 ? round($purchasePrice, 2).' '.$purchaseCurrency : 'no indicado')
+            ."\nCosto referencia USD: ".($cost > 0 ? round($cost, 2) : 'no indicado')." (el envío NO entra al precio de vitrina)\n"
             .'Fees: '.round($fees * 100, 1).'% · margen objetivo (orientativo, no obligatorio): '.round($margin * 100, 0)."%\n"
             ."Tasas (1 {$baseCur} = X):\n".$this->rateHint($baseCur, $currencies)
             ."Monedas a cotizar: ".implode(', ', array_column($currencies, 'code'))."\n"
-            .($costMap !== [] ? "Costo/break-even aproximado (NO lo uses como precio):\n".$this->costHint($costMap) : '');
+            .($costMap !== [] ? "Precio mínimo orientativo por moneda (compra + fees + margen; NO lo uses tal cual, elige vitrina):\n".$this->costHint($costMap) : '');
 
         $result = $this->ai->chat('product_price', [
             ['role' => 'system', 'content' => $system],
@@ -167,16 +172,40 @@ TXT;
      */
     protected function costReference(array $input, array $currencies): array
     {
-        $cost = (float) ($input['cost_usd'] ?? 0);
         $fees = (float) ($input['fees_pct'] ?? 0.045);
         $margin = (float) ($input['target_margin'] ?? 0.42);
+        $denom = max(0.15, 1 - $margin - $fees);
+        $purchasePrice = (float) ($input['purchase_price'] ?? 0);
+        $purchaseCurrency = strtoupper((string) ($input['purchase_currency'] ?? $input['base_currency'] ?? 'USD'));
+        $costUsd = $this->resolveCostUsd($input);
         $basePrice = (float) ($input['base_price'] ?? 0);
         $baseCur = strtoupper((string) ($input['base_currency'] ?? 'USD'));
 
+        $out = [];
+        foreach ($currencies as $row) {
+            $code = $row['code'];
+            $purchaseLocal = 0.0;
+
+            if ($purchasePrice > 0) {
+                $purchaseLocal = $this->fx->convert($purchasePrice, $purchaseCurrency, $code, false);
+            } elseif ($costUsd > 0) {
+                $purchaseLocal = $this->fx->convert($costUsd, 'USD', $code, false);
+            }
+
+            if ($purchaseLocal <= 0) {
+                continue;
+            }
+
+            $out[$code] = $purchaseLocal / $denom;
+        }
+
+        if ($out !== []) {
+            return $out;
+        }
+
         $sellUsd = 0.0;
-        if ($cost > 0) {
-            $denom = max(0.15, 1 - $margin - $fees);
-            $sellUsd = $cost / $denom;
+        if ($costUsd > 0) {
+            $sellUsd = $costUsd / $denom;
         } elseif ($basePrice > 0) {
             $sellUsd = $this->fx->convert($basePrice, $baseCur, 'USD', false);
         }
@@ -184,12 +213,23 @@ TXT;
             return [];
         }
 
-        $out = [];
         foreach ($currencies as $row) {
             $out[$row['code']] = $this->fx->convert($sellUsd, 'USD', $row['code'], false);
         }
 
         return $out;
+    }
+
+    protected function resolveCostUsd(array $input): float
+    {
+        $purchasePrice = (float) ($input['purchase_price'] ?? 0);
+        if ($purchasePrice > 0) {
+            $purchaseCurrency = strtoupper((string) ($input['purchase_currency'] ?? $input['base_currency'] ?? 'USD'));
+
+            return (float) $this->fx->convert($purchasePrice, $purchaseCurrency, 'USD', false);
+        }
+
+        return (float) ($input['cost_usd'] ?? 0);
     }
 
     /**
@@ -448,7 +488,7 @@ TXT;
                 $near[] = $sample;
             }
             $near = array_values(array_unique($near));
-            $lines[] = '  '.$code.' costo≈'.round($raw, 2).' → vitrina típica: '.implode(', ', $near).' (nunca '.round($raw, 2).')';
+            $lines[] = '  '.$code.' compra+fees+margen≈'.round($raw, 2).' → vitrina típica: '.implode(', ', $near).' (nunca '.round($raw, 2).')';
         }
 
         return implode("\n", $lines)."\n";

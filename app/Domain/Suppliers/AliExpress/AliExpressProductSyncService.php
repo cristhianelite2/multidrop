@@ -5,6 +5,7 @@ namespace App\Domain\Suppliers\AliExpress;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Store;
+use App\Services\Currency\CurrencyService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -26,13 +27,20 @@ class AliExpressProductSyncService
         $price = isset($hints['sell']) ? (float) $hints['sell'] : (isset($detail['price']) ? (float) $detail['price'] : 0);
         $compare = isset($detail['compare_at_price']) ? (float) $detail['compare_at_price'] : null;
 
+        $fx = app(CurrencyService::class);
+        $srcCurrency = strtoupper((string) ($detail['currency'] ?? 'USD'));
+        $marketPrice = isset($detail['price']) ? (float) $detail['price'] : 0;
+        $purchaseLocal = $marketPrice > 0
+            ? $fx->roundAmount($fx->convert($marketPrice, $srcCurrency, $currency, false), $currency)
+            : null;
+
         $verified = $this->buildVerifiedPayload($detail);
         $existing = Product::query()
             ->where('store_id', $store->id)
             ->where('verified_data->aliexpress_product_id', $aeId)
             ->first();
 
-        return DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare) {
+        return DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare, $purchaseLocal) {
             $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto AliExpress');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
@@ -65,6 +73,7 @@ class AliExpressProductSyncService
                     'image_url' => $image !== '' ? mb_substr($image, 0, 500) : $existing->image_url,
                     'description' => $existing->description ?: mb_substr($description, 0, 20000),
                     'badge' => $existing->badge ?: (! empty($detail['has_video']) ? 'Video' : 'AliExpress'),
+                    'purchase_price' => $purchaseLocal,
                     'verified_data' => $verified,
                     'creative_data' => $creative,
                 ]);
@@ -88,6 +97,7 @@ class AliExpressProductSyncService
                     'description' => mb_substr($description, 0, 20000) ?: null,
                     'price' => $price,
                     'compare_at_price' => ($compare && $compare > $price) ? $compare : null,
+                    'purchase_price' => $purchaseLocal,
                     'currency' => $currency,
                     'status' => 'draft',
                     'badge' => ! empty($detail['has_video']) ? 'Video' : 'AliExpress',

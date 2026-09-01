@@ -219,7 +219,14 @@
         <div class="grid gap-4 sm:grid-cols-2">
             <div class="sm:col-span-2">
                 <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
-                <input id="field-name" value="{{ old('name', $activeT['name'] ?? $product->name) }}" class="admin-input" autocomplete="off">
+                <div class="flex gap-2 items-stretch">
+                    <input id="field-name" value="{{ old('name', $activeT['name'] ?? $product->name) }}" class="admin-input flex-1 min-w-0" autocomplete="off">
+                    <button type="button" id="btn-compress-name" class="admin-btn-secondary shrink-0 !px-2.5"
+                            title="{{ $hasMiia ? 'Acortar nombre con IA' : 'Configura MIIA en General para acortar con IA' }}"
+                            @disabled(! $hasMiia)>
+                        <span aria-hidden="true">✨</span>
+                    </button>
+                </div>
                 <input type="hidden" name="name" id="main-name" value="{{ old('name', $product->name) }}" required>
             </div>
             <div class="sm:col-span-2 sm:max-w-xs">
@@ -251,13 +258,20 @@
             <div class="sm:col-span-2">
                 @php
                     $verifiedPricing = is_array($verified['pricing'] ?? null) ? $verified['pricing'] : [];
+                    $marketPurchase = $product->exists ? $product->marketplacePurchasePrice() : null;
                     $hasPricing = $product->exists && (
                         data_get($verified, 'cost_usd') !== null
                         || data_get($verifiedPricing, 'cost_usd') !== null
+                        || ($isAe && data_get($verified, 'price') !== null)
                     );
                     $fxSvc = app(\App\Services\Currency\CurrencyService::class);
                     $priceCurrency = strtoupper((string) old('currency', $product->currency ?? 'MXN'));
                     $costUsd = (float) (data_get($verifiedPricing, 'cost_usd') ?? data_get($verified, 'cost_usd') ?? 0);
+                    if ($costUsd <= 0 && $isAe && data_get($verified, 'price')) {
+                        $aeSrcCur = strtoupper((string) (data_get($verified, 'currency') ?: 'USD'));
+                        $aePrice = (float) data_get($verified, 'price');
+                        $costUsd = (float) $fxSvc->convert($aePrice, $aeSrcCur, 'USD', false);
+                    }
                     $shipUsd = (float) (data_get($verifiedPricing, 'ship_usd') ?? data_get($verified, 'ship_usd') ?? 0);
                     $feesPct = (float) (data_get($verifiedPricing, 'fees_pct') ?? 0.045);
                     $targetMargin = (float) (data_get($verifiedPricing, 'target_margin_pct') ?? 0.42);
@@ -270,8 +284,18 @@
                         ? round($fxSvc->convert($sellUsdSuggest, 'USD', $priceCurrency, true), 2)
                         : null;
                     $costLocal = $costUsd > 0 ? round($fxSvc->convert($costUsd, 'USD', $priceCurrency, false), 2) : null;
+                    if ($costLocal === null && $marketPurchase !== null) {
+                        $costLocal = (float) $marketPurchase;
+                    }
+                    $inputPurchase = old('purchase_price', $product->purchase_price ?? $marketPurchase);
+                    if ($inputPurchase !== null && $inputPurchase !== '') {
+                        $inputPurchase = number_format((float) $inputPurchase, 2, '.', '');
+                    }
                     $shipLocal = $shipUsd > 0 ? round($fxSvc->convert($shipUsd, 'USD', $priceCurrency, false), 2) : null;
                     $landedLocal = $landedUsd > 0 ? round($fxSvc->convert($landedUsd, 'USD', $priceCurrency, false), 2) : null;
+                    $purchaseForCalc = ($inputPurchase !== null && $inputPurchase !== '' && (float) $inputPurchase > 0)
+                        ? (float) $inputPurchase
+                        : $costLocal;
                     $inputPrice = old('price', $product->price);
                     // Si no hay precio guardado y sí hay sugerido, usar sugerido en el input
                     if (($inputPrice === null || $inputPrice === '' || (float) $inputPrice <= 0) && $suggestedLocal) {
@@ -291,12 +315,27 @@
                     $sellNow = (float) ($inputPrice ?: 0);
                     $feesLocal = $sellNow > 0 ? $sellNow * $feesPct : null;
                     $feesUsdNow = $feesLocal !== null ? (float) $fxSvc->convert($feesLocal, $priceCurrency, 'USD', false) : 0;
-                    $profitLocalNow = ($sellNow > 0 && $costLocal !== null && $feesLocal !== null)
-                        ? $sellNow - $costLocal - $feesLocal
+                    $profitLocalNow = ($sellNow > 0 && $purchaseForCalc !== null && $feesLocal !== null)
+                        ? $sellNow - $purchaseForCalc - $feesLocal
                         : null;
                     $profitUsdNow = $profitLocalNow !== null ? (float) $fxSvc->convert($profitLocalNow, $priceCurrency, 'USD', false) : 0;
                     $cjSuggestLocal = $cjSuggestUsd ? (float) $fxSvc->convert((float) $cjSuggestUsd, 'USD', $priceCurrency, false) : null;
                 @endphp
+                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Precio de compra</label>
+                <div class="mb-4">
+                    <div class="relative max-w-xs">
+                        <input type="number" step="0.01" min="0" name="purchase_price" id="product-purchase-price"
+                               value="{{ $inputPurchase }}" class="admin-input pr-16"
+                               data-marketplace="{{ $marketPurchase !== null ? number_format((float) $marketPurchase, 2, '.', '') : '' }}"
+                               placeholder="{{ $marketPurchase !== null ? number_format((float) $marketPurchase, 2, '.', '') : '' }}">
+                        <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-ink-soft/55 purchase-currency-suffix">{{ $priceCurrency }}</span>
+                    </div>
+                    @if($marketPurchase !== null)
+                        <p class="mt-1.5 text-xs text-ink-soft/55">
+                            Marketplace: {{ number_format((float) $marketPurchase, 2) }} {{ $priceCurrency }}
+                        </p>
+                    @endif
+                </div>
                 <label class="mb-1.5 block text-sm font-medium text-ink-soft">Precio de venta</label>
                 <div class="grid gap-3 lg:grid-cols-2">
                     <div>
@@ -327,8 +366,8 @@
                              data-currency="{{ $priceCurrency }}">
                             <div class="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">Desglose de costos</div>
                             <div class="flex justify-between gap-2">
-                                <span class="text-ink-soft/65">Precio original (CJ)</span>
-                                <span class="font-medium text-ink" id="bd-cost">{!! $pairMoney($costLocal, $costUsd, $priceCurrency) !!}</span>
+                                <span class="text-ink-soft/65">Precio de compra</span>
+                                <span class="font-medium text-ink" id="bd-cost">{!! $pairMoney($purchaseForCalc, $costUsd, $priceCurrency) !!}</span>
                             </div>
                             <div class="flex justify-between gap-2">
                                 <span class="text-ink-soft/65">Envío estimado</span>
@@ -336,7 +375,7 @@
                             </div>
                             <div class="flex justify-between gap-2">
                                 <span class="text-ink-soft/65">Costo producto</span>
-                                <span class="font-medium text-ink" id="bd-landed">{!! $pairMoney($landedLocal, $landedUsd, $priceCurrency) !!}</span>
+                                <span class="font-medium text-ink" id="bd-landed">{!! $pairMoney($purchaseForCalc, $landedUsd, $priceCurrency) !!}</span>
                             </div>
                             <div class="flex justify-between gap-2">
                                 <span class="text-ink-soft/65">Comisión / fees (~{{ number_format($feesPct * 100, 1) }}%)</span>
@@ -461,7 +500,7 @@
                         <div class="flex flex-wrap items-center justify-end gap-1.5">
                             <button type="button" id="fill-fx-prices" class="admin-btn-secondary !py-1 !px-2 text-xs">Fijar FX en vacíos</button>
                             <button type="button" id="suggest-ai-prices" class="admin-btn !py-1 !px-2 text-xs"
-                                    title="{{ $hasMiia ? 'MIIA elige un precio de vitrina atractivo por mercado (p. ej. 499 MXN, no 512.99)' : 'Precio de vitrina por mercado. Configura MIIA en General para IA.' }}">
+                                    title="{{ $hasMiia ? 'Calcula precio de venta desde compra + fees + margen y elige vitrina atractiva (p. ej. 499 MXN, no 512.99)' : 'Precio de vitrina por mercado. Configura MIIA en General para IA.' }}">
                                 ✨ Sugerir precios IA
                             </button>
                         </div>
@@ -1012,6 +1051,7 @@
   var csrf = $('meta[name="csrf-token"]').attr('content');
   var syncUrl = @json($isCj ? route('admin.store.products.sync-cj', $product) : null);
   var translateUrl = @json($product->exists ? route('admin.store.products.translate', $product) : null);
+  var compressNameUrl = @json(route('admin.store.products.compress-name'));
   var suggestPricesUrl = @json(route('admin.store.products.suggest-prices'));
   var defaultLocale = @json($defaultLocale);
   var activeLocale = String($('#active-locale').val() || defaultLocale);
@@ -1129,6 +1169,36 @@
   $('#field-name, #field-badge, #field-description').on('input change', function () {
     persistActive();
     updatePct();
+  });
+
+  $('#btn-compress-name').on('click', function () {
+    if (!compressNameUrl) return;
+    var name = String($('#field-name').val() || '').trim();
+    if (!name) {
+      alert('Escribe un nombre primero.');
+      return;
+    }
+    var $btn = $(this);
+    $btn.prop('disabled', true);
+    $.ajax({
+      url: compressNameUrl,
+      method: 'POST',
+      dataType: 'json',
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: { _token: csrf, name: name }
+    }).done(function (res) {
+      if (res && res.success && res.name) {
+        $('#field-name').val(res.name).trigger('input');
+        if (window.AdminToast) AdminToast.success(res.message || 'Nombre acortado');
+      } else {
+        alert((res && res.error) || 'No se pudo acortar el nombre.');
+      }
+    }).fail(function (xhr) {
+      var res = xhr.responseJSON || {};
+      alert(res.error || 'Error al acortar el nombre.');
+    }).always(function () {
+      $btn.prop('disabled', false);
+    });
   });
 
   $('#set-as-default-locale').on('change', function () {
@@ -1370,6 +1440,7 @@
     var feesPct = Number($bd.data('fees-pct') || 0.045);
     var sellUsdSuggest = Number($bd.data('sell-usd') || 0);
     var sellLocal = Number($('#product-price').val() || 0);
+    var purchaseLocal = Number($('#product-purchase-price').val() || 0);
 
     function moneyPair(local, usd, cur) {
       var main = moneyFmt(local, cur);
@@ -1377,9 +1448,14 @@
       return main + ' <span class="text-ink-soft/45">(' + moneyFmt(usd, 'USD') + ')</span>';
     }
 
-    var costLocal = convertMoney(costUsd, 'USD', cur, false);
+    var costLocal = purchaseLocal > 0
+      ? purchaseLocal
+      : convertMoney(costUsd, 'USD', cur, false);
+    var costUsdDisplay = purchaseLocal > 0
+      ? convertMoney(purchaseLocal, cur, 'USD', false)
+      : costUsd;
     var shipLocal = convertMoney(shipUsd, 'USD', cur, false);
-    var productCostUsd = costUsd;
+    var productCostUsd = costUsdDisplay;
     var feesLocal = sellLocal > 0 ? sellLocal * feesPct : 0;
     var profitLocal = sellLocal > 0 ? (sellLocal - costLocal - feesLocal) : null;
     var margin = (sellLocal > 0 && profitLocal != null) ? (profitLocal / sellLocal) * 100 : null;
@@ -1387,7 +1463,7 @@
     var feesUsd = sellLocal > 0 ? convertMoney(feesLocal, cur, 'USD', false) : 0;
     var profitUsd = profitLocal != null ? convertMoney(profitLocal, cur, 'USD', false) : 0;
 
-    $('#bd-cost').html(moneyPair(costLocal, costUsd, cur));
+    $('#bd-cost').html(moneyPair(costLocal, costUsdDisplay, cur));
     $('#bd-ship').html(moneyPair(shipLocal, shipUsd, cur) + ' <span class="text-ink-soft/40 font-normal">se cobra aparte</span>');
     $('#bd-landed').html(moneyPair(costLocal, productCostUsd, cur));
     $('#bd-fees').html(moneyPair(feesLocal, feesUsd, cur));
@@ -1398,6 +1474,7 @@
     $profit.toggleClass('text-coral', profitLocal != null && profitLocal < 0);
     $('#bd-margin').text(margin != null ? (margin.toFixed(1) + '%') : '—');
     $('#price-currency-suffix').text(cur);
+    $('.purchase-currency-suffix').text(cur);
     $bd.attr('data-currency', cur);
 
     var $btn = $('#use-suggested-price');
@@ -1407,7 +1484,7 @@
     }
   }
 
-  $('#product-price, input[name="compare_at_price"]').on('blur', function () {
+  $('#product-price, #product-purchase-price, input[name="compare_at_price"]').on('blur', function () {
     var cur = String($('#product-currency').val() || 'MXN').toUpperCase();
     var n = Number($(this).val());
     if (isFinite(n) && n > 0) {
@@ -1418,7 +1495,7 @@
     refreshPriceBreakdown();
     refreshCurrencyPricePreviews();
   });
-  $('#product-price').on('input change', refreshPriceBreakdown);
+  $('#product-price, #product-purchase-price').on('input change', refreshPriceBreakdown);
   $('#use-suggested-price').on('click', function () {
     var suggested = money2($('#product-price').attr('data-suggested') || 0);
     if (suggested > 0) {
@@ -1462,6 +1539,7 @@
 
   refreshPriceBreakdown();
   clampMoneyInput($('#product-price'));
+  clampMoneyInput($('#product-purchase-price'));
   clampMoneyInput($('input[name="compare_at_price"]'));
 
   var roundingLabels = @json(\App\Services\Currency\CurrencyService::ROUNDING_MODES);
@@ -2024,9 +2102,23 @@
       return;
     }
     var $bd = $('#price-breakdown');
+    var $purchase = $('#product-purchase-price');
+    var purchasePrice = Number($purchase.val() || 0);
+    if (!(purchasePrice > 0)) {
+      purchasePrice = Number($purchase.attr('data-marketplace') || $purchase.attr('placeholder') || 0);
+    }
+    var costUsd = Number($bd.attr('data-cost-usd') || 0);
+    if (!(purchasePrice > 0) && !(costUsd > 0)) {
+      alert('Indica el precio de compra (o importa el producto desde marketplace) para calcular el precio de venta.');
+      return;
+    }
+    if (!(Number($purchase.val() || 0) > 0) && purchasePrice > 0) {
+      setMoneyInput($purchase, purchasePrice);
+      $purchase.trigger('change');
+    }
     $btn.prop('disabled', true).text('✨ Pensando…');
     $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60')
-      .text('Sugeriendo precio para ' + currencies.length + ' moneda(s)…');
+      .text('Calculando precio de venta desde compra + fees + margen…');
 
     $.ajax({
       url: suggestPricesUrl,
@@ -2037,12 +2129,14 @@
       data: {
         _token: csrf,
         name: String($('#field-name').val() || ''),
-        cost_usd: Number($bd.attr('data-cost-usd') || 0),
+        purchase_price: purchasePrice,
+        purchase_currency: base,
+        cost_usd: costUsd,
         ship_usd: 0,
         fees_pct: Number($bd.attr('data-fees-pct') || 0.045),
         target_margin: Number($bd.attr('data-target-margin') || 0.42),
         base_price: Number($('#product-price').val() || 0),
-        base_currency: baseCurrency(),
+        base_currency: base,
         compare_at: Number($('input[name="compare_at_price"]').val() || 0),
         currencies: currencies
       }
@@ -2078,6 +2172,7 @@
           }
         }
         $('input[name="compare_at_price"]').trigger('change');
+        $('#product-price').trigger('change');
       }
       $status.removeClass('text-ink-soft/60 text-coral').addClass('text-teal')
         .text(res.message || ('Precios sugeridos en ' + n + ' moneda(s). Guarda el producto.'));

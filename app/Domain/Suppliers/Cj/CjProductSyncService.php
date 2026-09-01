@@ -265,7 +265,7 @@ class CjProductSyncService
             ->where('verified_data->cj_pid', $pid)
             ->first();
 
-        return DB::transaction(function () use ($store, $pid, $detail, $hints, $verified, $existing, $currency, $sellLocal, $costUsd) {
+        return DB::transaction(function () use ($store, $pid, $detail, $hints, $verified, $existing, $currency, $sellLocal, $costUsd, $costLocal) {
             $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto CJ');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
@@ -331,6 +331,7 @@ class CjProductSyncService
                     'image_url' => $image !== '' ? mb_substr($image, 0, 500) : $existing->image_url,
                     'description' => $existing->description ?: mb_substr($description, 0, 20000),
                     'badge' => $existing->badge ?: (! empty($detail['has_video']) ? 'Video' : null),
+                    'purchase_price' => $costLocal,
                     'verified_data' => $verified,
                     'creative_data' => $creative,
                 ]);
@@ -353,6 +354,7 @@ class CjProductSyncService
                     'description' => mb_substr($description, 0, 20000) ?: null,
                     'price' => $sellLocal,
                     'compare_at_price' => null,
+                    'purchase_price' => $costLocal,
                     'currency' => $currency,
                     'status' => 'draft',
                     'badge' => ! empty($detail['has_video']) ? 'Video' : null,

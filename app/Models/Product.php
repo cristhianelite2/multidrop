@@ -18,6 +18,7 @@ class Product extends Model
         'description',
         'price',
         'compare_at_price',
+        'purchase_price',
         'currency',
         'status',
         'badge',
@@ -34,6 +35,7 @@ class Product extends Model
         return [
             'price' => 'decimal:2',
             'compare_at_price' => 'decimal:2',
+            'purchase_price' => 'decimal:2',
             'is_featured' => 'boolean',
             'verified_data' => 'array',
             'creative_data' => 'array',
@@ -48,6 +50,35 @@ class Product extends Model
     public function variants(): HasMany
     {
         return $this->hasMany(ProductVariant::class);
+    }
+
+    /**
+     * Precio de compra según marketplace (verified_data), en moneda del producto.
+     */
+    public function marketplacePurchasePrice(): ?float
+    {
+        $verified = is_array($this->verified_data) ? $this->verified_data : [];
+        $currency = strtoupper((string) ($this->currency ?: 'MXN'));
+        $fx = app(\App\Services\Currency\CurrencyService::class);
+
+        if ($this->isFromCj()) {
+            $pricing = is_array($verified['pricing'] ?? null) ? $verified['pricing'] : [];
+            $costUsd = data_get($pricing, 'cost_usd') ?? data_get($verified, 'cost_usd');
+            if ($costUsd !== null && (float) $costUsd > 0) {
+                return $fx->roundAmount($fx->convert((float) $costUsd, 'USD', $currency, false), $currency);
+            }
+        }
+
+        if ($this->isFromAliExpress()) {
+            $price = data_get($verified, 'price');
+            if ($price !== null && (float) $price > 0) {
+                $srcCur = strtoupper((string) (data_get($verified, 'currency') ?: 'USD'));
+
+                return $fx->roundAmount($fx->convert((float) $price, $srcCur, $currency, false), $currency);
+            }
+        }
+
+        return null;
     }
 
     public function isFromCj(): bool

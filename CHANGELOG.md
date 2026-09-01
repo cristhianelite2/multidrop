@@ -9,6 +9,8 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Botón ✨ junto al nombre para **acortar el título con IA** (MIIA).
 - **Sugerir precios IA** calcula el precio de venta desde el precio de compra + fees + margen objetivo.
 - El desglose de márgenes usa el precio de compra guardado o el del marketplace.
+- Sanitización del nombre acortado por IA (sin anotaciones tipo «70 caracteres»).
+- Spinner de carga en el botón ✨ de acortar nombre.
 
 ## 2026-08-31
 

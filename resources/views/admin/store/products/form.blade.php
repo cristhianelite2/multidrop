@@ -221,10 +221,12 @@
                 <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
                 <div class="flex gap-2 items-stretch">
                     <input id="field-name" value="{{ old('name', $activeT['name'] ?? $product->name) }}" class="admin-input flex-1 min-w-0" autocomplete="off">
-                    <button type="button" id="btn-compress-name" class="admin-btn-secondary shrink-0 !px-2.5"
+                    <button type="button" id="btn-compress-name" class="admin-btn-secondary shrink-0 !px-2.5 min-w-[2.4rem]"
                             title="{{ $hasMiia ? 'Acortar nombre con IA' : 'Configura MIIA en General para acortar con IA' }}"
+                            data-title-idle="{{ $hasMiia ? 'Acortar nombre con IA' : 'Configura MIIA en General para acortar con IA' }}"
                             @disabled(! $hasMiia)>
-                        <span aria-hidden="true">✨</span>
+                        <span id="btn-compress-name-icon" aria-hidden="true">✨</span>
+                        <span class="sr-only" id="btn-compress-name-label">Acortar nombre con IA</span>
                     </button>
                 </div>
                 <input type="hidden" name="name" id="main-name" value="{{ old('name', $product->name) }}" required>
@@ -1171,24 +1173,43 @@
     updatePct();
   });
 
+  function sanitizeProductName(raw) {
+    var name = String(raw || '').trim();
+    if (!name) return '';
+    name = name.split('\n')[0].trim();
+    name = name.replace(/^(?:t[ií]tulo|nombre|title)\s*:\s*/iu, '');
+    name = name.replace(/[\s*_[\]]+[\(\[]\s*\d+\s*(?:car[aá]cter(?:es)?|chars?|characters?)\s*[\)\]]\s*$/iu, '');
+    name = name.replace(/\s*[\(\[]\s*\d+\s*(?:car[aá]cter(?:es)?|chars?|characters?)\s*[\)\]]\s*$/iu, '');
+    name = name.replace(/^\*+(.+?)\*+$/u, '$1');
+    name = name.replace(/\*+([^*]+)\*+$/u, '$1');
+    name = name.replace(/[*_`]/g, '');
+    return name.replace(/\s+/g, ' ').trim();
+  }
+
   $('#btn-compress-name').on('click', function () {
     if (!compressNameUrl) return;
-    var name = String($('#field-name').val() || '').trim();
+    var name = sanitizeProductName($('#field-name').val());
     if (!name) {
       alert('Escribe un nombre primero.');
       return;
     }
     var $btn = $(this);
-    $btn.prop('disabled', true);
+    var $icon = $('#btn-compress-name-icon');
+    var $label = $('#btn-compress-name-label');
+    var idleTitle = String($btn.data('title-idle') || 'Acortar nombre con IA');
+    $btn.prop('disabled', true).attr('aria-busy', 'true').attr('title', 'Acortando nombre…');
+    $label.text('Acortando nombre…');
+    $icon.html('<i class="fa-solid fa-spinner fa-spin text-teal" aria-hidden="true"></i>');
     $.ajax({
       url: compressNameUrl,
       method: 'POST',
       dataType: 'json',
+      timeout: 120000,
       headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
       data: { _token: csrf, name: name }
     }).done(function (res) {
       if (res && res.success && res.name) {
-        $('#field-name').val(res.name).trigger('input');
+        $('#field-name').val(sanitizeProductName(res.name)).trigger('input');
         if (window.AdminToast) AdminToast.success(res.message || 'Nombre acortado');
       } else {
         alert((res && res.error) || 'No se pudo acortar el nombre.');
@@ -1197,7 +1218,9 @@
       var res = xhr.responseJSON || {};
       alert(res.error || 'Error al acortar el nombre.');
     }).always(function () {
-      $btn.prop('disabled', false);
+      $btn.prop('disabled', false).attr('aria-busy', 'false').attr('title', idleTitle);
+      $label.text('Acortar nombre con IA');
+      $icon.text('✨');
     });
   });
 

@@ -694,8 +694,9 @@ class GeneralSettingsController extends Controller
                     break;
                 case 'r2':
                     $this->applyR2FromRequest($request);
-                    app(R2StorageManager::class)->applyFromPlatformSettings();
-                    $probe = app(R2StorageManager::class)->testConnection();
+                    $r2 = app(R2StorageManager::class);
+                    $r2->applyFromPlatformSettings();
+                    $probe = $r2->testConnection();
                     $ok = (bool) ($probe['success'] ?? false);
                     $message = (string) ($probe['message'] ?? ($ok ? 'OK' : 'Falló'));
                     PlatformSetting::put('storage.r2.last_test_at', now()->toIso8601String(), 'storage');
@@ -868,6 +869,8 @@ class GeneralSettingsController extends Controller
             PlatformSetting::put('storage.r2.endpoint', $endpoint, 'storage');
             config(['r2.endpoint' => $endpoint]);
         }
+
+        app(R2StorageManager::class)->syncDiskConfig();
     }
 
     protected function syncCursorMcpQuietly(): void

@@ -25,7 +25,43 @@ class R2StorageManager
 
     public function disk(): Filesystem
     {
+        $this->syncDiskConfig();
+
         return Storage::disk('r2');
+    }
+
+    public function syncDiskConfig(): void
+    {
+        $this->ensureEndpoint();
+
+        config([
+            'filesystems.disks.r2' => [
+                'driver' => 's3',
+                'key' => config('r2.access_key_id'),
+                'secret' => config('r2.secret_access_key'),
+                'region' => config('r2.region', 'auto'),
+                'bucket' => config('r2.bucket'),
+                'endpoint' => config('r2.endpoint'),
+                'url' => env('R2_URL'),
+                'use_path_style_endpoint' => true,
+                'throw' => false,
+            ],
+        ]);
+
+        Storage::forgetDisk('r2');
+    }
+
+    public function ensureEndpoint(): void
+    {
+        $endpoint = trim((string) config('r2.endpoint'));
+        if ($endpoint !== '') {
+            return;
+        }
+        $accountId = trim((string) config('r2.account_id'));
+        if ($accountId === '') {
+            return;
+        }
+        config(['r2.endpoint' => 'https://'.$accountId.'.r2.cloudflarestorage.com']);
     }
 
     /**
@@ -33,8 +69,10 @@ class R2StorageManager
      */
     public function testConnection(): array
     {
+        $this->syncDiskConfig();
+
         if (! $this->configured()) {
-            return ['success' => false, 'message' => 'Completa bucket, access key, secret y endpoint.'];
+            return ['success' => false, 'message' => 'Completa bucket, access key, secret y endpoint (o Account ID para derivarlo).'];
         }
 
         try {
@@ -151,6 +189,8 @@ class R2StorageManager
             'r2.bucket' => $bucket,
             'r2.endpoint' => $endpoint,
         ]);
+
+        $this->syncDiskConfig();
     }
 
     public function formatBytes(int $bytes): string

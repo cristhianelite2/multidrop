@@ -74,6 +74,12 @@
                     <p class="mt-1 text-xs text-ink-soft/55">El slug público <code>/{{ $store->slug }}</code> no cambia al renombrar.</p>
                 </div>
 
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Correo de la cuenta</label>
+                    <input type="email" name="contact_email" value="{{ old('contact_email', $contact_email ?? '') }}" class="admin-input" maxlength="190" placeholder="tienda@tudominio.com" autocomplete="email">
+                    <p class="mt-1 text-xs text-ink-soft/55">Email de contacto de esta tienda (pedidos, soporte y comunicaciones con compradores).</p>
+                </div>
+
                 <div>
                     <label class="mb-1.5 block text-sm font-medium text-ink-soft">Tipo</label>
                     <div class="grid grid-cols-2 gap-2">

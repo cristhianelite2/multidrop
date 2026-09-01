@@ -4,6 +4,9 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ## 2026-09-01
 
+### Admin tienda
+- Campo **Correo de la cuenta** en General de la tienda (`settings.contact.email`).
+
 ### Catálogo admin
 - Campo **Precio de compra** en productos (`purchase_price`), rellenado al importar desde CJ o AliExpress según el precio del marketplace.
 - Botón ✨ junto al nombre para **acortar el título con IA** (MIIA).

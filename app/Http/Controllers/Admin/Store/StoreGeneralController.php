@@ -104,6 +104,7 @@ class StoreGeneralController extends Controller
             'parent_options' => $parentOptions,
             'identity_color' => (string) ($identity['color'] ?? $store->identityColor()),
             'identity_icon' => (string) ($identity['icon'] ?? ''),
+            'contact_email' => (string) data_get($settings, 'contact.email', ''),
         ]);
     }
 
@@ -119,6 +120,7 @@ class StoreGeneralController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:80'],
+            'contact_email' => ['nullable', 'email', 'max:190'],
             'store_type' => ['required', 'string', Rule::in(['mega', 'mini'])],
             'parent_id' => ['nullable', 'integer', 'exists:stores,id'],
             'identity_color' => ['nullable', 'string', 'max:7'],
@@ -275,6 +277,9 @@ class StoreGeneralController extends Controller
                 'color' => preg_match('/^#[0-9A-F]{6}$/', $color) ? $color : null,
                 'icon' => $icon !== '' ? mb_substr($icon, 0, 4) : null,
             ];
+            $contactEmail = trim((string) ($data['contact_email'] ?? ''));
+            $settings['contact'] = is_array($settings['contact'] ?? null) ? $settings['contact'] : [];
+            $settings['contact']['email'] = $contactEmail !== '' ? $contactEmail : null;
 
             $store->name = trim((string) $data['name']);
             $store->store_type = $storeType;

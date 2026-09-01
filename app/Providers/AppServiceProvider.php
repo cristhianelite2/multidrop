@@ -43,6 +43,7 @@ class AppServiceProvider extends ServiceProvider
         $this->applyCjSettingsFromDb();
         $this->applyAliExpressSettingsFromDb();
         $this->applyCloudflareSettingsFromDb();
+        $this->applyR2SettingsFromDb();
         $this->applyAiSettingsFromDb();
         $this->applyMailSettingsFromDb();
     }
@@ -163,6 +164,18 @@ class AppServiceProvider extends ServiceProvider
         $enabled = PlatformSetting::getValue('cloudflare.browser_rendering');
         if ($enabled !== null && $enabled !== '') {
             config(['cloudflare.enabled' => filter_var($enabled, FILTER_VALIDATE_BOOLEAN)]);
+        }
+    }
+
+    protected function applyR2SettingsFromDb(): void
+    {
+        try {
+            if (! Schema::hasTable('platform_settings')) {
+                return;
+            }
+            app(\App\Services\Storage\R2StorageManager::class)->applyFromPlatformSettings();
+        } catch (\Throwable) {
+            //
         }
     }
 

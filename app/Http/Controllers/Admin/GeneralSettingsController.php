@@ -14,7 +14,8 @@ use App\Models\Store;
 use App\Services\Currency\CurrencyService;
 use App\Services\Platform\PlatformContact;
 use App\Services\Platform\PlatformMailSettings;
-use App\Services\Security\TurnstileVerifier;
+use App\Services\Storage\MediaUrl;
+use App\Services\Storage\R2StorageManager;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -99,6 +100,27 @@ class GeneralSettingsController extends Controller
             'docs' => config('cloudflare.docs.browser_rendering'),
         ];
 
+        $r2Manager = app(R2StorageManager::class);
+        $r2Manager->applyFromPlatformSettings();
+        $r2Account = trim((string) (PlatformSetting::getValue('storage.r2.account_id') ?: PlatformSetting::getValue('cloudflare.account_id') ?: config('r2.account_id')));
+        $r2Storage = [
+            'enabled' => $r2Manager->enabled(),
+            'account_id' => $r2Account,
+            'access_key_id' => (bool) PlatformSetting::getValue('storage.r2.access_key_id') ? '********' : '',
+            'secret_access_key' => (bool) PlatformSetting::getValue('storage.r2.secret_access_key') ? '********' : '',
+            'bucket' => PlatformSetting::getValue('storage.r2.bucket', config('r2.bucket')) ?: '',
+            'endpoint' => PlatformSetting::getValue('storage.r2.endpoint', config('r2.endpoint')) ?: ($r2Account !== '' ? 'https://'.$r2Account.'.r2.cloudflarestorage.com' : ''),
+            'has_access_key' => (bool) PlatformSetting::getValue('storage.r2.access_key_id'),
+            'has_secret' => (bool) PlatformSetting::getValue('storage.r2.secret_access_key'),
+            'configured' => $r2Manager->configured(),
+            'ready' => $r2Manager->enabled(),
+            'public_prefix' => MediaUrl::prefix(),
+            'last_test_at' => PlatformSetting::getValue('storage.r2.last_test_at'),
+            'last_test_ok' => filter_var(PlatformSetting::getValue('storage.r2.last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
+            'last_test_message' => PlatformSetting::getValue('storage.r2.last_test_message'),
+            'docs' => config('r2.docs', []),
+        ];
+
         $aiEngines = $aiRouter->listEngines();
         $ai = [
             'miia_api_key' => $hasDb['miia_api_key'] ? '********' : '',
@@ -133,7 +155,7 @@ class GeneralSettingsController extends Controller
             ->with('market:id,code')
             ->orderBy('store_type')
             ->orderBy('name')
-            ->get(['id', 'name', 'store_type', 'market_id']);
+            ->get(['id', 'name', 'store_type', 'market_id', 'settings']);
 
         $ordersByStore = Order::query()
             ->selectRaw('store_id')
@@ -154,10 +176,11 @@ class GeneralSettingsController extends Controller
             ->get()
             ->keyBy('store_id');
 
-        $storeSalesRows = $stores->map(function (Store $store) use ($ordersByStore, $claimsByStore) {
+        $storeSalesRows = $stores->map(function (Store $store) use ($ordersByStore, $claimsByStore, $r2Manager) {
             $orderAgg = $ordersByStore->get($store->id);
             $orders30 = (int) ($orderAgg->orders_30 ?? 0);
             $paid30 = (int) ($orderAgg->paid_30 ?? 0);
+            $r2Bytes = (int) data_get($store->settings, 'storage.r2_bytes', 0);
 
             return [
                 'id' => $store->id,
@@ -171,6 +194,12 @@ class GeneralSettingsController extends Controller
                 'revenue_30' => (float) ($orderAgg->revenue_30 ?? 0),
                 'open_claims' => (int) ($claimsByStore->get($store->id)->open_claims ?? 0),
                 'conversion_paid_30' => $orders30 > 0 ? round(($paid30 / $orders30) * 100, 1) : 0.0,
+                'r2_bytes' => $r2Bytes,
+                'r2_files' => (int) data_get($store->settings, 'storage.r2_files', 0),
+                'r2_images' => (int) data_get($store->settings, 'storage.r2_images', 0),
+                'r2_videos' => (int) data_get($store->settings, 'storage.r2_videos', 0),
+                'r2_synced_at' => data_get($store->settings, 'storage.r2_synced_at'),
+                'r2_human' => $r2Manager->formatBytes($r2Bytes),
             ];
         })->sortByDesc('paid_today')->values();
 
@@ -193,6 +222,7 @@ class GeneralSettingsController extends Controller
             'cj' => $cjData,
             'aliexpress' => $aliexpress,
             'cfBrowser' => $cfBrowser,
+            'r2Storage' => $r2Storage,
             'ai' => $ai,
             'security' => $security,
             'contact' => $contact->all(),
@@ -463,10 +493,62 @@ class GeneralSettingsController extends Controller
             : 'Cloudflare Browser Rendering guardado (apagado).');
     }
 
+    public function saveR2(Request $request, R2StorageManager $r2)
+    {
+        $data = $request->validate([
+            'r2_enabled' => ['nullable', 'boolean'],
+            'r2_account_id' => ['nullable', 'string', 'max:64'],
+            'r2_access_key_id' => ['nullable', 'string', 'max:120'],
+            'r2_secret_access_key' => ['nullable', 'string', 'max:255'],
+            'r2_bucket' => ['nullable', 'string', 'max:120'],
+            'r2_endpoint' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $enabled = $request->boolean('r2_enabled');
+        PlatformSetting::put('storage.r2.enabled', $enabled ? '1' : '0', 'storage');
+
+        $account = trim((string) ($data['r2_account_id'] ?? ''));
+        if ($account !== '' && $account !== '********') {
+            PlatformSetting::put('storage.r2.account_id', $account, 'storage');
+        }
+        $accessKey = trim((string) ($data['r2_access_key_id'] ?? ''));
+        if ($accessKey !== '' && $accessKey !== '********') {
+            PlatformSetting::put('storage.r2.access_key_id', $accessKey, 'storage');
+        }
+        $this->putSecretIfPresent('storage.r2.secret_access_key', $data['r2_secret_access_key'] ?? null, 'storage');
+        PlatformSetting::put('storage.r2.bucket', trim((string) ($data['r2_bucket'] ?? '')) ?: null, 'storage');
+
+        $endpoint = trim((string) ($data['r2_endpoint'] ?? ''));
+        if ($endpoint === '' && $account !== '' && $account !== '********') {
+            $endpoint = 'https://'.$account.'.r2.cloudflarestorage.com';
+        }
+        PlatformSetting::put('storage.r2.endpoint', $endpoint ?: null, 'storage');
+
+        $r2->applyFromPlatformSettings();
+
+        return back()->with('success', $enabled
+            ? 'Cloudflare R2 activado. Los imports copiarán imágenes y videos a /f/.'
+            : 'Cloudflare R2 guardado (apagado).');
+    }
+
+    public function refreshR2StoreStats(R2StorageManager $r2)
+    {
+        if (! $r2->enabled()) {
+            return back()->with('error', 'Activa y configura R2 antes de recalcular el almacenamiento.');
+        }
+
+        $stores = Store::query()->active()->get(['id', 'settings']);
+        foreach ($stores as $store) {
+            $r2->refreshStoreStats($store);
+        }
+
+        return back()->with('success', 'Uso de R2 recalculado para todas las tiendas activas.');
+    }
+
     public function testApi(Request $request)
     {
         $data = $request->validate([
-            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile', 'aliexpress', 'cloudflare_browser'])],
+            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile', 'aliexpress', 'cloudflare_browser', 'r2'])],
         ]);
 
         $ok = false;
@@ -609,6 +691,16 @@ class GeneralSettingsController extends Controller
                     PlatformSetting::put('cloudflare.browser_last_test_ok', $ok ? '1' : '0', 'cloudflare');
                     PlatformSetting::put('cloudflare.browser_last_test_message', mb_substr($message, 0, 240), 'cloudflare');
                     break;
+                case 'r2':
+                    $this->applyR2FromRequest($request);
+                    app(R2StorageManager::class)->applyFromPlatformSettings();
+                    $probe = app(R2StorageManager::class)->testConnection();
+                    $ok = (bool) ($probe['success'] ?? false);
+                    $message = (string) ($probe['message'] ?? ($ok ? 'OK' : 'Falló'));
+                    PlatformSetting::put('storage.r2.last_test_at', now()->toIso8601String(), 'storage');
+                    PlatformSetting::put('storage.r2.last_test_ok', $ok ? '1' : '0', 'storage');
+                    PlatformSetting::put('storage.r2.last_test_message', mb_substr($message, 0, 240), 'storage');
+                    break;
             }
         } catch (\Throwable $e) {
             return $this->testJson($request, false, 'Prueba falló: '.$e->getMessage());
@@ -740,6 +832,40 @@ class GeneralSettingsController extends Controller
             $on = $request->boolean('cf_browser_rendering');
             PlatformSetting::put('cloudflare.browser_rendering', $on ? '1' : '0', 'cloudflare');
             config(['cloudflare.enabled' => $on]);
+        }
+    }
+
+    protected function applyR2FromRequest(Request $request): void
+    {
+        if ($request->has('r2_enabled')) {
+            $on = $request->boolean('r2_enabled');
+            PlatformSetting::put('storage.r2.enabled', $on ? '1' : '0', 'storage');
+            config(['r2.enabled' => $on]);
+        }
+        $account = $request->input('r2_account_id');
+        if (is_string($account) && $account !== '' && $account !== '********') {
+            PlatformSetting::put('storage.r2.account_id', $account, 'storage');
+            config(['r2.account_id' => $account]);
+        }
+        $accessKey = $request->input('r2_access_key_id');
+        if (is_string($accessKey) && $accessKey !== '' && $accessKey !== '********') {
+            PlatformSetting::put('storage.r2.access_key_id', $accessKey, 'storage');
+            config(['r2.access_key_id' => $accessKey]);
+        }
+        $secret = $request->input('r2_secret_access_key');
+        if (is_string($secret) && $secret !== '' && $secret !== '********') {
+            PlatformSetting::put('storage.r2.secret_access_key', $secret, 'storage', true);
+            config(['r2.secret_access_key' => $secret]);
+        }
+        $bucket = $request->input('r2_bucket');
+        if (is_string($bucket) && $bucket !== '') {
+            PlatformSetting::put('storage.r2.bucket', $bucket, 'storage');
+            config(['r2.bucket' => $bucket]);
+        }
+        $endpoint = $request->input('r2_endpoint');
+        if (is_string($endpoint) && $endpoint !== '') {
+            PlatformSetting::put('storage.r2.endpoint', $endpoint, 'storage');
+            config(['r2.endpoint' => $endpoint]);
         }
     }
 

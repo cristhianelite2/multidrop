@@ -4,6 +4,13 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ## 2026-09-01
 
+### Plataforma
+- Integración **Cloudflare R2** para imágenes y videos de productos.
+- Configuración en General de plataforma (bucket, API keys S3, prueba de conexión).
+- URLs enmascaradas `/{f}/stores/{tienda}/products/{id}/…` servidas vía proxy Laravel.
+- Monitoreo de almacenamiento R2 por tienda (recalcular desde bucket).
+- Al importar producto (CJ, AliExpress o manual) se copia media a R2 automáticamente.
+
 ### Admin tienda
 - Campo **Correo de la cuenta** en General de la tienda (`settings.contact.email`).
 

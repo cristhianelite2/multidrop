@@ -2,6 +2,7 @@
 
 namespace App\Domain\Suppliers\Cj;
 
+use App\Services\Storage\MediaUrl;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -27,7 +28,7 @@ class CjVideoProxy
     public function playableUrl(string $url): string
     {
         $url = trim($url);
-        if ($url === '' || ! $this->needsProxy($url)) {
+        if ($url === '' || MediaUrl::isMaskedUrl($url) || ! $this->needsProxy($url)) {
             return $url;
         }
 

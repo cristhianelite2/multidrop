@@ -13,6 +13,7 @@
                 <a href="#sec-cj">CJ / MCP</a>
                 <a href="#sec-aliexpress">AliExpress</a>
                 <a href="#sec-cf-browser">Browser Rendering</a>
+                <a href="#sec-r2">R2 almacenamiento</a>
                 <a href="#sec-ai">Inteligencia artificial</a>
                 <a href="#sec-payments">Pagos</a>
                 <a href="#sec-security">Seguridad</a>
@@ -365,6 +366,154 @@
                 <p class="js-api-test-last text-xs text-ink-soft/55 hidden"></p>
             @endif
         </form>
+    </div>
+
+    <div class="admin-card p-5 sm:p-6 space-y-6" id="sec-r2">
+        @php $r2 = $r2Storage ?? []; @endphp
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+                <h2 class="font-display text-lg font-bold text-ink">Cloudflare R2 — almacenamiento de media</h2>
+                <p class="mt-1 text-sm text-ink-soft/70">
+                    Copia imágenes y videos de productos (CJ, AliExpress o manual) a R2 y sirve URLs enmascaradas
+                    <code class="text-xs">/{{ $r2['public_prefix'] ?? 'f' }}/stores/…</code> en tu dominio.
+                </p>
+            </div>
+            <a href="{{ $r2['docs']['r2'] ?? 'https://developers.cloudflare.com/r2/' }}" target="_blank" rel="noopener" class="text-sm font-medium text-teal hover:underline">
+                Docs R2 ↗
+            </a>
+        </div>
+
+        <form method="post" action="{{ route('admin.settings.general.r2.save') }}" class="space-y-4 rounded-2xl border border-line bg-mist/40 p-4" id="r2-form">
+            @csrf
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-ink">Credenciales S3 de R2</h3>
+                @if(!empty($r2['ready']))
+                    <span class="admin-badge bg-teal/10 text-teal">R2 activo</span>
+                @elseif(!empty($r2['configured']))
+                    <span class="admin-badge bg-amber-100 text-amber-800">Configurado · apagado</span>
+                @else
+                    <span class="admin-badge bg-coral/10 text-coral">Sin configurar</span>
+                @endif
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Account ID</label>
+                    <input name="r2_account_id" id="r2_account_id" value="{{ old('r2_account_id', $r2['account_id'] ?? '') }}" class="admin-input font-mono text-sm" placeholder="32 caracteres hex">
+                    <p class="mt-1 text-[11px] text-ink-soft/55">Puede ser el mismo de Browser Rendering.</p>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Bucket</label>
+                    <input name="r2_bucket" id="r2_bucket" value="{{ old('r2_bucket', $r2['bucket'] ?? '') }}" class="admin-input font-mono text-sm" placeholder="multidrop-media">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Access Key ID {{ !empty($r2['has_access_key']) ? '(guardado · deja ********)' : '' }}</label>
+                    <input name="r2_access_key_id" id="r2_access_key_id" type="password" value="{{ old('r2_access_key_id', $r2['access_key_id'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off">
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Secret Access Key {{ !empty($r2['has_secret']) ? '(guardado · deja ********)' : '' }}</label>
+                    <input name="r2_secret_access_key" id="r2_secret_access_key" type="password" value="{{ old('r2_secret_access_key', $r2['secret_access_key'] ?? '') }}" class="admin-input font-mono text-sm" autocomplete="off">
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Endpoint S3 (opcional)</label>
+                    <input name="r2_endpoint" id="r2_endpoint" value="{{ old('r2_endpoint', $r2['endpoint'] ?? '') }}" class="admin-input font-mono text-sm" placeholder="https://&lt;account_id&gt;.r2.cloudflarestorage.com">
+                </div>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm text-ink-soft">
+                <input type="hidden" name="r2_enabled" value="0">
+                <input type="checkbox" name="r2_enabled" id="r2_enabled" value="1" @checked(old('r2_enabled', $r2['enabled'] ?? false))>
+                Activar R2 (copiar media al importar y al guardar producto)
+            </label>
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="submit" class="admin-btn">Guardar R2</button>
+                <button type="button" class="js-api-test admin-btn-secondary" data-provider="r2" data-url="{{ route('admin.settings.general.api.test') }}">Probar conexión</button>
+            </div>
+            @include('admin.settings.partials.api-help', [
+                'title' => 'Cómo crear el bucket y las API keys',
+                'steps' => [
+                    'En <a class="text-teal hover:underline" href="https://dash.cloudflare.com/?to=/:account/r2/overview" target="_blank" rel="noopener">R2 → Overview</a> crea un bucket (ej. <code>multidrop-media</code>).',
+                    'En el bucket → <strong>Settings</strong> copia el nombre exacto aquí.',
+                    'Ve a <a class="text-teal hover:underline" href="https://dash.cloudflare.com/?to=/:account/r2/api-tokens" target="_blank" rel="noopener">R2 → Manage API tokens</a> → <strong>Create API token</strong>.',
+                    'Permisos: <strong>Object Read &amp; Write</strong> sobre ese bucket (o toda la cuenta si prefieres).',
+                    'Copia <strong>Access Key ID</strong> y <strong>Secret Access Key</strong> (solo se muestran una vez).',
+                    'Pega Account ID, bucket y llaves aquí, activa R2, guarda y pulsa <strong>Probar conexión</strong>.',
+                    'Las URLs públicas quedan en <code>https://tu-dominio/{{ $r2['public_prefix'] ?? 'f' }}/stores/{tienda}/products/{id}/…</code> (proxy Laravel → R2).',
+                ],
+            ])
+            @if(($r2['last_test_at'] ?? null))
+                <p class="js-api-test-last text-xs {{ ($r2['last_test_ok'] ?? false) ? 'text-teal' : 'text-coral' }}">
+                    Última prueba: {{ \Illuminate\Support\Carbon::parse($r2['last_test_at'])->diffForHumans() }}
+                    — {{ $r2['last_test_message'] ?? '' }}
+                </p>
+            @else
+                <p class="js-api-test-last text-xs text-ink-soft/55 hidden"></p>
+            @endif
+        </form>
+
+        <div class="space-y-3 rounded-2xl border border-line bg-white p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h3 class="text-sm font-semibold text-ink">Uso de almacenamiento por tienda</h3>
+                    <p class="mt-1 text-xs text-ink-soft/60">Bytes en R2 bajo <code>stores/{id}/</code>. Se actualiza al importar o subir media.</p>
+                </div>
+                <form method="post" action="{{ route('admin.settings.general.r2.refresh-stats') }}">
+                    @csrf
+                    <button type="submit" class="admin-btn-secondary text-xs" @disabled(empty($r2['ready']))>Recalcular desde R2</button>
+                </form>
+            </div>
+            @php
+                $r2Rows = collect($commerce['stores'] ?? []);
+                $r2TotalBytes = (int) $r2Rows->sum('r2_bytes');
+                $r2TotalFiles = (int) $r2Rows->sum('r2_files');
+            @endphp
+            <div class="grid gap-2 sm:grid-cols-3">
+                <div class="rounded-xl border border-line bg-mist/30 px-3 py-2 text-sm">
+                    <span class="text-ink-soft/60">Total plataforma</span>
+                    <div class="font-semibold text-ink">{{ app(\App\Services\Storage\R2StorageManager::class)->formatBytes($r2TotalBytes) }}</div>
+                </div>
+                <div class="rounded-xl border border-line bg-mist/30 px-3 py-2 text-sm">
+                    <span class="text-ink-soft/60">Archivos</span>
+                    <div class="font-semibold text-ink">{{ number_format($r2TotalFiles) }}</div>
+                </div>
+                <div class="rounded-xl border border-line bg-mist/30 px-3 py-2 text-sm">
+                    <span class="text-ink-soft/60">Free tier R2</span>
+                    <div class="font-semibold text-ink">10 GB/mes incluidos</div>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="admin-table w-full min-w-[640px] text-sm">
+                    <thead>
+                        <tr>
+                            <th class="text-left">Tienda</th>
+                            <th class="text-left">Tipo</th>
+                            <th class="text-right">Imágenes</th>
+                            <th class="text-right">Videos</th>
+                            <th class="text-right">Total</th>
+                            <th class="text-left">Última sync</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse($r2Rows as $row)
+                            <tr>
+                                <td class="font-medium text-ink">{{ $row['name'] }}</td>
+                                <td class="text-ink-soft/70">{{ $row['type'] }}</td>
+                                <td class="text-right tabular-nums">{{ (int) ($row['r2_images'] ?? 0) }}</td>
+                                <td class="text-right tabular-nums">{{ (int) ($row['r2_videos'] ?? 0) }}</td>
+                                <td class="text-right tabular-nums font-medium">{{ $row['r2_human'] ?? '0 B' }}</td>
+                                <td class="text-xs text-ink-soft/60">
+                                    @if(!empty($row['r2_synced_at']))
+                                        {{ \Illuminate\Support\Carbon::parse($row['r2_synced_at'])->diffForHumans() }}
+                                    @else
+                                        —
+                                    @endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="text-ink-soft/60">No hay tiendas activas.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <form method="post" action="{{ route('admin.settings.general.update') }}" class="mt-6 space-y-6">
@@ -970,6 +1119,14 @@
       payload.cf_api_token = $('#cf_api_token').val() || '';
       payload.cf_browser_rendering = $('#cf_browser_rendering').is(':checked') ? '1' : '0';
       payload.cf_browser_test_url = $('#cf_browser_test_url').val() || '';
+    } else if (provider === 'r2') {
+      payload.provider = 'r2';
+      payload.r2_enabled = $('#r2_enabled').is(':checked') ? '1' : '0';
+      payload.r2_account_id = $('#r2_account_id').val() || '';
+      payload.r2_access_key_id = $('#r2_access_key_id').val() || '';
+      payload.r2_secret_access_key = $('#r2_secret_access_key').val() || '';
+      payload.r2_bucket = $('#r2_bucket').val() || '';
+      payload.r2_endpoint = $('#r2_endpoint').val() || '';
     } else {
       payload.provider = provider;
     }
@@ -990,7 +1147,7 @@
       if (provider === 'miia' && res && Array.isArray(res.engines)) {
         fillAiEngineSelects(res.engines);
       }
-      if (provider === 'cj' || provider === 'aliexpress' || provider === 'cloudflare_browser') {
+      if (provider === 'cj' || provider === 'aliexpress' || provider === 'cloudflare_browser' || provider === 'r2') {
         var $last = $btn.closest('form').find('.js-api-test-last');
         if ($last.length) {
           $last.removeClass('hidden text-teal text-coral')

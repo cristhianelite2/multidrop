@@ -56,6 +56,18 @@ return [
             'throw' => false,
         ],
 
+        'r2' => [
+            'driver' => 's3',
+            'key' => config('r2.access_key_id'),
+            'secret' => config('r2.secret_access_key'),
+            'region' => config('r2.region', 'auto'),
+            'bucket' => config('r2.bucket'),
+            'endpoint' => config('r2.endpoint'),
+            'url' => env('R2_URL'),
+            'use_path_style_endpoint' => true,
+            'throw' => false,
+        ],
+
     ],
 
     /*

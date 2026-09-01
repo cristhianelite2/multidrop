@@ -35,6 +35,7 @@ use App\Http\Controllers\Buyer\BuyerPortalController;
 use App\Http\Controllers\Admin\Store\OrderClaimController;
 use App\Http\Controllers\Storefront\CartController;
 use App\Http\Controllers\Storefront\CheckoutController;
+use App\Http\Controllers\MediaFileController;
 use App\Http\Controllers\Storefront\CjMediaController;
 use App\Http\Controllers\Storefront\CustomDesignController;
 use App\Http\Controllers\Storefront\NewsletterController as StorefrontNewsletterController;
@@ -50,6 +51,7 @@ Route::get('/p/{slug}', [StoreController::class, 'show'])->name('store.product')
 Route::post('/coupon/validate', [StoreController::class, 'validateCoupon'])->name('store.coupon');
 
 Route::get('/media/cj-video', [CjMediaController::class, 'video'])->name('store.media.cj-video');
+Route::get('/f/{path}', [MediaFileController::class, 'show'])->where('path', '.*')->name('media.file');
 Route::get('/s/{slug}', [CustomDesignController::class, 'show'])->name('store.design.show');
 Route::get('/s/{slug}/pages/{handle}', [CustomDesignController::class, 'page'])->name('store.design.page');
 Route::get('/s/{slug}/products.json', [CustomDesignController::class, 'products'])->name('store.design.products');
@@ -361,6 +363,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/settings/general/cj/test', [GeneralSettingsController::class, 'testCj'])->name('settings.general.cj.test');
             Route::post('/settings/general/aliexpress', [GeneralSettingsController::class, 'saveAliExpress'])->name('settings.general.aliexpress.save');
             Route::post('/settings/general/cloudflare-browser', [GeneralSettingsController::class, 'saveCloudflareBrowser'])->name('settings.general.cloudflare-browser.save');
+            Route::post('/settings/general/r2', [GeneralSettingsController::class, 'saveR2'])->name('settings.general.r2.save');
+            Route::post('/settings/general/r2/refresh-stats', [GeneralSettingsController::class, 'refreshR2StoreStats'])->name('settings.general.r2.refresh-stats');
             Route::post('/settings/general/api/test', [GeneralSettingsController::class, 'testApi'])->name('settings.general.api.test');
             Route::get('/settings/general/ai/engines', [GeneralSettingsController::class, 'aiEngines'])->name('settings.general.ai.engines');
         });

@@ -145,6 +145,7 @@ class CjProductSyncService
             $creative['has_video'] = ! empty($verified['videos']);
             $product->creative_data = $creative;
             $product->save();
+            $product = app(\App\Services\Storage\ProductMediaMirrorService::class)->mirrorProduct($product->fresh());
         }
 
         return $product->fresh(['variants']) ?? $product;
@@ -265,7 +266,7 @@ class CjProductSyncService
             ->where('verified_data->cj_pid', $pid)
             ->first();
 
-        return DB::transaction(function () use ($store, $pid, $detail, $hints, $verified, $existing, $currency, $sellLocal, $costUsd, $costLocal) {
+        $result = DB::transaction(function () use ($store, $pid, $detail, $hints, $verified, $existing, $currency, $sellLocal, $costUsd, $costLocal) {
             $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto CJ');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
@@ -374,6 +375,13 @@ class CjProductSyncService
                 'created' => $created,
             ];
         });
+
+        if (($result['success'] ?? false) && isset($result['product'])) {
+            $result['product'] = app(\App\Services\Storage\ProductMediaMirrorService::class)
+                ->mirrorProduct($result['product']);
+        }
+
+        return $result;
     }
 
     /**

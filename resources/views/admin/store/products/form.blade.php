@@ -1880,7 +1880,8 @@
   var productUploadVideoUrl = @json($product->exists ? route('admin.store.products.upload-video', $product) : null);
 
   function isHostedMediaUrl(url) {
-    return /\/storage\//i.test(String(url || ''));
+    url = String(url || '');
+    return /\/storage\//i.test(url) || /\/f\//i.test(url);
   }
 
   function mediaVideoPlayUrl(url) {

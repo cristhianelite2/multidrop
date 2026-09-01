@@ -13,7 +13,7 @@ use App\Models\ProductVariant;
 use App\Domain\Scoring\CjPricingEstimator;
 use App\Services\Admin\StoreContext;
 use App\Services\Currency\CurrencyService;
-use App\Services\Storefront\DesignAssetUrl;
+use App\Services\Storage\ProductMediaMirrorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -251,6 +251,8 @@ class ProductController extends Controller
             $data['creative_data'] = $creative;
         }
         $product->update($data);
+
+        app(ProductMediaMirrorService::class)->mirrorProduct($product->fresh());
 
         if ($request->boolean('is_star')) {
             $store->setStarProductId((int) $product->id);
@@ -635,7 +637,7 @@ class ProductController extends Controller
         ]);
     }
 
-    public function uploadImage(Request $request, Product $product, StoreContext $storeContext)
+    public function uploadImage(Request $request, Product $product, StoreContext $storeContext, ProductMediaMirrorService $mirror)
     {
         $store = $this->currentStoreOrFail($storeContext);
         abort_unless((int) $product->store_id === (int) $store->id, 404);
@@ -644,19 +646,15 @@ class ProductController extends Controller
             'file' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,gif,webp'],
         ]);
 
-        $file = $data['file'];
-        $base = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'product';
-        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
-        $filename = $base.'-'.Str::lower(Str::random(6)).'.'.$ext;
-        $path = $file->storeAs('products/'.$store->id.'/'.$product->id.'/images', $filename, 'public');
+        $stored = $mirror->storeUploadedFile($store, $product, $data['file'], 'images');
 
         return response()->json([
             'success' => true,
-            'url' => DesignAssetUrl::fromPath($path),
+            'url' => $stored['url'],
         ]);
     }
 
-    public function uploadVideo(Request $request, Product $product, StoreContext $storeContext)
+    public function uploadVideo(Request $request, Product $product, StoreContext $storeContext, ProductMediaMirrorService $mirror)
     {
         $store = $this->currentStoreOrFail($storeContext);
         abort_unless((int) $product->store_id === (int) $store->id, 404);
@@ -666,15 +664,12 @@ class ProductController extends Controller
         ]);
 
         $file = $data['file'];
-        $base = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'video';
-        $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
-        $filename = $base.'-'.Str::lower(Str::random(6)).'.'.$ext;
-        $path = $file->storeAs('products/'.$store->id.'/'.$product->id.'/videos', $filename, 'public');
+        $stored = $mirror->storeUploadedFile($store, $product, $file, 'videos');
         $label = trim(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
 
         return response()->json([
             'success' => true,
-            'url' => DesignAssetUrl::fromPath($path),
+            'url' => $stored['url'],
             'name' => $label !== '' ? $label : 'Video',
         ]);
     }

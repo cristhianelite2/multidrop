@@ -40,7 +40,7 @@ class AliExpressProductSyncService
             ->where('verified_data->aliexpress_product_id', $aeId)
             ->first();
 
-        return DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare, $purchaseLocal) {
+        $result = DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare, $purchaseLocal) {
             $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto AliExpress');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
@@ -117,6 +117,13 @@ class AliExpressProductSyncService
                 'created' => $created,
             ];
         });
+
+        if (($result['success'] ?? false) && isset($result['product'])) {
+            $result['product'] = app(\App\Services\Storage\ProductMediaMirrorService::class)
+                ->mirrorProduct($result['product']);
+        }
+
+        return $result;
     }
 
     /**

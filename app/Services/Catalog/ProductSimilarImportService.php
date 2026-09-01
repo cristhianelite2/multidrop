@@ -231,11 +231,14 @@ class ProductSimilarImportService
             return $this->fetchRemote($url, $store);
         }
 
-        if ($html !== null && $html !== '') {
+        $snapshot = is_array($snapshot) ? $snapshot : [];
+        $hasCapture = ($html !== null && $html !== '') || $snapshot !== [];
+
+        if ($hasCapture && ($url === '' || AliExpressProductFetcher::looksLikeAliExpress($url))) {
             $fetched = $this->aeFetcher->parseFromCapture(
-                (string) $html,
+                (string) ($html ?? ''),
                 $url,
-                is_array($snapshot) ? $snapshot : [],
+                $snapshot,
                 $sections
             );
             if (! ($fetched['success'] ?? false)) {

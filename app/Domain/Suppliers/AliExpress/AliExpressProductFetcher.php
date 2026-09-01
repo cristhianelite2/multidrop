@@ -170,7 +170,26 @@ class AliExpressProductFetcher
 
         $product = $this->parseHtml($html, $id, $url);
         if ($product === null) {
-            return ['success' => false, 'error' => 'No pude parsear título/imágenes. Espera a que la ficha AE termine de cargar y vuelve a capturar.'];
+            $hasSnapshotMedia = ! empty($snapshot['pageVideos'])
+                || ! empty($snapshot['runParams'])
+                || trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? '')) !== '';
+            if (! $hasSnapshotMedia) {
+                return ['success' => false, 'error' => 'No pude parsear título/imágenes. Espera a que la ficha AE termine de cargar y vuelve a capturar.'];
+            }
+            $product = [
+                'title' => mb_substr(trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? 'Producto AliExpress')), 0, 255),
+                'images' => [],
+                'videos' => [],
+                'reviews' => [],
+                'details' => [],
+                'description_html' => '',
+                'description' => '',
+            ];
+            $ogImage = $this->absUrl((string) ($snapshot['ogImage'] ?? ''));
+            if ($ogImage !== '') {
+                $product['image'] = $ogImage;
+                $product['images'] = [$ogImage];
+            }
         }
 
         $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));

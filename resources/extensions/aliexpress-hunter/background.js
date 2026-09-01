@@ -16,66 +16,6 @@ function defaults() {
   };
 }
 
-function keepServiceWorkerAlive() {
-  return setInterval(function () {
-    chrome.runtime.getPlatformInfo(function () {});
-  }, 12000);
-}
-
-function compactSnapshot(snapshot, sections) {
-  snapshot = snapshot || {};
-  sections = sections || [];
-  var out = {
-    productId: snapshot.productId || '',
-    h1: snapshot.h1 || '',
-    ogTitle: snapshot.ogTitle || '',
-    ogImage: snapshot.ogImage || '',
-    priceText: snapshot.priceText || '',
-    shippingText: snapshot.shippingText || '',
-    descriptionHtml: snapshot.descriptionHtml || '',
-    descriptionUrl: snapshot.descriptionUrl || '',
-    isCj: !!snapshot.isCj,
-    pageVideos: Array.isArray(snapshot.pageVideos) ? snapshot.pageVideos : []
-  };
-  var needRun = sections.indexOf('videos') >= 0 || sections.indexOf('images') >= 0 || sections.length === 0;
-  if (needRun && snapshot.runParams) {
-    var data = snapshot.runParams.data || snapshot.runParams;
-    if (data && typeof data === 'object') {
-      out.runParams = {
-        data: {
-          imageModule: data.imageModule || null,
-          imagePathList: data.imagePathList || null,
-          skuModule: data.skuModule || null,
-          titleModule: data.titleModule || null,
-          descriptionModule: data.descriptionModule || null,
-          productDescModule: data.productDescModule || null,
-          feedbackModule: data.feedbackModule || null,
-          specsModule: data.specsModule || null,
-          productPropModule: data.productPropModule || null
-        }
-      };
-    }
-  }
-  if (sections.indexOf('reviews') >= 0 && snapshot.dcData) {
-    out.dcData = snapshot.dcData;
-  }
-  return out;
-}
-
-function trimHtmlForExtract(html, snapshot, sections) {
-  html = String(html || '');
-  var snap = compactSnapshot(snapshot, sections);
-  var hasVideoData = (snap.pageVideos && snap.pageVideos.length)
-    || (snap.runParams && snap.runParams.data && snap.runParams.data.imageModule);
-  if (hasVideoData && html.length > 450000) {
-    return html.slice(0, 450000);
-  }
-  if (html.length > 1200000) {
-    return html.slice(0, 1200000);
-  }
-  return html;
-}
-
 async function activeTabId(sender) {
   var tabId = sender.tab && sender.tab.id;
   if (!tabId) {
@@ -85,6 +25,9 @@ async function activeTabId(sender) {
   return tabId;
 }
 
+/**
+ * Lee la pestaña activa y devuelve payload compacto (sin runParams gigante).
+ */
 async function readPagePayload(tabId, sections) {
   sections = sections || [];
   var injected = await chrome.scripting.executeScript({
@@ -92,6 +35,7 @@ async function readPagePayload(tabId, sections) {
     world: 'MAIN',
     args: [sections],
     func: async function (sections) {
+      sections = Array.isArray(sections) ? sections : [];
       function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
       function textLen(el) { return el ? String(el.innerText || '').replace(/\s+/g, ' ').trim().length : 0; }
       function absUrl(url) {
@@ -145,53 +89,81 @@ async function readPagePayload(tabId, sections) {
         } catch (e2) {}
         return out;
       }
+      function compactRunModules(data) {
+        if (!data || typeof data !== 'object') return null;
+        var mods = {
+          imageModule: data.imageModule || null,
+          imagePathList: data.imagePathList || null,
+          skuModule: data.skuModule || null,
+          titleModule: data.titleModule || null
+        };
+        if (sections.indexOf('description') >= 0 || sections.length === 0) {
+          mods.descriptionModule = data.descriptionModule || null;
+          mods.productDescModule = data.productDescModule || null;
+        }
+        if (sections.indexOf('reviews') >= 0 || sections.length === 0) {
+          mods.feedbackModule = data.feedbackModule || null;
+        }
+        if (sections.indexOf('details') >= 0 || sections.length === 0) {
+          mods.specsModule = data.specsModule || null;
+          mods.productPropModule = data.productPropModule || null;
+        }
+        return { data: mods };
+      }
 
       var isCj = /cjdropshipping\.com/i.test(location.href);
-      var videoOnly = Array.isArray(sections) && sections.length === 1 && sections[0] === 'videos';
-      var mediaOnly = Array.isArray(sections) && sections.length > 0
+      var videoOnly = sections.length === 1 && sections[0] === 'videos';
+      var mediaOnly = sections.length > 0
         && sections.indexOf('reviews') < 0 && sections.indexOf('description') < 0 && sections.indexOf('details') < 0;
+      var fullCapture = sections.length === 0;
 
-      if (!isCj && !videoOnly && !mediaOnly) {
+      if (!isCj && fullCapture) {
         try {
           var toc = document.querySelector('a[href="#nav-description"], a.comet-v2-anchor-link[title*="escrip" i]');
           if (toc) { try { toc.click(); } catch (e1) {} }
           var nav = document.getElementById('nav-description')
             || document.querySelector('[data-pl="product-description"], [id*="description"]');
           if (nav && nav.scrollIntoView) nav.scrollIntoView({ behavior: 'instant', block: 'center' });
-          else window.scrollTo(0, Math.max(document.body.scrollHeight * 0.55, window.innerHeight * 2));
-          await sleep(700);
-          window.scrollBy(0, 300);
-          await sleep(400);
+          await sleep(600);
         } catch (eScroll) {}
       } else if (!isCj && videoOnly) {
         try {
-          var gallery = document.querySelector('[class*="image-view"], [class*="slider--wrap"], .images-view-item, video');
+          var gallery = document.querySelector('video, [class*="image-view"], [class*="slider--wrap"]');
           if (gallery && gallery.scrollIntoView) gallery.scrollIntoView({ behavior: 'instant', block: 'center' });
-          await sleep(500);
+          await sleep(300);
         } catch (eVid) {}
       }
+
+      var pageVideos = extractPageVideos();
+      var rp = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
+      var rpData = rp && (rp.data || rp);
+      var compactRp = (!isCj && rpData) ? compactRunModules(rpData) : null;
+      var hasVideoData = pageVideos.length > 0 || (compactRp && compactRp.data && compactRp.data.imageModule);
 
       var descriptionHtml = '';
       if (!isCj && !videoOnly) {
         var descRoot = document.querySelector(
           '#nav-description .detail-desc-decorate-richtext, #nav-description [class*="detail-desc"], ' +
-          '#nav-description [class*="description--wrap"], #nav-description, ' +
           '[data-pl="product-description"] .detail-desc-decorate-richtext, .detail-desc-decorate-richtext'
         );
         if (descRoot && textLen(descRoot) > 40) descriptionHtml = descRoot.innerHTML || '';
       }
       var descriptionUrl = '';
       try {
-        var rp2 = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
-        var data2 = rp2 && (rp2.data || rp2);
-        var dm = data2 && (data2.descriptionModule || data2.productDescModule || {});
-        descriptionUrl = String((dm && (dm.descriptionUrl || dm.descUrl || dm.productDescUrl || dm.descriptionPCUrl)) || (data2 && data2.descriptionUrl) || '');
+        var dm = rpData && (rpData.descriptionModule || rpData.productDescModule || {});
+        descriptionUrl = String((dm && (dm.descriptionUrl || dm.descUrl || dm.productDescUrl || dm.descriptionPCUrl)) || (rpData && rpData.descriptionUrl) || '');
       } catch (eUrl) {}
 
       var html = '';
-      try { html = document.documentElement ? document.documentElement.outerHTML : ''; }
-      catch (e) { html = document.body ? document.body.innerHTML : ''; }
-      if (html.length > 1800000) html = html.slice(0, 1800000);
+      if (fullCapture) {
+        try { html = document.documentElement ? document.documentElement.outerHTML : ''; } catch (e) { html = ''; }
+        if (html.length > 1200000) html = html.slice(0, 1200000);
+      } else if (videoOnly && hasVideoData) {
+        html = '';
+      } else {
+        try { html = document.documentElement ? document.documentElement.outerHTML : ''; } catch (e) { html = ''; }
+        if (html.length > 400000) html = html.slice(0, 400000);
+      }
 
       var h1el = document.querySelector('h1');
       var mt = document.querySelector('meta[property="og:title"]');
@@ -207,18 +179,16 @@ async function readPagePayload(tabId, sections) {
         html: html,
         snapshot: {
           productId: productId,
-          runParams: (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null,
-          dcData: (window._d_c_ && window._d_c_.DCData) ? window._d_c_.DCData : null,
+          runParams: compactRp,
           h1: h1el ? String(h1el.innerText || '').trim() : '',
           ogTitle: mt ? (mt.getAttribute('content') || '') : '',
           ogImage: mi ? (mi.getAttribute('content') || '') : '',
           priceText: priceEl ? String(priceEl.innerText || priceEl.getAttribute('content') || '') : '',
           shippingText: shipEl ? String(shipEl.innerText || '').replace(/\s+/g, ' ').trim() : '',
-          title: document.title || '',
           descriptionHtml: descriptionHtml,
           descriptionUrl: descriptionUrl,
           isCj: isCj,
-          pageVideos: extractPageVideos()
+          pageVideos: pageVideos
         }
       };
     }
@@ -227,26 +197,45 @@ async function readPagePayload(tabId, sections) {
 }
 
 async function postPlugin(origin, path, token, body) {
-  var keepAlive = keepServiceWorkerAlive();
-  try {
-    var res = await fetch(origin + path, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-Multidrop-Token': token
-      },
-      body: JSON.stringify(body)
-    });
-    var json = await res.json().catch(function () { return {}; });
-    return { res: res, json: json };
-  } finally {
-    clearInterval(keepAlive);
-  }
+  var res = await fetch(origin + path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Multidrop-Token': token
+    },
+    body: JSON.stringify(body)
+  });
+  var json = await res.json().catch(function () { return {}; });
+  return { res: res, json: json };
 }
 
 chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (!msg || !msg.type) return;
+
+  if (msg.type === 'MULTIDROP_READ_PAGE') {
+    (async function () {
+      try {
+        var tabId = await activeTabId(sender);
+        if (!tabId) { sendResponse({ ok: false, error: 'No hay pestaña activa' }); return; }
+        var payload = await readPagePayload(tabId, msg.sections || []);
+        if (!payload || !payload.url) {
+          sendResponse({ ok: false, error: 'Abre una ficha de producto AE o CJ' });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          url: payload.url,
+          html: payload.html || '',
+          snapshot: payload.snapshot || {}
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'MULTIDROP_RUN_CAPTURE') {
     (async function () {
       try {
@@ -273,44 +262,6 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           return;
         }
         sendResponse({ ok: true, message: out.json.message || 'Producto enviado a borrador', product_id: out.json.product_id, edit_url: out.json.edit_url });
-      } catch (e) {
-        sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
-      }
-    })();
-    return true;
-  }
-  if (msg.type === 'MULTIDROP_RUN_EXTRACT') {
-    (async function () {
-      try {
-        var sections = msg.sections || [];
-        var tabId = await activeTabId(sender);
-        if (!tabId) { sendResponse({ ok: false, error: 'No hay pestaña activa' }); return; }
-        var payload = await readPagePayload(tabId, sections);
-        if (!payload || !payload.url) { sendResponse({ ok: false, error: 'Abre una ficha de producto AE o CJ' }); return; }
-        var cfg = await chrome.storage.sync.get(['origin', 'token', 'store_id']);
-        var d = defaults();
-        var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
-        var token = String(cfg.token || '');
-        var storeId = parseInt(msg.store_id != null ? msg.store_id : cfg.store_id, 10) || 0;
-        var productId = parseInt(msg.product_id, 10) || 0;
-        if (!origin || !token) { sendResponse({ ok: false, error: 'Configura URL y token' }); return; }
-        if (!storeId || !productId) { sendResponse({ ok: false, error: 'Busca el SKU del producto destino' }); return; }
-        var snap = compactSnapshot(payload.snapshot || {}, sections);
-        var out = await postPlugin(origin, d.extract_path, token, {
-          token: token,
-          store_id: storeId,
-          product_id: productId,
-          sections: sections,
-          replace: !!msg.replace,
-          url: payload.url,
-          html: trimHtmlForExtract(payload.html, payload.snapshot, sections),
-          snapshot: snap
-        });
-        if (!out.res.ok || !out.json.success) {
-          sendResponse({ ok: false, error: out.json.error || out.json.message || ('HTTP ' + out.res.status) });
-          return;
-        }
-        sendResponse({ ok: true, message: out.json.message || 'Importado al producto', edit_url: out.json.edit_url });
       } catch (e) {
         sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
       }

@@ -318,7 +318,7 @@
     document.getElementById('search-sku').disabled = false;
   });
 
-  document.getElementById('extract').addEventListener('click', function () {
+  document.getElementById('extract').addEventListener('click', async function () {
     if (!selectedProduct || !selectedProduct.id) {
       setStatus('Busca primero el SKU del producto destino', 'error');
       return;
@@ -330,25 +330,60 @@
     }
     var btn = document.getElementById('extract');
     btn.disabled = true;
-    setStatus('Extrayendo de la página activa…');
     var storeId = parseInt(storeEl.value, 10) || 0;
-    chrome.runtime.sendMessage({
-      type: 'MULTIDROP_RUN_EXTRACT',
-      store_id: storeId,
-      product_id: selectedProduct.id,
-      sections: sections,
-      replace: document.getElementById('extract-replace').checked
-    }, function (res) {
-      btn.disabled = false;
-      if (chrome.runtime.lastError) {
-        setStatus(chrome.runtime.lastError.message || 'La extensión no respondió. Vuelve a intentar.', 'error');
+    try {
+      setStatus('Leyendo página activa…');
+      var pageRes = await new Promise(function (resolve) {
+        chrome.runtime.sendMessage({ type: 'MULTIDROP_READ_PAGE', sections: sections }, function (res) {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(res || { ok: false, error: 'Sin respuesta del plugin' });
+        });
+      });
+      if (!pageRes.ok) {
+        setStatus(pageRes.error || 'No pude leer la página', 'error');
         return;
       }
-      if (res && res.ok) {
-        setStatus(res.message || 'Importado al producto', 'ok');
-      } else {
-        setStatus((res && res.error) || 'Error al extraer', 'error');
+
+      var cfg = await chrome.storage.sync.get(['origin', 'token']);
+      var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
+      var token = String(cfg.token || '');
+      if (!origin || !token) {
+        setStatus('Configura URL y token', 'error');
+        return;
       }
-    });
+
+      setStatus('Extrayendo al producto…');
+      var res = await fetch(apiPath(origin, 'extract_path'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Multidrop-Token': token
+        },
+        body: JSON.stringify({
+          token: token,
+          store_id: storeId,
+          product_id: selectedProduct.id,
+          sections: sections,
+          replace: document.getElementById('extract-replace').checked,
+          url: pageRes.url,
+          html: pageRes.html || '',
+          snapshot: pageRes.snapshot || {}
+        })
+      });
+      var json = await res.json().catch(function () { return {}; });
+      if (!res.ok || !json.success) {
+        setStatus(json.error || json.message || ('HTTP ' + res.status), 'error');
+        return;
+      }
+      setStatus(json.message || 'Importado al producto', 'ok');
+    } catch (e) {
+      setStatus(String(e && e.message ? e.message : e), 'error');
+    } finally {
+      btn.disabled = false;
+    }
   });
 })();

@@ -10,12 +10,35 @@ use Illuminate\Support\Str;
 
 class ProductMediaMirrorService
 {
+    /** @var array{mirrored: int, skipped: int, failed: int, r2: bool} */
+    protected array $lastMirrorReport = [
+        'mirrored' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+        'r2' => false,
+    ];
+
     public function __construct(
         protected R2StorageManager $r2,
     ) {}
 
+    /**
+     * @return array{mirrored: int, skipped: int, failed: int, r2: bool}
+     */
+    public function lastMirrorReport(): array
+    {
+        return $this->lastMirrorReport;
+    }
+
     public function mirrorProduct(Product $product): Product
     {
+        $this->lastMirrorReport = [
+            'mirrored' => 0,
+            'skipped' => 0,
+            'failed' => 0,
+            'r2' => $this->r2->enabled(),
+        ];
+
         if (! $this->r2->enabled()) {
             return $product;
         }
@@ -95,6 +118,45 @@ class ProductMediaMirrorService
             $verified['variants'] = $newVariants;
         }
 
+        $reviews = is_array($verified['reviews'] ?? null) ? $verified['reviews'] : [];
+        $newReviews = [];
+        foreach ($reviews as $review) {
+            if (! is_array($review)) {
+                continue;
+            }
+            $row = $review;
+            $reviewImages = is_array($review['images'] ?? null) ? $review['images'] : [];
+            $newReviewImages = [];
+            foreach ($reviewImages as $img) {
+                $imgUrl = is_string($img) ? trim($img) : '';
+                if ($imgUrl === '') {
+                    continue;
+                }
+                $mirrored = $this->mirrorRemoteUrl($imgUrl, $store, $product, 'images');
+                $newReviewImages[] = $mirrored ?: $imgUrl;
+                if ($mirrored && $mirrored !== $imgUrl) {
+                    $changed = true;
+                }
+            }
+            if ($newReviewImages !== []) {
+                $row['images'] = array_values(array_unique($newReviewImages));
+            }
+            $newReviews[] = $row;
+        }
+        if ($newReviews !== []) {
+            $verified['reviews'] = $newReviews;
+            $verified['comments'] = $newReviews;
+        }
+
+        $descriptionHtml = trim((string) ($verified['description_html'] ?? ''));
+        if ($descriptionHtml !== '') {
+            $mirroredHtml = $this->mirrorDescriptionHtml($descriptionHtml, $store, $product);
+            if ($mirroredHtml !== $descriptionHtml) {
+                $verified['description_html'] = $mirroredHtml;
+                $changed = true;
+            }
+        }
+
         $imageUrl = trim((string) ($product->image_url ?? ''));
         if ($imageUrl !== '') {
             $mirroredMain = $this->mirrorRemoteUrl($imageUrl, $store, $product, 'images');
@@ -152,8 +214,14 @@ class ProductMediaMirrorService
     protected function mirrorRemoteUrl(string $url, Store $store, Product $product, string $folder): ?string
     {
         $url = trim($url);
-        if ($url === '' || MediaUrl::isMaskedUrl($url)) {
-            return $url !== '' ? $url : null;
+        if ($url === '') {
+            return null;
+        }
+
+        if (MediaUrl::isMaskedUrl($url)) {
+            $this->lastMirrorReport['skipped']++;
+
+            return $url;
         }
 
         if ($this->isLocalStorageUrl($url)) {
@@ -161,7 +229,14 @@ class ProductMediaMirrorService
             if ($localPath && is_readable($localPath)) {
                 $contents = file_get_contents($localPath);
                 if (is_string($contents) && $contents !== '') {
-                    return $this->putContents($contents, $store, $product, $folder, basename($localPath), $url);
+                    $mirrored = $this->putContents($contents, $store, $product, $folder, basename($localPath), $url);
+                    if ($mirrored) {
+                        $this->lastMirrorReport['mirrored']++;
+                    } else {
+                        $this->lastMirrorReport['failed']++;
+                    }
+
+                    return $mirrored;
                 }
             }
         }
@@ -169,22 +244,71 @@ class ProductMediaMirrorService
         $maxBytes = $folder === 'videos' ? 104857600 : 10485760;
         try {
             $response = Http::timeout($folder === 'videos' ? 120 : 45)
-                ->withHeaders(['User-Agent' => 'Multidrop/1.0 (+https://shop.ceballosleon.com)'])
+                ->withHeaders($this->downloadHeaders($url))
                 ->get($url);
             if (! $response->successful()) {
+                $this->lastMirrorReport['failed']++;
+
                 return null;
             }
             $body = $response->body();
             if (! is_string($body) || $body === '' || strlen($body) > $maxBytes) {
+                $this->lastMirrorReport['failed']++;
+
                 return null;
             }
 
             $ext = $this->guessExtension($url, (string) $response->header('Content-Type'), $folder);
+            $mirrored = $this->putContents($body, $store, $product, $folder, null, $url, $ext);
+            if ($mirrored) {
+                $this->lastMirrorReport['mirrored']++;
+            } else {
+                $this->lastMirrorReport['failed']++;
+            }
 
-            return $this->putContents($body, $store, $product, $folder, null, $url, $ext);
+            return $mirrored;
         } catch (\Throwable) {
+            $this->lastMirrorReport['failed']++;
+
             return null;
         }
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function downloadHeaders(string $url): array
+    {
+        $headers = [
+            'User-Agent' => 'Mozilla/5.0 (compatible; Multidrop/1.0; +https://shop.ceballosleon.com)',
+            'Accept' => '*/*',
+        ];
+
+        if (preg_match('#(alicdn\.com|aliexpress\.com|aliexpress\.us)#i', $url)) {
+            $headers['Referer'] = 'https://www.aliexpress.com/';
+        } elseif (preg_match('#(cjdropshipping\.com|cj\.com)#i', $url)) {
+            $headers['Referer'] = 'https://www.cjdropshipping.com/';
+        }
+
+        return $headers;
+    }
+
+    protected function mirrorDescriptionHtml(string $html, Store $store, Product $product): string
+    {
+        return (string) preg_replace_callback(
+            '/\bsrc=(["\'])([^"\']+)\1/i',
+            function (array $matches) use ($store, $product) {
+                $quote = $matches[1];
+                $src = trim(html_entity_decode($matches[2], ENT_QUOTES | ENT_HTML5));
+                if ($src === '' || str_starts_with(strtolower($src), 'data:')) {
+                    return $matches[0];
+                }
+                $mirrored = $this->mirrorRemoteUrl($src, $store, $product, 'images');
+
+                return $mirrored ? 'src='.$quote.$mirrored.$quote : $matches[0];
+            },
+            $html
+        );
     }
 
   /**
@@ -209,6 +333,8 @@ class ProductMediaMirrorService
 
         $storagePath = $this->r2->productPrefix((int) $store->id, (int) $product->id).'/'.$folder.'/'.$filename;
         if ($this->r2->disk()->exists($storagePath)) {
+            $this->lastMirrorReport['skipped']++;
+
             return MediaUrl::fromStoragePath($storagePath);
         }
 

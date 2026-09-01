@@ -492,6 +492,9 @@ class LabController extends Controller
             ? 'Producto enviado a borrador en «'.$store->name.'».'
             : 'Borrador actualizado en «'.$store->name.'».';
 
+        $mirrorReport = app(\App\Services\Storage\ProductMediaMirrorService::class)->lastMirrorReport();
+        $msg .= $this->mediaMirrorMessageSuffix($mirrorReport);
+
         return response()->json([
             'success' => true,
             'drafted' => true,
@@ -503,6 +506,7 @@ class LabController extends Controller
             'edit_url' => route('admin.store.products.edit', $product),
             'title' => $ae['title'] ?? $product->name,
             'message' => $msg,
+            'media_mirror' => $mirrorReport,
         ])->withHeaders($this->pluginCorsHeaders());
     }
 
@@ -623,6 +627,29 @@ class LabController extends Controller
             'store_id' => $store?->id,
             'has_store' => (bool) $store,
         ]);
+    }
+
+    /**
+     * @param  array{mirrored?: int, skipped?: int, failed?: int, r2?: bool}  $report
+     */
+    protected function mediaMirrorMessageSuffix(array $report): string
+    {
+        if (! ($report['r2'] ?? false)) {
+            return '';
+        }
+
+        $mirrored = (int) ($report['mirrored'] ?? 0);
+        $failed = (int) ($report['failed'] ?? 0);
+
+        if ($mirrored > 0) {
+            return ' · '.$mirrored.' archivo(s) copiados a R2';
+        }
+
+        if ($failed > 0) {
+            return ' · no se pudieron copiar '.$failed.' URL(s) a R2';
+        }
+
+        return ' · media ya estaba en R2';
     }
 
     /**

@@ -12,6 +12,8 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Al importar producto (CJ, AliExpress o manual) se copia media a R2 automáticamente.
 - **Fix prueba R2:** SDK S3 directo, reintento path-style/virtual-hosted, credenciales desde BD sin sobrescribir `********`, mensajes AWS claros.
 - **Fix UI:** un solo mensaje al probar APIs (R2, CJ, AliExpress, Cloudflare) sin toast duplicado.
+- **Extensión AliExpress:** al capturar ficha → borrador, copia imágenes/videos a R2 (con Referer AE, reseñas y descripción HTML).
+- Respuesta del plugin indica cuántos archivos se copiaron a R2.
 
 ### Admin tienda
 - Campo **Correo de la cuenta** en General de la tienda (`settings.contact.email`).
@@ -25,6 +27,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Spinner de carga en el botón ✨ de acortar nombre.
 - Sección **Imágenes y videos** editable en la ficha de producto (CJ, AliExpress y manual).
 - Subida de imágenes y videos por archivo en la galería del producto.
+- Rutas de media visibles en la galería con botones **Copiar ruta** y **Copiar URL** (R2 `/f/…`, storage local o URL externa).
 
 ## 2026-08-31
 

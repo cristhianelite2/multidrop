@@ -641,7 +641,12 @@
             </div>
             <div class="sm:col-span-2">
                 <label class="mb-1.5 block text-sm font-medium text-ink-soft">Imagen URL principal</label>
-                <input name="image_url" value="{{ old('image_url', $product->image_url) }}" class="admin-input">
+                <input name="image_url" id="product-main-image-url" value="{{ old('image_url', $product->image_url) }}" class="admin-input">
+                <div id="main-image-media-path" class="mt-2 flex flex-wrap items-center gap-2 {{ $product->image_url ? '' : 'hidden' }}">
+                    <code class="js-main-image-path-label max-w-full truncate rounded bg-mist px-2 py-1 text-[11px] text-ink-soft/80">{{ $product->image_url }}</code>
+                    <button type="button" class="js-copy-main-image-path admin-btn-secondary !py-0.5 !px-2 text-[11px]">Copiar ruta</button>
+                    <button type="button" class="js-copy-main-image-url admin-btn-secondary !py-0.5 !px-2 text-[11px]">Copiar URL</button>
+                </div>
                 @if($product->image_url)
                     <img src="{{ $product->image_url }}" alt="" class="mt-2 h-24 w-24 rounded-lg object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity">
                 @endif
@@ -1875,9 +1880,81 @@
   var verifiedImagesData = @json(array_values($editableImages));
   var verifiedVideosData = @json(array_values($editableVideos));
   var mediaVideoProxyUrl = @json(route('admin.lab.cj.video-proxy'));
+  var mediaPublicPrefix = @json(\App\Services\Storage\MediaUrl::prefix());
   var productIsCj = @json($isCj);
   var productUploadImageUrl = @json($product->exists ? route('admin.store.products.upload-image', $product) : null);
   var productUploadVideoUrl = @json($product->exists ? route('admin.store.products.upload-video', $product) : null);
+
+  function mediaPaths(url) {
+    url = String(url || '').trim();
+    if (!url) {
+      return { url: '', path: '', label: '' };
+    }
+    var path = '';
+    var needle = '/' + mediaPublicPrefix + '/';
+    var idx = url.indexOf(needle);
+    if (idx >= 0) {
+      path = url.slice(idx + needle.length);
+    } else if (/\/storage\//i.test(url)) {
+      var storageMatch = url.match(/\/storage\/(.+)$/i);
+      if (storageMatch && storageMatch[1]) {
+        path = storageMatch[1];
+      }
+    }
+    return {
+      url: url,
+      path: path,
+      label: path || url
+    };
+  }
+
+  function copyMediaText(text, $btn) {
+    text = String(text || '');
+    if (!text) return;
+    function done() {
+      var orig = $btn.text();
+      $btn.text('¡Copiado!');
+      setTimeout(function () { $btn.text(orig); }, 1200);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () {
+        var $tmp = $('<textarea>').val(text).appendTo('body').select();
+        document.execCommand('copy');
+        $tmp.remove();
+        done();
+      });
+      return;
+    }
+    var $tmp = $('<textarea>').val(text).appendTo('body').select();
+    document.execCommand('copy');
+    $tmp.remove();
+    done();
+  }
+
+  function mediaPathActionsHtml(paths) {
+    if (!paths.url) return '';
+    return '<div class="mt-1.5 space-y-1">' +
+      '<p class="media-path-label truncate font-mono text-[9px] leading-tight text-ink-soft/70" title="' + escapeHtml(paths.label) + '">' + escapeHtml(paths.label) + '</p>' +
+      '<div class="flex flex-wrap gap-1.5">' +
+        '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>' +
+        '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function updateMainImagePathRow() {
+    var url = String($('#product-main-image-url').val() || '').trim();
+    var $row = $('#main-image-media-path');
+    if (!url) {
+      $row.addClass('hidden');
+      return;
+    }
+    var paths = mediaPaths(url);
+    $row.removeClass('hidden');
+    $row.find('.js-main-image-path-label').text(paths.label).attr('title', paths.label);
+    $row.find('.js-copy-main-image-path').attr('data-copy', paths.path || paths.url);
+    $row.find('.js-copy-main-image-url').attr('data-copy', paths.url);
+  }
 
   function isHostedMediaUrl(url) {
     url = String(url || '');
@@ -1925,8 +2002,10 @@
     $('#product-images-empty').toggleClass('hidden', has);
     verifiedImagesData.forEach(function (url, i) {
       var isMain = main !== '' && main === url;
+      var paths = mediaPaths(url);
       var $item = $(
-        '<div class="product-image-item relative h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-line bg-mist group" data-index="' + i + '">' +
+        '<div class="product-image-item w-40 shrink-0" data-index="' + i + '">' +
+          '<div class="relative h-24 w-full overflow-hidden rounded-lg border border-line bg-mist group">' +
           (isMain ? '<span class="absolute left-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
           '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
             '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
@@ -1937,6 +2016,8 @@
             '<button type="button" class="js-img-down rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover después">↓</button>' +
             '<button type="button" class="js-img-del rounded bg-coral/80 px-1 py-0.5 text-[10px] text-white hover:bg-coral" title="Quitar">×</button>' +
           '</div>' +
+          '</div>' +
+          mediaPathActionsHtml(paths) +
         '</div>'
       );
       $grid.append($item);
@@ -1954,6 +2035,8 @@
       var name = String(v.name || ('Video ' + (i + 1)));
       var cover = String(v.cover || '').trim();
       var posterAttr = cover ? ' poster="' + escapeHtml(cover) + '"' : '';
+      var urlPaths = mediaPaths(url);
+      var coverPaths = mediaPaths(cover);
       var $card = $(
         '<div class="product-video-item overflow-hidden rounded-xl border border-line bg-white" data-index="' + i + '">' +
           '<div class="bg-ink/95">' +
@@ -1964,12 +2047,14 @@
           '<div class="space-y-2 p-3">' +
             '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">URL del video</label>' +
             '<input type="url" class="js-vid-url admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(url) + '" placeholder="https://…"></div>' +
+            mediaPathActionsHtml(urlPaths) +
             '<div class="grid gap-2 sm:grid-cols-2">' +
               '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Nombre</label>' +
               '<input type="text" class="js-vid-name admin-input !py-1.5 text-xs" value="' + escapeHtml(name) + '"></div>' +
               '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Poster (URL)</label>' +
               '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(cover) + '" placeholder="https://…"></div>' +
             '</div>' +
+            (cover ? mediaPathActionsHtml(coverPaths).replace('mt-1.5', 'mt-0') : '') +
             '<div class="flex justify-end"><button type="button" class="js-vid-del text-xs text-coral hover:underline">Quitar video</button></div>' +
           '</div>' +
         '</div>'
@@ -2003,6 +2088,7 @@
     var url = verifiedImagesData[i];
     if (!url) return;
     $('input[name=image_url]').val(url);
+    updateMainImagePathRow();
     renderProductImages();
   });
   $('#product-images-grid').on('click', '.js-img-del', function (e) {
@@ -2034,7 +2120,7 @@
     verifiedVideosData.push({ url: '', name: 'Video ' + (verifiedVideosData.length + 1), cover: '' });
     renderProductVideos();
   });
-  $('#product-videos-list').on('input change', '.js-vid-url, .js-vid-name, .js-vid-cover', function () {
+  $('#product-videos-list').on('input', '.js-vid-url, .js-vid-name, .js-vid-cover', function () {
     var $item = $(this).closest('.product-video-item');
     var i = Number($item.attr('data-index'));
     if (!verifiedVideosData[i]) return;
@@ -2045,11 +2131,24 @@
     };
     syncMediaHiddenInputs();
   });
+  $('#product-videos-list').on('change', '.js-vid-url, .js-vid-cover', function () {
+    renderProductVideos();
+  });
   $('#product-videos-list').on('click', '.js-vid-del', function () {
     var i = Number($(this).closest('.product-video-item').attr('data-index'));
     verifiedVideosData.splice(i, 1);
     renderProductVideos();
   });
+
+  $(document).on('click', '.js-copy-media', function (e) {
+    e.preventDefault();
+    copyMediaText($(this).attr('data-copy') || '', $(this));
+  });
+  $('#main-image-media-path').on('click', '.js-copy-main-image-path, .js-copy-main-image-url', function (e) {
+    e.preventDefault();
+    copyMediaText($(this).attr('data-copy') || '', $(this));
+  });
+  $('#product-main-image-url').on('input change', updateMainImagePathRow);
 
   function uploadProductImageFiles(files) {
     if (!productUploadImageUrl) return;
@@ -2166,6 +2265,7 @@
 
   if ($('#product-media-card').length) {
     renderProductMedia();
+    updateMainImagePathRow();
   }
 
   renderReviewsList();

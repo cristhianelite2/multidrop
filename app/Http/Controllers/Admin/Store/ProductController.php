@@ -13,6 +13,7 @@ use App\Models\ProductVariant;
 use App\Domain\Scoring\CjPricingEstimator;
 use App\Services\Admin\StoreContext;
 use App\Services\Currency\CurrencyService;
+use App\Services\Storefront\DesignAssetUrl;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -631,6 +632,50 @@ class ProductController extends Controller
             'success' => true,
             'name' => $out['name'],
             'message' => 'Nombre acortado con MIIA.',
+        ]);
+    }
+
+    public function uploadImage(Request $request, Product $product, StoreContext $storeContext)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'max:5120', 'mimes:jpg,jpeg,png,gif,webp'],
+        ]);
+
+        $file = $data['file'];
+        $base = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'product';
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        $filename = $base.'-'.Str::lower(Str::random(6)).'.'.$ext;
+        $path = $file->storeAs('products/'.$store->id.'/'.$product->id.'/images', $filename, 'public');
+
+        return response()->json([
+            'success' => true,
+            'url' => DesignAssetUrl::fromPath($path),
+        ]);
+    }
+
+    public function uploadVideo(Request $request, Product $product, StoreContext $storeContext)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'max:102400', 'mimetypes:video/mp4,video/webm,video/quicktime,video/x-m4v'],
+        ]);
+
+        $file = $data['file'];
+        $base = Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) ?: 'video';
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
+        $filename = $base.'-'.Str::lower(Str::random(6)).'.'.$ext;
+        $path = $file->storeAs('products/'.$store->id.'/'.$product->id.'/videos', $filename, 'public');
+        $label = trim(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME));
+
+        return response()->json([
+            'success' => true,
+            'url' => DesignAssetUrl::fromPath($path),
+            'name' => $label !== '' ? $label : 'Video',
         ]);
     }
 

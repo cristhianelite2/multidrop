@@ -679,9 +679,9 @@
                         @if($isCj)
                             Puedes reimportar desde CJ con «Sincronizar desde CJ» o editar aquí.
                         @elseif($isAe)
-                            Importadas desde AliExpress; puedes quitar, reordenar o añadir URLs manualmente.
+                            Importadas desde AliExpress; puedes subir archivos, quitar, reordenar o añadir URLs.
                         @else
-                            Añade URLs de imágenes y videos para la vitrina.
+                            Sube archivos o añade URLs de imágenes y videos para la vitrina.
                         @endif
                     </p>
                 </div>
@@ -694,10 +694,15 @@
             <div>
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 class="font-display text-base font-bold text-ink">Galería de imágenes</h3>
-                    <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label for="product-image-upload" class="admin-btn-secondary !py-1 !px-2 text-xs cursor-pointer">Subir archivo</label>
+                        <input type="file" id="product-image-upload" accept="image/jpeg,image/png,image/gif,image/webp" multiple class="sr-only">
+                        <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
+                    </div>
                 </div>
+                <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-images-grid" class="flex flex-wrap gap-2 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
-                <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Añade una URL o importa desde el marketplace.</p>
+                <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
                 <div class="mt-3 flex flex-wrap items-end gap-2">
                     <div class="min-w-0 flex-1">
                         <label class="mb-1 block text-xs font-medium text-ink-soft">Nueva imagen (URL)</label>
@@ -710,10 +715,15 @@
             <div>
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 class="font-display text-base font-bold text-ink">Videos</h3>
-                    <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir video</button>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label for="product-video-upload" class="admin-btn-secondary !py-1 !px-2 text-xs cursor-pointer">Subir archivo</label>
+                        <input type="file" id="product-video-upload" accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" class="sr-only">
+                        <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
+                    </div>
                 </div>
+                <p id="product-video-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-videos-list" class="grid gap-4 sm:grid-cols-2"></div>
-                <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Añade la URL del archivo o del marketplace.</p>
+                <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Sube un archivo MP4/WebM o pega la URL del marketplace.</p>
                 @if($isCj)
                     <p class="mt-2 text-xs text-ink-soft/50">Videos CJ se reproducen en admin vía proxy (Referer).</p>
                 @endif
@@ -1866,10 +1876,19 @@
   var verifiedVideosData = @json(array_values($editableVideos));
   var mediaVideoProxyUrl = @json(route('admin.lab.cj.video-proxy'));
   var productIsCj = @json($isCj);
+  var productUploadImageUrl = @json($product->exists ? route('admin.store.products.upload-image', $product) : null);
+  var productUploadVideoUrl = @json($product->exists ? route('admin.store.products.upload-video', $product) : null);
+
+  function isHostedMediaUrl(url) {
+    return /\/storage\//i.test(String(url || ''));
+  }
 
   function mediaVideoPlayUrl(url) {
     url = String(url || '').trim();
     if (!url) return '';
+    if (isHostedMediaUrl(url)) {
+      return url;
+    }
     if (productIsCj) {
       return mediaVideoProxyUrl + (mediaVideoProxyUrl.indexOf('?') >= 0 ? '&' : '?') + 'u=' + encodeURIComponent(url);
     }
@@ -2029,6 +2048,119 @@
     var i = Number($(this).closest('.product-video-item').attr('data-index'));
     verifiedVideosData.splice(i, 1);
     renderProductVideos();
+  });
+
+  function uploadProductImageFiles(files) {
+    if (!productUploadImageUrl) return;
+    var list = [];
+    Array.prototype.forEach.call(files || [], function (file) {
+      if (file && /^image\/(jpeg|png|gif|webp)$/i.test(String(file.type || ''))) {
+        list.push(file);
+      }
+    });
+    if (!list.length) return;
+    var $status = $('#product-image-upload-status');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Subiendo ' + list.length + ' imagen(es)…');
+    var pending = list.length;
+    var uploaded = 0;
+    var failed = 0;
+    list.forEach(function (file) {
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('_token', csrf);
+      $.ajax({
+        url: productUploadImageUrl,
+        method: 'POST',
+        data: fd,
+        processData: false,
+        contentType: false,
+        headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' }
+      }).done(function (res) {
+        if (res && res.success && res.url && pushImageUrl(res.url)) {
+          uploaded++;
+        } else {
+          failed++;
+        }
+      }).fail(function () {
+        failed++;
+      }).always(function () {
+        pending--;
+        if (pending === 0) {
+          renderProductImages();
+          var msg = uploaded > 0 ? ('✓ ' + uploaded + ' imagen(es) subida(s).') : 'No se pudo subir.';
+          if (failed) msg += ' (' + failed + ' error(es))';
+          $status.text(msg).toggleClass('text-coral', uploaded === 0).toggleClass('text-teal', uploaded > 0);
+          $('#product-image-upload').val('');
+        }
+      });
+    });
+  }
+
+  function uploadProductVideoFiles(files) {
+    if (!productUploadVideoUrl) return;
+    var list = Array.prototype.slice.call(files || []);
+    if (!list.length) return;
+    var $status = $('#product-video-upload-status');
+    $status.removeClass('hidden text-coral text-teal').addClass('text-ink-soft/60').text('Subiendo video…');
+    var pending = list.length;
+    var uploaded = 0;
+    var failed = 0;
+    list.forEach(function (file) {
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('_token', csrf);
+      $.ajax({
+        url: productUploadVideoUrl,
+        method: 'POST',
+        data: fd,
+        processData: false,
+        contentType: false,
+        headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' }
+      }).done(function (res) {
+        if (res && res.success && res.url) {
+          verifiedVideosData.push({
+            url: res.url,
+            name: res.name || file.name || ('Video ' + (verifiedVideosData.length + 1)),
+            cover: ''
+          });
+          uploaded++;
+        } else {
+          failed++;
+        }
+      }).fail(function (xhr) {
+        failed++;
+        var err = (xhr.responseJSON && xhr.responseJSON.message) || '';
+        if (err && pending === 1) {
+          $status.text(err);
+        }
+      }).always(function () {
+        pending--;
+        if (pending === 0) {
+          renderProductVideos();
+          var msg = uploaded > 0 ? ('✓ ' + uploaded + ' video(s) subido(s). Guarda el producto.') : 'No se pudo subir el video.';
+          if (failed) msg += ' (' + failed + ' error(es))';
+          $status.text(msg).toggleClass('text-coral', uploaded === 0).toggleClass('text-teal', uploaded > 0);
+          $('#product-video-upload').val('');
+        }
+      });
+    });
+  }
+
+  $('#product-image-upload').on('change', function () {
+    uploadProductImageFiles(this.files);
+  });
+  $('#product-video-upload').on('change', function () {
+    uploadProductVideoFiles(this.files);
+  });
+  $('#product-images-grid').on('dragover', function (e) {
+    e.preventDefault();
+    $(this).addClass('ring-2 ring-teal/40');
+  }).on('dragleave drop', function (e) {
+    e.preventDefault();
+    $(this).removeClass('ring-2 ring-teal/40');
+    if (e.type === 'drop' && e.originalEvent && e.originalEvent.dataTransfer) {
+      uploadProductImageFiles(e.originalEvent.dataTransfer.files);
+    }
   });
 
   if ($('#product-media-card').length) {

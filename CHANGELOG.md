@@ -12,6 +12,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Sanitización del nombre acortado por IA (sin anotaciones tipo «70 caracteres»).
 - Spinner de carga en el botón ✨ de acortar nombre.
 - Sección **Imágenes y videos** editable en la ficha de producto (CJ, AliExpress y manual).
+- Subida de imágenes y videos por archivo en la galería del producto.
 
 ## 2026-08-31
 

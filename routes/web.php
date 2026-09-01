@@ -254,6 +254,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::post('products/compress-name', [ProductController::class, 'compressName'])->name('products.compress-name');
                 Route::post('products/{product}/upload-image', [ProductController::class, 'uploadImage'])->name('products.upload-image');
                 Route::post('products/{product}/upload-video', [ProductController::class, 'uploadVideo'])->name('products.upload-video');
+                Route::post('products/{product}/similar-import/preview', [ProductController::class, 'previewSimilarImport'])->name('products.similar-import.preview');
+                Route::post('products/{product}/similar-import', [ProductController::class, 'importSimilar'])->name('products.similar-import');
                 Route::post('products/recalculate-prices', [ProductController::class, 'recalculatePrices'])->name('products.recalculate-prices');
                 Route::resource('products', ProductController::class)->except(['show']);
                 Route::post('products/{product}/sync-cj', [ProductController::class, 'syncCj'])->name('products.sync-cj');

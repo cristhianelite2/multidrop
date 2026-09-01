@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Domain\Scoring\CjPricingEstimator;
 use App\Services\Admin\StoreContext;
+use App\Services\Catalog\ProductSimilarImportService;
 use App\Services\Currency\CurrencyService;
 use App\Services\Storage\ProductMediaMirrorService;
 use Illuminate\Http\Request;
@@ -226,6 +227,8 @@ class ProductController extends Controller
             'has_miia' => (bool) config('ai.providers.miia.api_key'),
             'cj_videos' => $videos,
             'video_proxy_url' => route('admin.lab.cj.video-proxy'),
+            'similar_import_preview_url' => route('admin.store.products.similar-import.preview', $product),
+            'similar_import_url' => route('admin.store.products.similar-import', $product),
             'currencies' => $currency->catalog(),
             'fx' => $currency->jsPayload(),
             'locale_currency_map' => collect($this->availableLocales($store))
@@ -672,6 +675,62 @@ class ProductController extends Controller
             'url' => $stored['url'],
             'name' => $label !== '' ? $label : 'Video',
         ]);
+    }
+
+    public function previewSimilarImport(
+        Request $request,
+        Product $product,
+        StoreContext $storeContext,
+        ProductSimilarImportService $import
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:2000'],
+        ]);
+
+        @set_time_limit(120);
+
+        $out = $import->preview($data['url'], $store);
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422);
+        }
+
+        return response()->json($out);
+    }
+
+    public function importSimilar(
+        Request $request,
+        Product $product,
+        StoreContext $storeContext,
+        ProductSimilarImportService $import
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:2000'],
+            'sections' => ['required', 'array', 'min:1'],
+            'sections.*' => ['string', Rule::in(['images', 'videos', 'reviews', 'description', 'details'])],
+            'replace' => ['nullable', 'boolean'],
+        ]);
+
+        @set_time_limit(180);
+
+        $out = $import->import(
+            $product,
+            $data['url'],
+            $store,
+            $data['sections'],
+            $request->boolean('replace')
+        );
+
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422);
+        }
+
+        return response()->json($out);
     }
 
     public function suggestPrices(

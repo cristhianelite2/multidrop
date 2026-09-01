@@ -28,6 +28,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Sección **Imágenes y videos** editable en la ficha de producto (CJ, AliExpress y manual).
 - Subida de imágenes y videos por archivo en la galería del producto.
 - Rutas de media visibles en la galería con botones **Copiar ruta** y **Copiar URL** (R2 `/f/…`, storage local o URL externa).
+- **Importar de producto similar** en edición: URL de AliExpress o CJ → imágenes, videos, reseñas, descripción y detalles (añadir o reemplazar), con vista previa y copia a R2.
 
 ## 2026-08-31
 

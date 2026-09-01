@@ -675,6 +675,41 @@
     </div>
 
     @if($product->exists)
+        <div class="admin-card p-5 sm:p-6 space-y-4 admin-card-span-2" id="product-similar-import-card">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <h2 class="font-display text-lg font-bold text-ink">Importar de producto similar</h2>
+                    <p class="mt-1 text-sm text-ink-soft/65">
+                        Enriquece este producto con imágenes, videos, reseñas o descripción de otra ficha
+                        <strong>AliExpress</strong> o <strong>CJ Dropshipping</strong> (URL, PID o SKU).
+                    </p>
+                </div>
+            </div>
+            <div class="rounded-2xl border border-line bg-mist/30 p-4 space-y-4">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="similar-import-url">URL del producto similar</label>
+                    <input type="url" id="similar-import-url" class="admin-input font-mono text-sm" placeholder="https://www.aliexpress.com/item/… o https://cjdropshipping.com/product/…">
+                </div>
+                <div class="flex flex-wrap gap-x-4 gap-y-2 text-sm text-ink-soft">
+                    <label class="inline-flex items-center gap-2"><input type="checkbox" class="js-similar-section rounded border-line text-teal" value="images" checked> Imágenes</label>
+                    <label class="inline-flex items-center gap-2"><input type="checkbox" class="js-similar-section rounded border-line text-teal" value="videos" checked> Videos</label>
+                    <label class="inline-flex items-center gap-2"><input type="checkbox" class="js-similar-section rounded border-line text-teal" value="reviews" checked> Reseñas</label>
+                    <label class="inline-flex items-center gap-2"><input type="checkbox" class="js-similar-section rounded border-line text-teal" value="description" checked> Descripción</label>
+                    <label class="inline-flex items-center gap-2"><input type="checkbox" class="js-similar-section rounded border-line text-teal" value="details"> Detalles</label>
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm text-ink-soft">
+                    <input type="checkbox" id="similar-import-replace" class="rounded border-line text-coral">
+                    Reemplazar secciones marcadas (en lugar de añadir)
+                </label>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="button" id="btn-similar-preview" class="admin-btn-secondary">Vista previa</button>
+                    <button type="button" id="btn-similar-import" class="admin-btn">Importar al producto</button>
+                </div>
+                <p id="similar-import-status" class="hidden text-sm"></p>
+                <div id="similar-import-preview" class="hidden rounded-xl border border-dashed border-line bg-white/70 p-3 text-sm text-ink-soft"></div>
+            </div>
+        </div>
+
         <div class="admin-card p-5 sm:p-6 space-y-5 admin-card-span-2" id="product-media-card">
             <div class="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -976,7 +1011,7 @@
                     </label>
                 </div>
                 <div id="verified-reviews-list" class="max-h-[32rem] overflow-y-auto rounded-xl border border-line divide-y divide-line/70 {{ count($editableReviews) ? '' : 'hidden' }}"></div>
-                <p id="verified-reviews-empty" class="text-sm text-ink-soft/55 {{ count($editableReviews) ? 'hidden' : '' }}">Sin reseñas. Importa desde Product Hunter o añade una manualmente.</p>
+                <p id="verified-reviews-empty" class="text-sm text-ink-soft/55 {{ count($editableReviews) ? 'hidden' : '' }}">Sin reseñas. Importa desde un producto similar, Product Hunter o añade una manualmente.</p>
                 <div id="verified-reviews-hidden" class="hidden" aria-hidden="true"></div>
             </div>
 
@@ -2267,6 +2302,111 @@
     renderProductMedia();
     updateMainImagePathRow();
   }
+
+  var similarImportPreviewUrl = @json($similar_import_preview_url ?? null);
+  var similarImportUrl = @json($similar_import_url ?? null);
+
+  function similarImportSections() {
+    var sections = [];
+    $('.js-similar-section:checked').each(function () {
+      sections.push(String($(this).val() || ''));
+    });
+    return sections;
+  }
+
+  function setSimilarImportStatus(msg, ok) {
+    var $st = $('#similar-import-status');
+    $st.removeClass('hidden text-teal text-coral text-ink-soft/70')
+      .addClass(ok ? 'text-teal' : 'text-coral')
+      .text(msg);
+  }
+
+  function renderSimilarPreview(res) {
+    var counts = (res && res.counts) || {};
+    var source = (res && res.source) === 'cj' ? 'CJ Dropshipping' : 'AliExpress';
+    var parts = [];
+    if (counts.images) parts.push(counts.images + ' img');
+    if (counts.videos) parts.push(counts.videos + ' video(s)');
+    if (counts.reviews) parts.push(counts.reviews + ' reseñas');
+    if (counts.description) parts.push('descripción');
+    if (counts.details) parts.push(counts.details + ' detalles');
+    var html = '<div class="font-medium text-ink">' + escapeHtml(res.title || 'Producto similar') + '</div>' +
+      '<div class="mt-1 text-xs text-ink-soft/70">Origen: ' + escapeHtml(source) + '</div>' +
+      '<div class="mt-2">Disponible: ' + escapeHtml(parts.join(' · ') || 'sin contenido importable') + '</div>';
+    $('#similar-import-preview').removeClass('hidden').html(html);
+  }
+
+  $('#btn-similar-preview').on('click', function () {
+    if (!similarImportPreviewUrl) return;
+    var url = String($('#similar-import-url').val() || '').trim();
+    if (!url) {
+      setSimilarImportStatus('Pega la URL del producto similar.', false);
+      return;
+    }
+    var $btn = $(this).prop('disabled', true);
+    setSimilarImportStatus('Consultando producto…', true);
+    $('#similar-import-preview').addClass('hidden').empty();
+    $.ajax({
+      url: similarImportPreviewUrl,
+      method: 'POST',
+      data: { _token: csrf, url: url },
+      headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    }).done(function (res) {
+      if (!res || !res.success) {
+        setSimilarImportStatus((res && res.error) || 'No se pudo obtener vista previa.', false);
+        return;
+      }
+      renderSimilarPreview(res);
+      setSimilarImportStatus('Vista previa lista. Revisa y pulsa Importar.', true);
+    }).fail(function (xhr) {
+      var msg = (xhr.responseJSON && (xhr.responseJSON.error || xhr.responseJSON.message)) || 'Error al consultar el producto.';
+      setSimilarImportStatus(msg, false);
+    }).always(function () {
+      $btn.prop('disabled', false);
+    });
+  });
+
+  $('#btn-similar-import').on('click', function () {
+    if (!similarImportUrl) return;
+    var url = String($('#similar-import-url').val() || '').trim();
+    var sections = similarImportSections();
+    if (!url) {
+      setSimilarImportStatus('Pega la URL del producto similar.', false);
+      return;
+    }
+    if (!sections.length) {
+      setSimilarImportStatus('Marca al menos una sección para importar.', false);
+      return;
+    }
+    if (!confirm('¿Importar contenido del producto similar a este borrador?')) return;
+    var $btn = $(this).prop('disabled', true);
+    var $previewBtn = $('#btn-similar-preview').prop('disabled', true);
+    setSimilarImportStatus('Importando… puede tardar un minuto.', true);
+    $.ajax({
+      url: similarImportUrl,
+      method: 'POST',
+      data: {
+        _token: csrf,
+        url: url,
+        sections: sections,
+        replace: $('#similar-import-replace').is(':checked') ? '1' : '0'
+      },
+      headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+    }).done(function (res) {
+      if (!res || !res.success) {
+        setSimilarImportStatus((res && res.error) || 'La importación falló.', false);
+        return;
+      }
+      setSimilarImportStatus(res.message || 'Importación completada.', true);
+      window.setTimeout(function () { window.location.reload(); }, 700);
+    }).fail(function (xhr) {
+      var msg = (xhr.responseJSON && (xhr.responseJSON.error || xhr.responseJSON.message)) || 'Error al importar.';
+      setSimilarImportStatus(msg, false);
+    }).always(function () {
+      $btn.prop('disabled', false);
+      $previewBtn.prop('disabled', false);
+    });
+  });
 
   renderReviewsList();
 

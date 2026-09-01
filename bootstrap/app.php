@@ -35,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/*',
             'admin/lab/cj/plugin-capture',
             'admin/lab/cj/plugin-extract',
+            'admin/lab/cj/plugin-import-image',
             'admin/lab/cj/plugin-product-search',
             'admin/lab/cj/plugin-bootstrap',
         ]);

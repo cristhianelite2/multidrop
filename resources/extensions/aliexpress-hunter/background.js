@@ -10,6 +10,7 @@ function defaults() {
     origin: d.origin || '',
     capture_path: d.capture_path || '/admin/lab/cj/plugin-capture',
     extract_path: d.extract_path || '/admin/lab/cj/plugin-extract',
+    image_import_path: d.image_import_path || '/admin/lab/cj/plugin-import-image',
     product_search_path: d.product_search_path || '/admin/lab/cj/plugin-product-search',
     bootstrap_path: d.bootstrap_path || '/admin/lab/cj/plugin-bootstrap',
     hunter_path: d.hunter_path || '/admin/lab/cj'
@@ -268,4 +269,89 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     })();
     return true;
   }
+});
+
+function normalizeImageUrl(url) {
+  url = String(url || '').trim();
+  if (!url) return '';
+  url = url.replace(/\.(jpg|jpeg|png|webp)_[0-9]+x[0-9]+\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$3');
+  url = url.replace(/_(?:[0-9]+x[0-9]+|summ)\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$2');
+  return url;
+}
+
+function notifyUser(title, message) {
+  if (!chrome.notifications || !chrome.notifications.create) return;
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icons/icon48.png',
+    title: title || 'Multidrop Hunter',
+    message: message || ''
+  });
+}
+
+function setupContextMenus() {
+  if (!chrome.contextMenus || !chrome.contextMenus.create) return;
+  chrome.contextMenus.removeAll(function () {
+    chrome.contextMenus.create({
+      id: 'multidrop-extract-image',
+      title: 'Extraer imagen a Multidrop',
+      contexts: ['image'],
+      documentUrlPatterns: [
+        '*://*.aliexpress.com/*',
+        '*://*.aliexpress.us/*',
+        '*://*.aliexpress.ru/*',
+        '*://*.cjdropshipping.com/*'
+      ]
+    });
+  });
+}
+
+chrome.runtime.onInstalled.addListener(setupContextMenus);
+chrome.runtime.onStartup.addListener(setupContextMenus);
+setupContextMenus();
+
+chrome.contextMenus.onClicked.addListener(function (info) {
+  if (!info || info.menuItemId !== 'multidrop-extract-image') return;
+  (async function () {
+    var imageUrl = normalizeImageUrl(info.srcUrl || info.linkUrl || '');
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      notifyUser('Multidrop Hunter', 'No pude leer la URL de la imagen.');
+      return;
+    }
+    var cfg = await chrome.storage.sync.get([
+      'origin', 'token', 'token_ok', 'store_id',
+      'selected_product_id', 'selected_product_sku', 'selected_product_name'
+    ]);
+    var d = defaults();
+    var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
+    var token = String(cfg.token || '');
+    var storeId = parseInt(cfg.store_id, 10) || 0;
+    var productId = parseInt(cfg.selected_product_id, 10) || 0;
+    if (!cfg.token_ok || !origin || !token) {
+      notifyUser('Multidrop Hunter', 'Abre el plugin, configura el token y busca el producto destino por SKU.');
+      return;
+    }
+    if (!storeId || !productId) {
+      notifyUser('Multidrop Hunter', 'Busca primero el SKU del producto destino en el plugin.');
+      return;
+    }
+    try {
+      var out = await postPlugin(origin, d.image_import_path, token, {
+        token: token,
+        store_id: storeId,
+        product_id: productId,
+        image_url: imageUrl
+      });
+      if (!out.res.ok || !out.json.success) {
+        notifyUser('Multidrop Hunter', out.json.error || out.json.message || ('HTTP ' + out.res.status));
+        return;
+      }
+      var label = cfg.selected_product_sku
+        ? ('#' + productId + ' · SKU ' + cfg.selected_product_sku)
+        : ('#' + productId);
+      notifyUser('Multidrop Hunter', (out.json.message || 'Imagen añadida') + ' → ' + label);
+    } catch (e) {
+      notifyUser('Multidrop Hunter', String(e && e.message ? e.message : e));
+    }
+  })();
 });

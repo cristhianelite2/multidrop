@@ -173,6 +173,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
         ->name('lab.cj.plugin-capture');
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-extract', [LabController::class, 'pluginExtract'])
         ->name('lab.cj.plugin-extract');
+    Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-import-image', [LabController::class, 'pluginImportImage'])
+        ->name('lab.cj.plugin-import-image');
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-product-search', [LabController::class, 'pluginProductSearch'])
         ->name('lab.cj.plugin-product-search');
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-bootstrap', [LabController::class, 'pluginBootstrap'])

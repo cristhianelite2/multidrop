@@ -556,6 +556,7 @@ class LabController extends Controller
             'origin' => $origin,
             'capture_path' => '/admin/lab/cj/plugin-capture',
             'extract_path' => '/admin/lab/cj/plugin-extract',
+            'image_import_path' => '/admin/lab/cj/plugin-import-image',
             'product_search_path' => '/admin/lab/cj/plugin-product-search',
             'bootstrap_path' => '/admin/lab/cj/plugin-bootstrap',
             'hunter_path' => '/admin/lab/cj',
@@ -852,6 +853,83 @@ class LabController extends Controller
             return response()->json([
                 'success' => false,
                 'error' => 'Error al extraer: '.$e->getMessage(),
+            ], 500)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        return response()->json(array_merge($out, [
+            'product_id' => $product->id,
+            'edit_url' => route('admin.store.products.edit', $product->fresh() ?? $product),
+        ]))->withHeaders($this->pluginCorsHeaders());
+    }
+
+    public function pluginImportImage(
+        Request $request,
+        \App\Services\Catalog\ProductSimilarImportService $import
+    ) {
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        if (! $this->pluginTokenValid($request)) {
+            return response()->json(['success' => false, 'error' => 'Token del plugin inválido.'], 401)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $data = $request->validate([
+            'store_id' => ['required', 'integer', 'min:1'],
+            'product_id' => ['required', 'integer', 'min:1'],
+            'image_url' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $store = \App\Models\Store::query()->find((int) $data['store_id']);
+        if (! $store) {
+            return response()->json(['success' => false, 'error' => 'Tienda no encontrada.'], 422)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $product = \App\Models\Product::query()
+            ->where('store_id', $store->id)
+            ->find((int) $data['product_id']);
+
+        if (! $product) {
+            return response()->json(['success' => false, 'error' => 'Producto no encontrado en esa tienda.'], 404)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $imageUrl = trim((string) $data['image_url']);
+        if ($imageUrl === '' || ! preg_match('#^https?://#i', $imageUrl)) {
+            return response()->json(['success' => false, 'error' => 'URL de imagen no válida.'], 422)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        try {
+            $out = $import->importFromParsed(
+                $product,
+                [
+                    'title' => '',
+                    'images' => [$imageUrl],
+                    'videos' => [],
+                    'reviews' => [],
+                    'details' => [],
+                    'description_plain' => '',
+                    'description_html' => '',
+                ],
+                ['images'],
+                false,
+                'aliexpress',
+                false,
+                true
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'success' => false,
+                'error' => 'Error al importar imagen: '.$e->getMessage(),
             ], 500)->withHeaders($this->pluginCorsHeaders());
         }
 

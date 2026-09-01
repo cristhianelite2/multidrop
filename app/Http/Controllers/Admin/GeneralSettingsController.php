@@ -14,6 +14,7 @@ use App\Models\Store;
 use App\Services\Currency\CurrencyService;
 use App\Services\Platform\PlatformContact;
 use App\Services\Platform\PlatformMailSettings;
+use App\Services\Security\TurnstileVerifier;
 use App\Services\Storage\MediaUrl;
 use App\Services\Storage\R2StorageManager;
 use Carbon\Carbon;

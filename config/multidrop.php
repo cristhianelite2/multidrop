@@ -166,6 +166,16 @@ return [
         'optimizer' => [
             'webhook' => env('MARKETING_OPTIMIZER_WEBHOOK', ''),
         ],
+        /*
+         * Iframe de Seller Central para administrar publicaciones desde la campaña.
+         * Por tienda se puede pisar en settings.marketing.sellercentral_embed_url.
+         */
+        'sellercentral' => [
+            'embed_url' => env(
+                'SELLERCENTRAL_EMBED_URL',
+                'https://sellercentral.ceballosleon.com/embed/OTCTUN3Hh0rBRPMQvARtlt2t65IfgbNui67GzMf55spY0X5Y'
+            ),
+        ],
     ],
 
 ];

@@ -2,6 +2,12 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-08-31
+
+### Marketing
+- Pestaña **Publicaciones** en campañas con iframe embebido de Seller Central.
+- URL del embed configurable por tienda (`settings.marketing.sellercentral_embed_url`) o global (`SELLERCENTRAL_EMBED_URL`).
+
 ## 2026-08-29
 
 ### Product Hunter / AliExpress

@@ -1,7 +1,7 @@
 @extends('layouts.admin')
 
 @php
-    $allowedTabs = ['resumen', 'ads', 'prompts', 'resultados', 'optimizar'];
+    $allowedTabs = ['resumen', 'publicaciones', 'ads', 'prompts', 'resultados', 'optimizar'];
     $tab = in_array($tab ?? '', $allowedTabs, true) ? $tab : 'resumen';
     $statusLabel = ['draft' => 'Borrador', 'ready' => 'Listo', 'paused' => 'Pausada'][$campaign->status] ?? $campaign->status;
     $ctas = [
@@ -13,6 +13,7 @@
     ];
     $insights = is_array($campaign->insights) ? $campaign->insights : [];
     $advice = is_array($campaign->advice) ? $campaign->advice : [];
+    $sellercentralEmbedUrl = trim((string) ($sellercentralEmbedUrl ?? ''));
 @endphp
 
 @section('title', $campaign->name.' — Marketing')
@@ -68,6 +69,7 @@
         <div class="flex flex-wrap gap-1 border-b border-line bg-mist/40 px-2 pt-2" data-campaign-tabs>
             @foreach([
                 'resumen' => 'Resumen',
+                'publicaciones' => 'Publicaciones',
                 'ads' => 'Videos',
                 'prompts' => 'Prompts',
                 'resultados' => 'Resultados',
@@ -83,7 +85,7 @@
 
         {{-- Resumen --}}
         <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'resumen' ? '' : 'hidden' }}" data-tab-panel="resumen">
-            <form method="post" action="{{ route('admin.store.marketing.campaigns.update', $campaign) }}" class="space-y-4" data-no-fixed-actions>
+            <form method="post" action="{{ route('admin.store.marketing.campaigns.update', $campaign) }}" class="space-y-4" data-no-fixed-actions id="md-campaign-main-form">
                 @csrf
                 @method('PUT')
                 <div class="grid gap-4 sm:grid-cols-2">
@@ -149,6 +151,57 @@
                     </details>
                 @endif
             </div>
+
+            <div class="border-t border-line pt-5 space-y-3" id="md-sellercentral-resumen">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <h3 class="font-semibold text-ink">Publicaciones (Seller Central)</h3>
+                        <p class="mt-1 text-sm text-ink-soft/70">Integra el panel embebido de Seller Central para administrar publicaciones desde esta campaña.</p>
+                    </div>
+                    <button type="button" class="admin-btn-secondary !px-3 !py-1.5 text-xs" data-tab-jump="publicaciones">Administrar publicaciones</button>
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">URL del embed</label>
+                    <input type="url" name="sellercentral_embed_url" form="md-campaign-main-form" value="{{ old('sellercentral_embed_url', $sellercentralEmbedUrl) }}" class="admin-input" maxlength="500" placeholder="https://sellercentral.ceballosleon.com/embed/…">
+                    <p class="mt-1 text-xs text-ink-soft/50">Se guarda con «Guardar campaña» (por tienda). Vacío o igual al default usa la configuración global.</p>
+                </div>
+                @if($sellercentralEmbedUrl !== '')
+                    <p class="text-xs text-ink-soft/55 truncate">Embed activo: {{ $sellercentralEmbedUrl }}</p>
+                @else
+                    <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+                        Configura la URL del embed y guarda la campaña para habilitar la pestaña Publicaciones.
+                    </p>
+                @endif
+            </div>
+        </div>
+
+        {{-- Publicaciones --}}
+        <div class="p-4 sm:p-6 space-y-4 {{ $tab === 'publicaciones' ? '' : 'hidden' }}" data-tab-panel="publicaciones">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 class="font-semibold text-ink">Administrar publicaciones</h3>
+                    <p class="mt-1 text-sm text-ink-soft/70">
+                        Panel de Seller Central. Para cambiar la URL del embed, ve a
+                        <button type="button" class="text-teal hover:underline" data-tab-jump="resumen">Resumen</button>.
+                    </p>
+                </div>
+            </div>
+            @if($sellercentralEmbedUrl !== '')
+                <div class="overflow-hidden rounded-xl border border-line bg-white">
+                    <iframe
+                        src="{{ $sellercentralEmbedUrl }}"
+                        title="Seller Central — publicaciones"
+                        style="width:100%;height:800px;border:0"
+                        allow="clipboard-write"
+                        loading="lazy"
+                        referrerpolicy="no-referrer-when-downgrade"
+                    ></iframe>
+                </div>
+            @else
+                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+                    Falta la URL del embed. Ve a Resumen, pégala y guarda la campaña.
+                </p>
+            @endif
         </div>
 
         {{-- Anuncios --}}
@@ -488,6 +541,9 @@
   }
   $('[data-campaign-tabs] [data-tab]').on('click', function () {
     activate($(this).data('tab'));
+  });
+  $(document).on('click', '[data-tab-jump]', function () {
+    activate($(this).data('tab-jump'));
   });
   activate(initial);
 

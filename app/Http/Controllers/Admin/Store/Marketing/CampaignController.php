@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\Concerns\ResolvesCurrentStore;
 use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
+use App\Models\Store;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignOptimizerService;
 use App\Services\Marketing\CampaignService;
@@ -98,6 +99,7 @@ class CampaignController extends Controller
             'ffmpeg' => $ingest->ffmpegAvailable(),
             'maxMb' => (int) config('multidrop.marketing.max_video_mb', 80),
             'libraryPrompts' => MarketingPrompt::query()->where('store_id', $store->id)->orderBy('name')->get(['id', 'name', 'campaign_id']),
+            'sellercentralEmbedUrl' => $this->sellercentralEmbedUrl($store),
             'tab' => (string) request('tab', 'resumen'),
         ]);
     }
@@ -116,6 +118,10 @@ class CampaignController extends Controller
             $norm['tiktok_draft_id'] = null;
         }
         $campaign->fill($norm)->save();
+
+        if ($request->exists('sellercentral_embed_url')) {
+            $this->saveSellercentralEmbedUrl($store, (string) $request->input('sellercentral_embed_url', ''));
+        }
 
         return redirect()
             ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'resumen'])
@@ -238,11 +244,42 @@ class CampaignController extends Controller
             'landing_handle' => ['nullable', 'string', 'max:80'],
             'landing_url' => ['nullable', 'string', 'max:500'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'sellercentral_embed_url' => ['nullable', 'string', 'max:500'],
         ]);
     }
 
     protected function assertStore(int $current, int $owner): void
     {
         abort_unless($current === $owner, 404);
+    }
+
+    protected function sellercentralEmbedUrl(Store $store): string
+    {
+        $fromStore = trim((string) data_get($store->settings, 'marketing.sellercentral_embed_url', ''));
+        if ($fromStore !== '') {
+            return $fromStore;
+        }
+
+        return trim((string) config('multidrop.marketing.sellercentral.embed_url', ''));
+    }
+
+    protected function saveSellercentralEmbedUrl(Store $store, string $url): void
+    {
+        $url = trim($url);
+        if ($url !== '' && ! filter_var($url, FILTER_VALIDATE_URL)) {
+            return;
+        }
+
+        $settings = is_array($store->settings) ? $store->settings : [];
+        $marketing = is_array($settings['marketing'] ?? null) ? $settings['marketing'] : [];
+        $default = trim((string) config('multidrop.marketing.sellercentral.embed_url', ''));
+        if ($url === '' || $url === $default) {
+            unset($marketing['sellercentral_embed_url']);
+        } else {
+            $marketing['sellercentral_embed_url'] = $url;
+        }
+        $settings['marketing'] = $marketing;
+        $store->settings = $settings;
+        $store->save();
     }
 }

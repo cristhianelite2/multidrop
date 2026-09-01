@@ -81,7 +81,7 @@ class ProductSimilarImportService
      * @param  list<string>  $sections
      * @return array{success: bool, message?: string, source?: string, title?: string, imported?: array<string, int>, payload?: array<string, mixed>, error?: string}
      */
-    public function importFromParsed(Product $product, array $remote, array $sections, bool $replace = false, string $source = 'marketplace', bool $mirrorVideos = true): array
+    public function importFromParsed(Product $product, array $remote, array $sections, bool $replace = false, string $source = 'marketplace', bool $mirrorVideos = true, bool $mirrorMedia = true): array
     {
         $sections = array_values(array_unique(array_filter($sections, fn ($s) => is_string($s) && $s !== '')));
         if ($sections === []) {
@@ -199,10 +199,14 @@ class ProductSimilarImportService
         $product->save();
 
         $fresh = $product->fresh() ?? $product;
-        try {
-            $product = $this->mirror->mirrorProduct($fresh, $mirrorVideos);
-        } catch (\Throwable $e) {
-            report($e);
+        if ($mirrorMedia) {
+            try {
+                $product = $this->mirror->mirrorProduct($fresh, $mirrorVideos);
+            } catch (\Throwable $e) {
+                report($e);
+                $product = $fresh;
+            }
+        } else {
             $product = $fresh;
         }
         $product = $product->fresh() ?? $product;
@@ -220,7 +224,7 @@ class ProductSimilarImportService
     /**
      * @return array{success: bool, source?: string, product?: array<string, mixed>, error?: string}
      */
-    public function fetchFromPage(string $url, ?string $html, ?array $snapshot, Store $store): array
+    public function fetchFromPage(string $url, ?string $html, ?array $snapshot, Store $store, array $sections = []): array
     {
         $url = trim($url);
         if (preg_match('#cjdropshipping\.com#i', $url) || CjConnector::parseProductRef($url)) {
@@ -228,7 +232,12 @@ class ProductSimilarImportService
         }
 
         if ($html !== null && $html !== '') {
-            $fetched = $this->aeFetcher->parseFromCapture((string) $html, $url, is_array($snapshot) ? $snapshot : []);
+            $fetched = $this->aeFetcher->parseFromCapture(
+                (string) $html,
+                $url,
+                is_array($snapshot) ? $snapshot : [],
+                $sections
+            );
             if (! ($fetched['success'] ?? false)) {
                 return ['success' => false, 'error' => (string) ($fetched['error'] ?? 'No se pudo parsear AliExpress.')];
             }
@@ -250,9 +259,9 @@ class ProductSimilarImportService
     /**
      * @return array{success: bool, source?: string, title?: string, counts?: array<string, int>, error?: string}
      */
-    public function previewFromPage(string $url, ?string $html, ?array $snapshot, Store $store): array
+    public function previewFromPage(string $url, ?string $html, ?array $snapshot, Store $store, array $sections = []): array
     {
-        $fetched = $this->fetchFromPage($url, $html, $snapshot, $store);
+        $fetched = $this->fetchFromPage($url, $html, $snapshot, $store, $sections);
         if (! ($fetched['success'] ?? false)) {
             return $fetched;
         }

@@ -146,9 +146,10 @@ class AliExpressProductFetcher
      * Parsea HTML (y opcionalmente un snapshot JS) capturado en el navegador.
      *
      * @param  array<string, mixed>  $snapshot
+     * @param  list<string>  $sections
      * @return array{success: bool, product?: array<string, mixed>, error?: string}
      */
-    public function parseFromCapture(string $html, string $url = '', array $snapshot = []): array
+    public function parseFromCapture(string $html, string $url = '', array $snapshot = [], array $sections = []): array
     {
         $html = trim($html);
         $url = trim($url);
@@ -212,7 +213,8 @@ class AliExpressProductFetcher
                 $product['description_html'] = mb_substr($this->sanitizeHtml($snapDesc), 0, 20000);
             }
         }
-        if (($product['description_html'] ?? '') === '' || strlen(strip_tags((string) $product['description_html'])) < 20) {
+        if (! $this->shouldSkipHeavyEnrich($sections)
+            && (($product['description_html'] ?? '') === '' || strlen(strip_tags((string) $product['description_html'])) < 20)) {
             $descUrl = trim((string) ($snapshot['descriptionUrl'] ?? $snapshot['description_url'] ?? ''));
             if ($descUrl === '') {
                 $descUrl = (string) ($this->extractDescriptionUrl($html) ?? '');
@@ -224,14 +226,160 @@ class AliExpressProductFetcher
             }
         }
 
+        $product = $this->mergeSnapshotVideos($product, $snapshot);
+
         $product['source_mode'] = ! empty($snapshot) ? 'plugin' : 'html';
         $product['source_note'] = ! empty($snapshot)
             ? 'Plugin / snapshot del navegador'
             : 'HTML pegado en Product Hunter';
 
-        $product = $this->enrichFromRemote($product, $id, $url, $html);
+        if (! $this->shouldSkipHeavyEnrich($sections)) {
+            $product = $this->enrichFromRemote($product, $id, $url, $html);
+        }
 
         return ['success' => true, 'product' => $product];
+    }
+
+    /**
+     * @param  list<string>  $sections
+     */
+    protected function shouldSkipHeavyEnrich(array $sections): bool
+    {
+        if ($sections === []) {
+            return false;
+        }
+
+        return array_intersect(['reviews', 'description', 'details'], $sections) === [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $product
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    protected function mergeSnapshotVideos(array $product, array $snapshot): array
+    {
+        $extra = [];
+        foreach ((array) ($snapshot['pageVideos'] ?? []) as $row) {
+            if (is_string($row) && trim($row) !== '') {
+                $url = $this->absUrl(trim($row));
+                if ($url !== '' && $this->looksLikeVideoUrl($url)) {
+                    $extra[] = ['url' => $url, 'cover' => null];
+                }
+
+                continue;
+            }
+            if (! is_array($row)) {
+                continue;
+            }
+            $url = $this->absUrl(trim((string) ($row['url'] ?? '')));
+            if ($url === '' || ! $this->looksLikeVideoUrl($url)) {
+                continue;
+            }
+            $cover = $this->absUrl(trim((string) ($row['cover'] ?? '')));
+
+            $extra[] = [
+                'url' => $url,
+                'cover' => $cover !== '' ? $cover : null,
+            ];
+        }
+
+        if ($extra === []) {
+            return $product;
+        }
+
+        $existing = is_array($product['videos'] ?? null) ? $product['videos'] : [];
+        $map = [];
+        foreach (array_merge($existing, $extra) as $video) {
+            if (! is_array($video)) {
+                continue;
+            }
+            $url = trim((string) ($video['url'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            $map[$url] = $video;
+        }
+
+        $product['videos'] = array_values($map);
+        $product['has_video'] = $product['videos'] !== [];
+
+        return $product;
+    }
+
+    protected function looksLikeVideoUrl(string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+        if (preg_match('#\.(mp4|m3u8|webm|mov)(\?|$)#i', $url)) {
+            return true;
+        }
+
+        return (bool) preg_match('#video|videocdn|aliexpress-media|alicdn\.com#i', $url);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $imageModule
+     * @return list<array{url: string, cover?: string}>
+     */
+    protected function videosFromImageModule(?array $imageModule): array
+    {
+        if (! is_array($imageModule) || $imageModule === []) {
+            return [];
+        }
+
+        $videos = [];
+        foreach (['videoUrl', 'aliVideoUrl', 'videoPath', 'playUrl', 'video_url', 'videoSrc', 'video_src'] as $vk) {
+            $vu = $this->absUrl((string) ($imageModule[$vk] ?? ''));
+            if ($vu !== '' && $this->looksLikeVideoUrl($vu)) {
+                $videos[] = [
+                    'url' => $vu,
+                    'cover' => $this->absUrl((string) ($imageModule['videoCover'] ?? $imageModule['videoPoster'] ?? '')) ?: null,
+                ];
+            }
+        }
+
+        foreach (['videoList', 'videos', 'mediaElements'] as $listKey) {
+            $list = $imageModule[$listKey] ?? null;
+            if (! is_array($list)) {
+                continue;
+            }
+            foreach ($list as $item) {
+                if (is_string($item) && trim($item) !== '') {
+                    $vu = $this->absUrl(trim($item));
+                    if ($vu !== '' && $this->looksLikeVideoUrl($vu)) {
+                        $videos[] = ['url' => $vu, 'cover' => null];
+                    }
+
+                    continue;
+                }
+                if (! is_array($item)) {
+                    continue;
+                }
+                $vu = $this->absUrl((string) ($item['url'] ?? $item['videoUrl'] ?? $item['playUrl'] ?? $item['src'] ?? ''));
+                if ($vu !== '' && $this->looksLikeVideoUrl($vu)) {
+                    $videos[] = [
+                        'url' => $vu,
+                        'cover' => $this->absUrl((string) ($item['cover'] ?? $item['poster'] ?? $item['videoCover'] ?? '')) ?: null,
+                    ];
+                }
+            }
+        }
+
+        $seen = [];
+        $out = [];
+        foreach ($videos as $video) {
+            $url = (string) ($video['url'] ?? '');
+            if ($url === '' || isset($seen[$url])) {
+                continue;
+            }
+            $seen[$url] = true;
+            $out[] = $video;
+        }
+
+        return array_slice($out, 0, 8);
     }
 
     /**
@@ -1241,13 +1389,13 @@ class AliExpressProductFetcher
     {
         $videos = [];
         foreach ([
-            '/"(?:videoUrl|aliVideoUrl|playUrl)"\s*:\s*"(https?:[^"]+\.(?:mp4|m3u8)[^"]*)"/i',
+            '/"(?:videoUrl|aliVideoUrl|playUrl|videoPath|videoSrc)"\s*:\s*"(https?:[^"]+)"/i',
             '/https?:\\\\?\/\\\\?\/[^"\']+\.mp4/i',
         ] as $re) {
             if (preg_match_all($re, $html, $m)) {
                 foreach ($m[1] ?? $m[0] as $u) {
                     $abs = $this->absUrl(stripslashes((string) $u));
-                    if ($abs !== '' && (str_contains($abs, '.mp4') || str_contains($abs, '.m3u8'))) {
+                    if ($abs !== '' && $this->looksLikeVideoUrl($abs)) {
                         $videos[] = ['url' => $abs];
                     }
                 }
@@ -1785,13 +1933,7 @@ class AliExpressProductFetcher
             }
         }
 
-        $videos = [];
-        foreach (['videoUrl', 'aliVideoUrl', 'videoPath', 'playUrl'] as $vk) {
-            $vu = $this->absUrl((string) ($imageModule[$vk] ?? ''));
-            if ($vu !== '' && (str_contains($vu, '.mp4') || str_contains($vu, '.m3u8'))) {
-                $videos[] = ['url' => $vu, 'cover' => $this->absUrl((string) ($imageModule['videoCover'] ?? $imageModule['videoPoster'] ?? ''))];
-            }
-        }
+        $videos = $this->videosFromImageModule(is_array($imageModule) ? $imageModule : null);
 
         $descHtml = (string) ($descModule['description'] ?? $descModule['productDesc'] ?? $descModule['detailDesc'] ?? '');
         if ($descHtml !== '' && ! str_contains($descHtml, '<')) {

@@ -35,6 +35,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Tarjeta de **producto destino** en el plugin con miniatura, nombre destacado e ID/SKU visibles (v1.0.5).
 - **Fix imagen destino** en plugin: API resuelve miniatura desde galería/verified_data y URL absoluta; el popup reconsulta si faltan datos guardados (v1.0.6).
 - **Fix extracción de videos** en plugin: evita fallo al espejar a R2 durante extract, prefiere MP4 sobre M3U8 y mensajes de error más claros (v1.0.7).
+- **Fix timeout al extraer videos** (v1.0.8): snapshot compacto, detección de video en página, ruta rápida sin enrich remoto y keep-alive del service worker.
 
 ## 2026-08-31
 

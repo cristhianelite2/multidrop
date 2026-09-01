@@ -818,8 +818,9 @@ class LabController extends Controller
         }
 
         $url = (string) ($data['url'] ?? '');
+        $sections = array_values($data['sections']);
         try {
-            $fetched = $import->fetchFromPage($url, $html !== '' ? $html : null, $snapshot, $store);
+            $fetched = $import->fetchFromPage($url, $html !== '' ? $html : null, $snapshot, $store, $sections);
             if (! ($fetched['success'] ?? false)) {
                 return response()->json([
                     'success' => false,
@@ -827,14 +828,23 @@ class LabController extends Controller
                 ], 422)->withHeaders($this->pluginCorsHeaders());
             }
 
-            $mirrorVideos = ! in_array('videos', $data['sections'], true);
+            if (in_array('videos', $sections, true) && empty($fetched['product']['videos'] ?? [])) {
+                return response()->json([
+                    'success' => false,
+                    'error' => 'No se encontraron videos en la página. Abre la galería del producto, reproduce el video y vuelve a extraer.',
+                ], 422)->withHeaders($this->pluginCorsHeaders());
+            }
+
+            $onlyVideos = count($sections) === 1 && ($sections[0] ?? '') === 'videos';
+            $mirrorVideos = ! in_array('videos', $sections, true);
             $out = $import->importFromParsed(
                 $product,
                 $fetched['product'],
-                $data['sections'],
+                $sections,
                 $request->boolean('replace'),
                 (string) ($fetched['source'] ?? 'marketplace'),
-                $mirrorVideos
+                $mirrorVideos,
+                ! $onlyVideos
             );
         } catch (\Throwable $e) {
             report($e);

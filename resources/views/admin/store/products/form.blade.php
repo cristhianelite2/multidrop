@@ -11,13 +11,30 @@
     $translations = is_array($creative['translations'] ?? null) ? $creative['translations'] : [];
     $defaultLocale = old('default_locale', $creative['default_locale'] ?? ($store->defaultLocale() ?? 'es_MX'));
     $cjImages = array_values(array_filter($verified['images'] ?? []));
+    $editableImages = old('verified_images');
+    if (! is_array($editableImages)) {
+        $editableImages = $cjImages;
+    } else {
+        $editableImages = array_values(array_filter($editableImages, fn ($u) => is_string($u) && trim($u) !== ''));
+    }
+    $editableVideos = old('verified_videos');
+    if (! is_array($editableVideos)) {
+        $editableVideos = array_values(array_filter(
+            is_array($verified['videos'] ?? null) ? $verified['videos'] : [],
+            fn ($v) => is_array($v) && trim((string) ($v['url'] ?? '')) !== ''
+        ));
+    }
     $cjVideos = $cj_videos ?? [];
     if ($cjVideos === []) {
         foreach (array_values(array_filter($verified['videos'] ?? [], fn ($v) => is_array($v))) as $v) {
             if (empty($v['url'])) {
                 continue;
             }
-            $v['play_url'] = route('admin.lab.cj.video-proxy', ['u' => $v['url']]);
+            if ($product->exists && $product->isFromCj()) {
+                $v['play_url'] = route('admin.lab.cj.video-proxy', ['u' => $v['url']]);
+            } else {
+                $v['play_url'] = (string) $v['url'];
+            }
             $cjVideos[] = $v;
         }
     }
@@ -653,6 +670,61 @@
     </div>
 
     @if($product->exists)
+        <div class="admin-card p-5 sm:p-6 space-y-5 admin-card-span-2" id="product-media-card">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <h2 class="font-display text-lg font-bold text-ink">Imágenes y videos</h2>
+                    <p class="mt-1 text-sm text-ink-soft/65">
+                        Galería de la ficha y material promocional.
+                        @if($isCj)
+                            Puedes reimportar desde CJ con «Sincronizar desde CJ» o editar aquí.
+                        @elseif($isAe)
+                            Importadas desde AliExpress; puedes quitar, reordenar o añadir URLs manualmente.
+                        @else
+                            Añade URLs de imágenes y videos para la vitrina.
+                        @endif
+                    </p>
+                </div>
+                <span class="admin-badge bg-mist text-ink-soft">{{ count($editableImages) }} img · {{ count($editableVideos) }} video(s)</span>
+            </div>
+
+            <input type="hidden" name="verified_images_present" value="1">
+            <input type="hidden" name="verified_videos_present" value="1">
+
+            <div>
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="font-display text-base font-bold text-ink">Galería de imágenes</h3>
+                    <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
+                </div>
+                <div id="product-images-grid" class="flex flex-wrap gap-2 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
+                <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Añade una URL o importa desde el marketplace.</p>
+                <div class="mt-3 flex flex-wrap items-end gap-2">
+                    <div class="min-w-0 flex-1">
+                        <label class="mb-1 block text-xs font-medium text-ink-soft">Nueva imagen (URL)</label>
+                        <input type="url" id="new-image-url" class="admin-input text-sm" placeholder="https://…">
+                    </div>
+                    <button type="button" id="btn-push-image-url" class="admin-btn-secondary !py-2 text-sm shrink-0">Añadir</button>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="font-display text-base font-bold text-ink">Videos</h3>
+                    <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir video</button>
+                </div>
+                <div id="product-videos-list" class="grid gap-4 sm:grid-cols-2"></div>
+                <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Añade la URL del archivo o del marketplace.</p>
+                @if($isCj)
+                    <p class="mt-2 text-xs text-ink-soft/50">Videos CJ se reproducen en admin vía proxy (Referer).</p>
+                @endif
+            </div>
+
+            <div id="verified-images-hidden" class="hidden" aria-hidden="true"></div>
+            <div id="verified-videos-hidden" class="hidden" aria-hidden="true"></div>
+        </div>
+    @endif
+
+    @if($product->exists)
         <div class="admin-card p-5 sm:p-6 space-y-4 admin-card-span-2">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <h2 class="font-display text-lg font-bold text-ink">
@@ -728,62 +800,7 @@
                 @endif
 
                 <div>
-                    <div class="mb-2 flex items-center justify-between gap-2">
-                        <h3 class="font-display text-base font-bold text-ink">Galería ({{ count($cjImages) }})</h3>
-                    </div>
-                    @if($cjImages)
-                        <div class="flex flex-wrap gap-2">
-                            @foreach($cjImages as $img)
-                                <button type="button" class="js-zoomable block h-20 w-20 overflow-hidden rounded-lg border border-line bg-mist cursor-zoom-in hover:opacity-80 transition-opacity" data-src="{{ $img }}">
-                                    <img src="{{ $img }}" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy">
-                                </button>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-sm text-ink-soft/55">Sin imágenes sincronizadas. Usa «Sincronizar desde CJ».</p>
-                    @endif
-                </div>
-
-                <div>
-                    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <h3 class="font-display text-base font-bold text-ink">Videos ({{ count($cjVideos) }})</h3>
-                        <span class="text-xs text-ink-soft/55">Reproducción vía proxy CJ (Referer)</span>
-                    </div>
-                    @if($cjVideos)
-                        <div class="grid gap-4 sm:grid-cols-2">
-                            @foreach($cjVideos as $i => $vid)
-                                <div class="overflow-hidden rounded-xl border border-line bg-ink/95">
-                                    <div class="relative bg-black">
-                                        <video
-                                            class="cj-product-video mx-auto max-h-80 w-full"
-                                            controls
-                                            playsinline
-                                            preload="metadata"
-                                            @if(!empty($vid['cover'])) poster="{{ $vid['cover'] }}" @endif
-                                            src="{{ $vid['play_url'] ?? route('admin.lab.cj.video-proxy', ['u' => $vid['url']]) }}"
-                                        ></video>
-                                    </div>
-                                    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs text-white/80">
-                                        <span>{{ $vid['name'] ?? ('Video '.($i + 1)) }}</span>
-                                        <span class="text-white/50">
-                                            @if(!empty($vid['duration']))
-                                                {{ gmdate('i:s', (int) round((float) $vid['duration'])) }}
-                                            @endif
-                                            @if(!empty($vid['width']) && !empty($vid['height']))
-                                                · {{ $vid['width'] }}×{{ $vid['height'] }}
-                                            @endif
-                                        </span>
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    @else
-                        <p class="text-sm text-ink-soft/55">Sin videos en CJ para este PID. Prueba «Sincronizar desde CJ».</p>
-                    @endif
-                </div>
-
-                <div>
-                    <p class="text-sm text-ink-soft/55">Las reseñas, el ranking y los detalles se editan en la sección <strong class="text-ink">Reseñas, ranking y detalles</strong> más abajo.</p>
+                    <p class="text-sm text-ink-soft/55">Las reseñas, el ranking y los detalles se editan en la sección <strong class="text-ink">Reseñas, ranking y detalles</strong> más abajo. Imágenes y videos en la sección superior.</p>
                 </div>
 
                 <div>
@@ -1842,7 +1859,181 @@
 
   $('#product-form').on('submit', function () {
     syncReviewsHiddenInputs();
+    syncMediaHiddenInputs();
   });
+
+  var verifiedImagesData = @json(array_values($editableImages));
+  var verifiedVideosData = @json(array_values($editableVideos));
+  var mediaVideoProxyUrl = @json(route('admin.lab.cj.video-proxy'));
+  var productIsCj = @json($isCj);
+
+  function mediaVideoPlayUrl(url) {
+    url = String(url || '').trim();
+    if (!url) return '';
+    if (productIsCj) {
+      return mediaVideoProxyUrl + (mediaVideoProxyUrl.indexOf('?') >= 0 ? '&' : '?') + 'u=' + encodeURIComponent(url);
+    }
+    return url;
+  }
+
+  function syncMediaHiddenInputs() {
+    var $imgHidden = $('#verified-images-hidden').empty();
+    verifiedImagesData.forEach(function (url, i) {
+      $('<input>', { type: 'hidden', name: 'verified_images[' + i + ']', value: url }).appendTo($imgHidden);
+    });
+    var $vidHidden = $('#verified-videos-hidden').empty();
+    verifiedVideosData.forEach(function (v, i) {
+      var prefix = 'verified_videos[' + i + ']';
+      $('<input>', { type: 'hidden', name: prefix + '[url]', value: v.url || '' }).appendTo($vidHidden);
+      $('<input>', { type: 'hidden', name: prefix + '[name]', value: v.name || '' }).appendTo($vidHidden);
+      $('<input>', { type: 'hidden', name: prefix + '[cover]', value: v.cover || '' }).appendTo($vidHidden);
+    });
+  }
+
+  function pushImageUrl(raw) {
+    var url = String(raw || '').trim();
+    if (!url) return false;
+    if (verifiedImagesData.indexOf(url) >= 0) return false;
+    verifiedImagesData.push(url);
+    return true;
+  }
+
+  function renderProductImages() {
+    var $grid = $('#product-images-grid').empty();
+    var main = String($('input[name=image_url]').val() || '').trim();
+    var has = verifiedImagesData.length > 0;
+    $('#product-images-empty').toggleClass('hidden', has);
+    verifiedImagesData.forEach(function (url, i) {
+      var isMain = main !== '' && main === url;
+      var $item = $(
+        '<div class="product-image-item relative h-24 w-24 shrink-0 overflow-hidden rounded-lg border border-line bg-mist group" data-index="' + i + '">' +
+          (isMain ? '<span class="absolute left-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
+          '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
+            '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
+          '</button>' +
+          '<div class="absolute inset-x-0 bottom-0 flex gap-1 bg-ink/70 p-1 opacity-0 transition group-hover:opacity-100">' +
+            '<button type="button" class="js-img-main flex-1 rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Usar como imagen principal">★</button>' +
+            '<button type="button" class="js-img-up rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover antes">↑</button>' +
+            '<button type="button" class="js-img-down rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover después">↓</button>' +
+            '<button type="button" class="js-img-del rounded bg-coral/80 px-1 py-0.5 text-[10px] text-white hover:bg-coral" title="Quitar">×</button>' +
+          '</div>' +
+        '</div>'
+      );
+      $grid.append($item);
+    });
+    syncMediaHiddenInputs();
+  }
+
+  function renderProductVideos() {
+    var $list = $('#product-videos-list').empty();
+    var has = verifiedVideosData.length > 0;
+    $('#product-videos-empty').toggleClass('hidden', has);
+    verifiedVideosData.forEach(function (v, i) {
+      var url = String(v.url || '').trim();
+      var play = mediaVideoPlayUrl(url);
+      var name = String(v.name || ('Video ' + (i + 1)));
+      var cover = String(v.cover || '').trim();
+      var posterAttr = cover ? ' poster="' + escapeHtml(cover) + '"' : '';
+      var $card = $(
+        '<div class="product-video-item overflow-hidden rounded-xl border border-line bg-white" data-index="' + i + '">' +
+          '<div class="bg-ink/95">' +
+            (play
+              ? '<video class="mx-auto max-h-56 w-full" controls playsinline preload="metadata"' + posterAttr + ' src="' + escapeHtml(play) + '"></video>'
+              : '<div class="flex h-32 items-center justify-center text-xs text-white/50">Sin URL de video</div>') +
+          '</div>' +
+          '<div class="space-y-2 p-3">' +
+            '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">URL del video</label>' +
+            '<input type="url" class="js-vid-url admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(url) + '" placeholder="https://…"></div>' +
+            '<div class="grid gap-2 sm:grid-cols-2">' +
+              '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Nombre</label>' +
+              '<input type="text" class="js-vid-name admin-input !py-1.5 text-xs" value="' + escapeHtml(name) + '"></div>' +
+              '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Poster (URL)</label>' +
+              '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(cover) + '" placeholder="https://…"></div>' +
+            '</div>' +
+            '<div class="flex justify-end"><button type="button" class="js-vid-del text-xs text-coral hover:underline">Quitar video</button></div>' +
+          '</div>' +
+        '</div>'
+      );
+      $list.append($card);
+    });
+    syncMediaHiddenInputs();
+  }
+
+  function renderProductMedia() {
+    renderProductImages();
+    renderProductVideos();
+  }
+
+  $('#btn-push-image-url, #btn-add-image-url').on('click', function () {
+    if (pushImageUrl($('#new-image-url').val())) {
+      $('#new-image-url').val('');
+      renderProductImages();
+    }
+  });
+  $('#new-image-url').on('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('#btn-push-image-url').trigger('click');
+    }
+  });
+
+  $('#product-images-grid').on('click', '.js-img-main', function (e) {
+    e.stopPropagation();
+    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    var url = verifiedImagesData[i];
+    if (!url) return;
+    $('input[name=image_url]').val(url);
+    renderProductImages();
+  });
+  $('#product-images-grid').on('click', '.js-img-del', function (e) {
+    e.stopPropagation();
+    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    verifiedImagesData.splice(i, 1);
+    renderProductImages();
+  });
+  $('#product-images-grid').on('click', '.js-img-up', function (e) {
+    e.stopPropagation();
+    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    if (i <= 0) return;
+    var tmp = verifiedImagesData[i - 1];
+    verifiedImagesData[i - 1] = verifiedImagesData[i];
+    verifiedImagesData[i] = tmp;
+    renderProductImages();
+  });
+  $('#product-images-grid').on('click', '.js-img-down', function (e) {
+    e.stopPropagation();
+    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    if (i >= verifiedImagesData.length - 1) return;
+    var tmp = verifiedImagesData[i + 1];
+    verifiedImagesData[i + 1] = verifiedImagesData[i];
+    verifiedImagesData[i] = tmp;
+    renderProductImages();
+  });
+
+  $('#btn-add-video-row').on('click', function () {
+    verifiedVideosData.push({ url: '', name: 'Video ' + (verifiedVideosData.length + 1), cover: '' });
+    renderProductVideos();
+  });
+  $('#product-videos-list').on('input change', '.js-vid-url, .js-vid-name, .js-vid-cover', function () {
+    var $item = $(this).closest('.product-video-item');
+    var i = Number($item.attr('data-index'));
+    if (!verifiedVideosData[i]) return;
+    verifiedVideosData[i] = {
+      url: String($item.find('.js-vid-url').val() || '').trim(),
+      name: String($item.find('.js-vid-name').val() || '').trim(),
+      cover: String($item.find('.js-vid-cover').val() || '').trim()
+    };
+    syncMediaHiddenInputs();
+  });
+  $('#product-videos-list').on('click', '.js-vid-del', function () {
+    var i = Number($(this).closest('.product-video-item').attr('data-index'));
+    verifiedVideosData.splice(i, 1);
+    renderProductVideos();
+  });
+
+  if ($('#product-media-card').length) {
+    renderProductMedia();
+  }
 
   renderReviewsList();
 

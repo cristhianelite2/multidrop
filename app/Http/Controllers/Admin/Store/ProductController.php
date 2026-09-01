@@ -210,8 +210,11 @@ class ProductController extends Controller
             if (! is_array($v) || empty($v['url'])) {
                 continue;
             }
+            $url = (string) $v['url'];
             $videos[] = array_merge($v, [
-                'play_url' => route('admin.lab.cj.video-proxy', ['u' => $v['url']]),
+                'play_url' => $product->isFromCj()
+                    ? route('admin.lab.cj.video-proxy', ['u' => $url])
+                    : $url,
             ]);
         }
 
@@ -241,6 +244,11 @@ class ProductController extends Controller
         $data['is_featured'] = $request->boolean('is_featured');
         $data['creative_data'] = $this->mergeCreativeFromRequest($request, $product);
         $data['verified_data'] = $this->mergeVerifiedFromRequest($request, $product);
+        if ($request->has('verified_videos_present')) {
+            $creative = is_array($data['creative_data']) ? $data['creative_data'] : [];
+            $creative['has_video'] = ! empty($data['verified_data']['videos'] ?? []);
+            $data['creative_data'] = $creative;
+        }
         $product->update($data);
 
         if ($request->boolean('is_star')) {
@@ -861,6 +869,44 @@ class ProductController extends Controller
                 }
             }
             $verified['details'] = $details;
+        }
+
+        if ($request->has('verified_images_present')) {
+            $imagesIn = $request->input('verified_images', []);
+            $images = [];
+            if (is_array($imagesIn)) {
+                foreach ($imagesIn as $url) {
+                    $url = trim((string) $url);
+                    if ($url !== '') {
+                        $images[] = mb_substr($url, 0, 500);
+                    }
+                }
+            }
+            $verified['images'] = array_values(array_unique($images));
+        }
+
+        if ($request->has('verified_videos_present')) {
+            $videosIn = $request->input('verified_videos', []);
+            $videos = [];
+            if (is_array($videosIn)) {
+                foreach ($videosIn as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+                    $url = trim((string) ($row['url'] ?? ''));
+                    if ($url === '') {
+                        continue;
+                    }
+                    $name = trim((string) ($row['name'] ?? ''));
+                    $cover = trim((string) ($row['cover'] ?? ''));
+                    $videos[] = array_filter([
+                        'url' => mb_substr($url, 0, 500),
+                        'name' => $name !== '' ? mb_substr($name, 0, 120) : null,
+                        'cover' => $cover !== '' ? mb_substr($cover, 0, 500) : null,
+                    ], fn ($v) => $v !== null);
+                }
+            }
+            $verified['videos'] = $videos;
         }
 
         return $verified;

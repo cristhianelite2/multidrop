@@ -11,6 +11,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - El desglose de márgenes usa el precio de compra guardado o el del marketplace.
 - Sanitización del nombre acortado por IA (sin anotaciones tipo «70 caracteres»).
 - Spinner de carga en el botón ✨ de acortar nombre.
+- Sección **Imágenes y videos** editable en la ficha de producto (CJ, AliExpress y manual).
 
 ## 2026-08-31
 

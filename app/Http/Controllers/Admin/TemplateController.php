@@ -7,6 +7,7 @@ use App\Models\Store;
 use App\Models\Theme;
 use App\Services\Storefront\DesignAssetUrl;
 use App\Services\Storefront\DesignThemeService;
+use App\Services\Storefront\DesignZipExporter;
 use App\Services\Storefront\DesignZipImporter;
 use App\Services\Storefront\ThemeLibraryService;
 use App\Services\Storefront\ThemeSandboxService;
@@ -64,6 +65,18 @@ class TemplateController extends Controller
         return redirect()
             ->route('admin.templates.edit', $result['theme_id'])
             ->with('success', $result['message'] ?? 'Plantilla importada.');
+    }
+
+    public function downloadZip(Theme $theme, DesignZipExporter $exporter)
+    {
+        $path = $exporter->exportTheme($theme);
+        if (! $path || ! is_file($path)) {
+            return back()->with('error', 'No se pudo generar el ZIP de la plantilla.');
+        }
+
+        $filename = Str::slug($theme->slug ?: $theme->name).'-template.zip';
+
+        return response()->download($path, $filename)->deleteFileAfterSend(true);
     }
 
     public function edit(Theme $theme)

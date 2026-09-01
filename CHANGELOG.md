@@ -11,6 +11,9 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 ### Catálogo admin
 - Icono de ojo en listado de productos para abrir la ficha en la tienda (nueva pestaña).
 
+### Plantillas
+- Botón **Descargar ZIP** en la biblioteca de plantillas (exporta `theme.css`, `modules.css`, `layout.json`, `assets/` y `pages/*.twig`).
+
 ## 2026-08-29
 
 ### Product Hunter / AliExpress

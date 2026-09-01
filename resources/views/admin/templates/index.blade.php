@@ -72,6 +72,7 @@
                 </div>
                 <div class="flex flex-wrap gap-1.5">
                     <a href="{{ route('admin.templates.edit', $theme) }}" class="admin-btn !py-1 !px-2 text-xs">Editar</a>
+                    <a href="{{ route('admin.templates.download', $theme) }}" class="admin-btn-secondary !py-1 !px-2 text-xs" title="Descargar ZIP para editar o respaldar">Descargar ZIP</a>
                     <a href="{{ route('theme.sandbox.show', $theme->slug) }}" target="_blank" class="admin-btn-secondary !py-1 !px-2 text-xs">Vista previa</a>
                     <button type="button" class="admin-btn-secondary !py-1 !px-2 text-xs" data-open-sandbox data-id="{{ $theme->id }}" data-name="{{ $theme->name }}">Probar flujo</button>
                     <button type="button" class="admin-btn-secondary !py-1 !px-2 text-xs" data-open-apply data-id="{{ $theme->id }}" data-name="{{ $theme->name }}">Asignar a tienda</button>

@@ -331,6 +331,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::middleware('permission:store.manage')->prefix('templates')->name('templates.')->group(function () {
             Route::get('/', [TemplateController::class, 'index'])->name('index');
             Route::post('/', [TemplateController::class, 'store'])->name('store');
+            Route::get('{theme}/download.zip', [TemplateController::class, 'downloadZip'])->name('download');
             Route::get('{theme}', [TemplateController::class, 'edit'])->name('edit');
             Route::put('{theme}', [TemplateController::class, 'update'])->name('update');
             Route::delete('{theme}', [TemplateController::class, 'destroy'])->name('destroy');

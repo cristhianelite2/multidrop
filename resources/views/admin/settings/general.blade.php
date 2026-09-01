@@ -427,6 +427,10 @@
                 <button type="submit" class="admin-btn">Guardar R2</button>
                 <button type="button" class="js-api-test admin-btn-secondary" data-provider="r2" data-url="{{ route('admin.settings.general.api.test') }}">Probar conexión</button>
             </div>
+            @php
+                $r2PublicPrefix = (string) ($r2['public_prefix'] ?? 'f');
+                $r2UrlHelp = 'Las URLs públicas quedan en <code>https://tu-dominio/'.$r2PublicPrefix.'/stores/{tienda}/products/{id}/…</code> (proxy Laravel → R2).';
+            @endphp
             @include('admin.settings.partials.api-help', [
                 'title' => 'Cómo crear el bucket y las API keys',
                 'steps' => [
@@ -436,7 +440,7 @@
                     'Permisos: <strong>Object Read &amp; Write</strong> sobre ese bucket (o toda la cuenta si prefieres).',
                     'Copia <strong>Access Key ID</strong> y <strong>Secret Access Key</strong> (solo se muestran una vez).',
                     'Pega Account ID, bucket y llaves aquí, activa R2, guarda y pulsa <strong>Probar conexión</strong>.',
-                    'Las URLs públicas quedan en <code>https://tu-dominio/{{ $r2['public_prefix'] ?? 'f' }}/stores/{tienda}/products/{id}/…</code> (proxy Laravel → R2).',
+                    $r2UrlHelp,
                 ],
             ])
             @if(($r2['last_test_at'] ?? null))

@@ -702,7 +702,8 @@ class GeneralSettingsController extends Controller
                     PlatformSetting::put('storage.r2.last_test_at', now()->toIso8601String(), 'storage');
                     PlatformSetting::put('storage.r2.last_test_ok', $ok ? '1' : '0', 'storage');
                     PlatformSetting::put('storage.r2.last_test_message', mb_substr($message, 0, 240), 'storage');
-                    break;
+
+                    return $this->testJson($request, $ok, $message);
             }
         } catch (\Throwable $e) {
             return $this->testJson($request, false, 'Prueba falló: '.$e->getMessage());

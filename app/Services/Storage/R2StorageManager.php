@@ -30,7 +30,7 @@ class R2StorageManager
         return Storage::disk('r2');
     }
 
-    public function syncDiskConfig(): void
+    public function syncDiskConfig(bool $throw = false): void
     {
         $this->ensureEndpoint();
 
@@ -44,7 +44,7 @@ class R2StorageManager
                 'endpoint' => config('r2.endpoint'),
                 'url' => env('R2_URL'),
                 'use_path_style_endpoint' => true,
-                'throw' => false,
+                'throw' => $throw,
             ],
         ]);
 
@@ -69,24 +69,42 @@ class R2StorageManager
      */
     public function testConnection(): array
     {
-        $this->syncDiskConfig();
-
         if (! $this->configured()) {
             return ['success' => false, 'message' => 'Completa bucket, access key, secret y endpoint (o Account ID para derivarlo).'];
         }
 
         try {
-            $probe = '.multidrop-r2-probe-'.Str::lower(Str::random(8)).'.txt';
-            $this->disk()->put($probe, 'ok', ['visibility' => 'private']);
-            if (! $this->disk()->exists($probe)) {
-                return ['success' => false, 'message' => 'No se pudo verificar el archivo de prueba en el bucket.'];
-            }
-            $this->disk()->delete($probe);
+            $this->syncDiskConfig(true);
+            $probe = 'multidrop/_probe/'.Str::lower(Str::random(8)).'.txt';
+            $disk = Storage::disk('r2');
+            $disk->put($probe, 'ok');
+            $disk->delete($probe);
 
             return ['success' => true, 'message' => 'R2 OK · bucket «'.config('r2.bucket').'» accesible.'];
         } catch (\Throwable $e) {
-            return ['success' => false, 'message' => 'R2 error: '.$e->getMessage()];
+            return ['success' => false, 'message' => $this->formatR2Error($e)];
+        } finally {
+            $this->syncDiskConfig(false);
         }
+    }
+
+    protected function formatR2Error(\Throwable $e): string
+    {
+        $msg = trim($e->getMessage());
+        if (str_contains($msg, 'InvalidAccessKeyId')) {
+            return 'Access Key ID inválida.';
+        }
+        if (str_contains($msg, 'SignatureDoesNotMatch')) {
+            return 'Secret Access Key incorrecta.';
+        }
+        if (str_contains($msg, 'NoSuchBucket')) {
+            return 'El bucket no existe o el nombre no coincide.';
+        }
+        if (str_contains($msg, 'AccessDenied') || str_contains($msg, '403')) {
+            return 'Acceso denegado: el token necesita permiso Object Read & Write sobre el bucket.';
+        }
+
+        return $msg !== '' ? $msg : 'No se pudo conectar con R2.';
     }
 
     public function storePrefix(int $storeId): string

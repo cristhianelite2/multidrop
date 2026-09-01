@@ -138,7 +138,6 @@ class ProductMediaMirrorService
         $contents = file_get_contents($file->getRealPath());
         $bytes = is_string($contents) ? strlen($contents) : 0;
         $this->r2->disk()->put($storagePath, $contents, [
-            'visibility' => 'private',
             'ContentType' => $file->getMimeType() ?: null,
         ]);
         $this->r2->incrementStoreStats($store, $bytes, $folder === 'videos' ? 'video' : 'image');
@@ -213,7 +212,7 @@ class ProductMediaMirrorService
             return MediaUrl::fromStoragePath($storagePath);
         }
 
-        $this->r2->disk()->put($storagePath, $contents, ['visibility' => 'private']);
+        $this->r2->disk()->put($storagePath, $contents);
         $this->r2->incrementStoreStats($store, strlen($contents), $folder === 'videos' ? 'video' : 'image');
 
         return MediaUrl::fromStoragePath($storagePath);

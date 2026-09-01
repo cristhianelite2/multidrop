@@ -83,20 +83,57 @@
     if (!keepToken) tokenEl.value = '';
   }
 
-  function showSelectedProduct(product) {
+  function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function productImageSrc(imageUrl, origin) {
+    var url = String(imageUrl || '').trim();
+    if (!url) return '';
+    if (/^https?:\/\//i.test(url)) return url;
+    if (url.charAt(0) === '/') return String(origin || '').replace(/\/+$/, '') + url;
+    return url;
+  }
+
+  function showSelectedProduct(product, origin) {
     selectedProduct = product || null;
     if (!product) {
       productFound.classList.add('hidden');
-      productFound.textContent = '';
-      chrome.storage.sync.remove(['selected_product_id', 'selected_product_sku']);
+      productFound.innerHTML = '';
+      chrome.storage.sync.remove([
+        'selected_product_id',
+        'selected_product_sku',
+        'selected_product_name',
+        'selected_product_image_url'
+      ]);
       updateExtractSummary();
       return;
     }
+    var imgSrc = productImageSrc(product.image_url, origin || originEl.value || d.origin);
+    var meta = '#' + product.id + (product.sku ? (' · SKU ' + product.sku) : '');
+    if (product.status) meta += ' · ' + product.status;
     productFound.classList.remove('hidden');
-    productFound.textContent = 'Destino: #' + product.id + ' · ' + product.name + (product.sku ? (' · SKU ' + product.sku) : '');
+    productFound.innerHTML =
+      '<div class="product-found-card">' +
+        '<div class="product-found-thumb' + (imgSrc ? '' : ' no-image') + '">' +
+          (imgSrc ? '<img src="' + escapeHtml(imgSrc) + '" alt="">' : '') +
+        '</div>' +
+        '<div class="product-found-body">' +
+          '<span class="product-found-label">Producto destino</span>' +
+          '<strong class="product-found-name">' + escapeHtml(product.name) + '</strong>' +
+          '<span class="product-found-meta">' + escapeHtml(meta) + '</span>' +
+        '</div>' +
+      '</div>';
+    var thumb = productFound.querySelector('.product-found-thumb');
+    var img = productFound.querySelector('img');
+    if (img && thumb) {
+      img.addEventListener('error', function () { thumb.classList.add('no-image'); });
+    }
     chrome.storage.sync.set({
       selected_product_id: product.id,
-      selected_product_sku: product.sku || ''
+      selected_product_sku: product.sku || '',
+      selected_product_name: product.name || '',
+      selected_product_image_url: product.image_url || ''
     });
     updateExtractSummary();
   }
@@ -129,7 +166,7 @@
     return sections;
   }
 
-  chrome.storage.sync.get(['origin', 'token', 'store_id', 'token_ok', 'selected_product_id', 'selected_product_sku', 'extract_panel_open'], function (cfg) {
+  chrome.storage.sync.get(['origin', 'token', 'store_id', 'token_ok', 'selected_product_id', 'selected_product_sku', 'selected_product_name', 'selected_product_image_url', 'extract_panel_open'], function (cfg) {
     originEl.value = cfg.origin || d.origin || '';
     tokenEl.value = cfg.token || '';
     if (cfg.selected_product_sku) productSkuEl.value = cfg.selected_product_sku;
@@ -139,14 +176,16 @@
       requestHosts(String(cfg.origin).replace(/\/+$/, '')).then(function () {
         return validateAndLoad(String(cfg.origin).replace(/\/+$/, ''), cfg.token);
       }).then(function (stores) {
-        showReady(String(cfg.origin).replace(/\/+$/, ''), stores, cfg.store_id);
+        var origin = String(cfg.origin).replace(/\/+$/, '');
+        showReady(origin, stores, cfg.store_id);
         setStatus('Listo', 'ok');
         if (cfg.selected_product_id) {
           showSelectedProduct({
             id: cfg.selected_product_id,
-            name: 'Producto #' + cfg.selected_product_id,
-            sku: cfg.selected_product_sku || ''
-          });
+            name: cfg.selected_product_name || ('Producto #' + cfg.selected_product_id),
+            sku: cfg.selected_product_sku || '',
+            image_url: cfg.selected_product_image_url || ''
+          }, origin);
         }
       }).catch(function () {
         chrome.storage.sync.set({ token_ok: false });
@@ -232,7 +271,7 @@
     var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
     var token = String(cfg.token || '');
     setStatus('Buscando producto…');
-  document.getElementById('search-sku').disabled = true;
+    document.getElementById('search-sku').disabled = true;
     try {
       var res = await fetch(apiPath(origin, 'product_search_path'), {
         method: 'POST',
@@ -245,7 +284,7 @@
       });
       var json = await res.json().catch(function () { return {}; });
       if (!res.ok || !json.success) throw new Error(json.error || ('HTTP ' + res.status));
-      showSelectedProduct(json.product);
+      showSelectedProduct(json.product, origin);
       setExtractOpen(true);
       setStatus('Producto encontrado. Abre AE/CJ y pulsa Extraer.', 'ok');
     } catch (e) {

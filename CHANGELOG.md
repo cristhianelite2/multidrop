@@ -32,6 +32,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - **Descargar media** en edición de producto: botón por imagen/video y **Descargar ZIP** para galería (R2 con `?download=1`, externas vía proxy).
 - **Extensión Hunter 1.0.4:** extraer secciones de ficha AE/CJ a producto existente por SKU (buscar destino, elegir secciones, importar desde página activa).
 - Panel **Extraer al producto** comprimido en el popup (acordeón expandible, resumen del destino, estado persistido).
+- Tarjeta de **producto destino** en el plugin con miniatura, nombre destacado e ID/SKU visibles (v1.0.5).
 
 ## 2026-08-31
 

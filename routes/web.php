@@ -171,6 +171,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-capture', [LabController::class, 'pluginCapture'])
         ->name('lab.cj.plugin-capture');
+    Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-extract', [LabController::class, 'pluginExtract'])
+        ->name('lab.cj.plugin-extract');
+    Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-product-search', [LabController::class, 'pluginProductSearch'])
+        ->name('lab.cj.plugin-product-search');
     Route::match(['POST', 'OPTIONS'], '/lab/cj/plugin-bootstrap', [LabController::class, 'pluginBootstrap'])
         ->name('lab.cj.plugin-bootstrap');
 
@@ -256,6 +260,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::post('products/{product}/upload-video', [ProductController::class, 'uploadVideo'])->name('products.upload-video');
                 Route::post('products/{product}/similar-import/preview', [ProductController::class, 'previewSimilarImport'])->name('products.similar-import.preview');
                 Route::post('products/{product}/similar-import', [ProductController::class, 'importSimilar'])->name('products.similar-import');
+                Route::get('products/{product}/media/download', [ProductController::class, 'downloadMedia'])->name('products.media.download');
+                Route::get('products/{product}/media/download-zip', [ProductController::class, 'downloadMediaZip'])->name('products.media.download-zip');
                 Route::post('products/recalculate-prices', [ProductController::class, 'recalculatePrices'])->name('products.recalculate-prices');
                 Route::resource('products', ProductController::class)->except(['show']);
                 Route::post('products/{product}/sync-cj', [ProductController::class, 'syncCj'])->name('products.sync-cj');

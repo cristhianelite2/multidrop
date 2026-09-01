@@ -246,7 +246,6 @@
       var json = await res.json().catch(function () { return {}; });
       if (!res.ok || !json.success) throw new Error(json.error || ('HTTP ' + res.status));
       showSelectedProduct(json.product);
-      setExtractOpen(true);
       setStatus('Producto encontrado. Abre AE/CJ y pulsa Extraer.', 'ok');
     } catch (e) {
       showSelectedProduct(null);

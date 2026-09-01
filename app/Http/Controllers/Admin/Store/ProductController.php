@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Domain\Scoring\CjPricingEstimator;
 use App\Services\Admin\StoreContext;
+use App\Services\Catalog\ProductMediaDownloadService;
 use App\Services\Catalog\ProductSimilarImportService;
 use App\Services\Currency\CurrencyService;
 use App\Services\Storage\ProductMediaMirrorService;
@@ -229,6 +230,8 @@ class ProductController extends Controller
             'video_proxy_url' => route('admin.lab.cj.video-proxy'),
             'similar_import_preview_url' => route('admin.store.products.similar-import.preview', $product),
             'similar_import_url' => route('admin.store.products.similar-import', $product),
+            'media_download_url' => route('admin.store.products.media.download', $product),
+            'media_download_zip_url' => route('admin.store.products.media.download-zip', $product),
             'currencies' => $currency->catalog(),
             'fx' => $currency->jsPayload(),
             'locale_currency_map' => collect($this->availableLocales($store))
@@ -731,6 +734,56 @@ class ProductController extends Controller
         }
 
         return response()->json($out);
+    }
+
+    public function downloadMedia(
+        Request $request,
+        Product $product,
+        StoreContext $storeContext,
+        ProductMediaDownloadService $downloads
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $url = trim((string) $request->query('url', ''));
+        if ($url === '' || ! $downloads->ownsUrl($product, $url)) {
+            abort(404);
+        }
+
+        $storagePath = \App\Services\Storage\MediaUrl::storagePathFromUrl($url);
+        if ($storagePath) {
+            $sep = str_contains($url, '?') ? '&' : '?';
+
+            return redirect()->to($url.$sep.'download=1');
+        }
+
+        $kind = str_contains($url, '/videos/') || preg_match('/\.(mp4|webm|mov|m4v)(\?|$)/i', $url) ? 'video' : 'image';
+
+        return $downloads->streamSingle($url, $kind);
+    }
+
+    public function downloadMediaZip(
+        Request $request,
+        Product $product,
+        StoreContext $storeContext,
+        ProductMediaDownloadService $downloads
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $kind = (string) $request->query('kind', 'all');
+        if (! in_array($kind, ['images', 'videos', 'all'], true)) {
+            $kind = 'all';
+        }
+
+        $zipPath = $downloads->buildZip($product, $kind);
+        if ($zipPath === null) {
+            return back()->with('error', 'No se pudo generar el ZIP (sin archivos o error de descarga).');
+        }
+
+        $filename = 'producto-'.$product->id.'-'.$kind.'.zip';
+
+        return response()->download($zipPath, $filename)->deleteFileAfterSend(true);
     }
 
     public function suggestPrices(

@@ -646,6 +646,7 @@
                     <code class="js-main-image-path-label max-w-full truncate rounded bg-mist px-2 py-1 text-[11px] text-ink-soft/80">{{ $product->image_url }}</code>
                     <button type="button" class="js-copy-main-image-path admin-btn-secondary !py-0.5 !px-2 text-[11px]">Copiar ruta</button>
                     <button type="button" class="js-copy-main-image-url admin-btn-secondary !py-0.5 !px-2 text-[11px]">Copiar URL</button>
+                    <a href="{{ route('admin.store.products.media.download', ['product' => $product, 'url' => $product->image_url]) }}" class="js-main-image-download admin-btn-secondary !py-0.5 !px-2 text-[11px]">Descargar</a>
                 </div>
                 @if($product->image_url)
                     <img src="{{ $product->image_url }}" alt="" class="mt-2 h-24 w-24 rounded-lg object-cover border border-line js-zoomable cursor-zoom-in hover:opacity-80 transition-opacity">
@@ -735,6 +736,7 @@
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 class="font-display text-base font-bold text-ink">Galería de imágenes</h3>
                     <div class="flex flex-wrap items-center gap-2">
+                        <a href="{{ route('admin.store.products.media.download-zip', ['product' => $product, 'kind' => 'images']) }}" class="admin-btn-secondary !py-1 !px-2 text-xs" id="btn-download-all-images">Descargar ZIP</a>
                         <label for="product-image-upload" class="admin-btn-secondary !py-1 !px-2 text-xs cursor-pointer">Subir archivo</label>
                         <input type="file" id="product-image-upload" accept="image/jpeg,image/png,image/gif,image/webp" multiple class="sr-only">
                         <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
@@ -756,6 +758,7 @@
                 <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 class="font-display text-base font-bold text-ink">Videos</h3>
                     <div class="flex flex-wrap items-center gap-2">
+                        <a href="{{ route('admin.store.products.media.download-zip', ['product' => $product, 'kind' => 'videos']) }}" class="admin-btn-secondary !py-1 !px-2 text-xs" id="btn-download-all-videos">Descargar ZIP</a>
                         <label for="product-video-upload" class="admin-btn-secondary !py-1 !px-2 text-xs cursor-pointer">Subir archivo</label>
                         <input type="file" id="product-video-upload" accept="video/mp4,video/webm,video/quicktime,video/x-m4v,.mp4,.webm,.mov,.m4v" class="sr-only">
                         <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
@@ -1919,6 +1922,7 @@
   var productIsCj = @json($isCj);
   var productUploadImageUrl = @json($product->exists ? route('admin.store.products.upload-image', $product) : null);
   var productUploadVideoUrl = @json($product->exists ? route('admin.store.products.upload-video', $product) : null);
+  var mediaDownloadUrl = @json($media_download_url ?? null);
 
   function mediaPaths(url) {
     url = String(url || '').trim();
@@ -1966,13 +1970,27 @@
     done();
   }
 
+  function mediaDirectDownloadUrl(url) {
+    url = String(url || '').trim();
+    if (!url) return '';
+    if (/\/f\//i.test(url)) {
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'download=1';
+    }
+    if (mediaDownloadUrl) {
+      return mediaDownloadUrl + (mediaDownloadUrl.indexOf('?') >= 0 ? '&' : '?') + 'url=' + encodeURIComponent(url);
+    }
+    return url;
+  }
+
   function mediaPathActionsHtml(paths) {
     if (!paths.url) return '';
+    var dl = mediaDirectDownloadUrl(paths.url);
     return '<div class="mt-1.5 space-y-1">' +
       '<p class="media-path-label truncate font-mono text-[9px] leading-tight text-ink-soft/70" title="' + escapeHtml(paths.label) + '">' + escapeHtml(paths.label) + '</p>' +
       '<div class="flex flex-wrap gap-1.5">' +
         '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>' +
         '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>' +
+        (dl ? '<a class="js-download-media text-[9px] font-medium text-teal hover:underline" href="' + escapeHtml(dl) + '" download>Descargar</a>' : '') +
       '</div>' +
     '</div>';
   }
@@ -1989,6 +2007,13 @@
     $row.find('.js-main-image-path-label').text(paths.label).attr('title', paths.label);
     $row.find('.js-copy-main-image-path').attr('data-copy', paths.path || paths.url);
     $row.find('.js-copy-main-image-url').attr('data-copy', paths.url);
+    var dl = mediaDirectDownloadUrl(url);
+    var $dl = $row.find('.js-main-image-download');
+    if (dl) {
+      $dl.attr('href', dl).removeClass('hidden');
+    } else {
+      $dl.addClass('hidden');
+    }
   }
 
   function isHostedMediaUrl(url) {

@@ -29,6 +29,9 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Subida de imágenes y videos por archivo en la galería del producto.
 - Rutas de media visibles en la galería con botones **Copiar ruta** y **Copiar URL** (R2 `/f/…`, storage local o URL externa).
 - **Importar de producto similar** en edición: URL de AliExpress o CJ → imágenes, videos, reseñas, descripción y detalles (añadir o reemplazar), con vista previa y copia a R2.
+- **Descargar media** en edición de producto: botón por imagen/video y **Descargar ZIP** para galería (R2 con `?download=1`, externas vía proxy).
+- **Extensión Hunter 1.0.4:** extraer secciones de ficha AE/CJ a producto existente por SKU (buscar destino, elegir secciones, importar desde página activa).
+- Panel **Extraer al producto** comprimido en el popup (acordeón expandible, resumen del destino, estado persistido).
 
 ## 2026-08-31
 

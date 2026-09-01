@@ -21,6 +21,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class LabController extends Controller
 {
@@ -553,6 +554,8 @@ class LabController extends Controller
         $configJs = 'window.MULTIDROP_DEFAULTS = '.json_encode([
             'origin' => $origin,
             'capture_path' => '/admin/lab/cj/plugin-capture',
+            'extract_path' => '/admin/lab/cj/plugin-extract',
+            'product_search_path' => '/admin/lab/cj/plugin-product-search',
             'bootstrap_path' => '/admin/lab/cj/plugin-bootstrap',
             'hunter_path' => '/admin/lab/cj',
         ], JSON_UNESCAPED_SLASHES).";\n";
@@ -563,6 +566,7 @@ class LabController extends Controller
             'https://*.aliexpress.com/*',
             'https://*.aliexpress.us/*',
             'https://*.aliexpress.ru/*',
+            'https://*.cjdropshipping.com/*',
             $origin.'/*',
         ];
         $manifest['host_permissions'] = array_values(array_unique($hosts));
@@ -663,6 +667,139 @@ class LabController extends Controller
             'Access-Control-Allow-Headers' => 'Content-Type, X-Multidrop-Token, Accept',
             'Access-Control-Max-Age' => '86400',
         ];
+    }
+
+    public function pluginProductSearch(Request $request)
+    {
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        if (! $this->pluginTokenValid($request)) {
+            return response()->json(['success' => false, 'error' => 'Token del plugin inválido.'], 401)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $data = $request->validate([
+            'store_id' => ['required', 'integer', 'min:1'],
+            'sku' => ['required', 'string', 'max:120'],
+        ]);
+
+        $sku = trim($data['sku']);
+        $storeId = (int) $data['store_id'];
+
+        $query = \App\Models\Product::query()
+            ->where('store_id', $storeId)
+            ->where(function ($q) use ($sku) {
+                $q->where('sku', $sku);
+                if (ctype_digit($sku)) {
+                    $q->orWhere('id', (int) $sku);
+                }
+                if (strlen($sku) >= 3) {
+                    $q->orWhere('sku', 'like', '%'.$sku.'%');
+                }
+            })
+            ->orderByRaw('CASE WHEN sku = ? THEN 0 WHEN id = ? THEN 1 ELSE 2 END', [$sku, ctype_digit($sku) ? (int) $sku : 0])
+            ->limit(8);
+
+        $products = $query->get(['id', 'name', 'sku', 'status', 'image_url'])->map(fn (\App\Models\Product $p) => [
+            'id' => $p->id,
+            'name' => $p->name,
+            'sku' => $p->sku,
+            'status' => $p->status,
+            'image_url' => $p->image_url,
+            'edit_url' => route('admin.store.products.edit', $p),
+        ])->values()->all();
+
+        if ($products === []) {
+            return response()->json([
+                'success' => false,
+                'error' => 'No hay producto con ese SKU en la tienda seleccionada.',
+            ], 404)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        return response()->json([
+            'success' => true,
+            'products' => $products,
+            'product' => $products[0],
+        ])->withHeaders($this->pluginCorsHeaders());
+    }
+
+    public function pluginExtract(
+        Request $request,
+        AliExpressProductFetcher $fetcher,
+        \App\Services\Catalog\ProductSimilarImportService $import
+    ) {
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 204)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        if (! $this->pluginTokenValid($request)) {
+            return response()->json(['success' => false, 'error' => 'Token del plugin inválido.'], 401)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $data = $request->validate([
+            'store_id' => ['required', 'integer', 'min:1'],
+            'product_id' => ['required', 'integer', 'min:1'],
+            'sections' => ['required', 'array', 'min:1'],
+            'sections.*' => ['string', Rule::in(['images', 'videos', 'reviews', 'description', 'details'])],
+            'replace' => ['nullable', 'boolean'],
+            'url' => ['nullable', 'string', 'max:2000'],
+            'html' => ['nullable', 'string'],
+        ]);
+
+        @set_time_limit(180);
+
+        $store = \App\Models\Store::query()->find((int) $data['store_id']);
+        if (! $store) {
+            return response()->json(['success' => false, 'error' => 'Tienda no encontrada.'], 422)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $product = \App\Models\Product::query()
+            ->where('store_id', $store->id)
+            ->find((int) $data['product_id']);
+
+        if (! $product) {
+            return response()->json(['success' => false, 'error' => 'Producto no encontrado en esa tienda.'], 404)
+                ->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $html = (string) ($data['html'] ?? '');
+        if (strlen($html) > 2500000) {
+            $html = substr($html, 0, 2500000);
+        }
+        $snapshot = $request->input('snapshot');
+        if (! is_array($snapshot)) {
+            $snapshot = [];
+        }
+
+        $url = (string) ($data['url'] ?? '');
+        $fetched = $import->fetchFromPage($url, $html !== '' ? $html : null, $snapshot, $store);
+        if (! ($fetched['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $fetched['error'] ?? 'No se pudo leer la página actual.',
+            ], 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        $out = $import->importFromParsed(
+            $product,
+            $fetched['product'],
+            $data['sections'],
+            $request->boolean('replace'),
+            (string) ($fetched['source'] ?? 'marketplace')
+        );
+
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422)->withHeaders($this->pluginCorsHeaders());
+        }
+
+        return response()->json(array_merge($out, [
+            'product_id' => $product->id,
+            'edit_url' => route('admin.store.products.edit', $product->fresh()),
+        ]))->withHeaders($this->pluginCorsHeaders());
     }
 
     protected function pluginTokenValid(Request $request): bool

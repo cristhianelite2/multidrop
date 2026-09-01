@@ -68,7 +68,26 @@ class ProductSimilarImportService
             return $fetched;
         }
 
-        $remote = $fetched['product'];
+        return $this->importFromParsed(
+            $product,
+            $fetched['product'],
+            $sections,
+            $replace,
+            (string) ($fetched['source'] ?? 'marketplace')
+        );
+    }
+
+    /**
+     * @param  list<string>  $sections
+     * @return array{success: bool, message?: string, source?: string, title?: string, imported?: array<string, int>, payload?: array<string, mixed>, error?: string}
+     */
+    public function importFromParsed(Product $product, array $remote, array $sections, bool $replace = false, string $source = 'marketplace'): array
+    {
+        $sections = array_values(array_unique(array_filter($sections, fn ($s) => is_string($s) && $s !== '')));
+        if ($sections === []) {
+            return ['success' => false, 'error' => 'Marca al menos una sección para importar.'];
+        }
+
         $verified = is_array($product->verified_data) ? $product->verified_data : [];
         $imported = [];
 
@@ -183,11 +202,61 @@ class ProductSimilarImportService
 
         return [
             'success' => true,
-            'source' => $fetched['source'],
+            'source' => $source,
             'title' => (string) ($remote['title'] ?? ''),
             'imported' => $imported,
-            'message' => $this->buildMessage($imported, (string) $fetched['source']),
+            'message' => $this->buildMessage($imported, $source === 'cj' ? 'cj' : ($source === 'aliexpress' ? 'aliexpress' : $source)),
             'payload' => $this->exportForFrontend($product),
+        ];
+    }
+
+    /**
+     * @return array{success: bool, source?: string, product?: array<string, mixed>, error?: string}
+     */
+    public function fetchFromPage(string $url, ?string $html, ?array $snapshot, Store $store): array
+    {
+        $url = trim($url);
+        if (preg_match('#cjdropshipping\.com#i', $url) || CjConnector::parseProductRef($url)) {
+            return $this->fetchRemote($url, $store);
+        }
+
+        if ($html !== null && $html !== '') {
+            $fetched = $this->aeFetcher->parseFromCapture((string) $html, $url, is_array($snapshot) ? $snapshot : []);
+            if (! ($fetched['success'] ?? false)) {
+                return ['success' => false, 'error' => (string) ($fetched['error'] ?? 'No se pudo parsear AliExpress.')];
+            }
+
+            return [
+                'success' => true,
+                'source' => 'aliexpress',
+                'product' => $this->normalizeAe(is_array($fetched['product'] ?? null) ? $fetched['product'] : []),
+            ];
+        }
+
+        if ($url !== '' && AliExpressProductFetcher::looksLikeAliExpress($url)) {
+            return $this->fetchRemote($url, $store);
+        }
+
+        return ['success' => false, 'error' => 'No hay URL ni HTML para extraer.'];
+    }
+
+    /**
+     * @return array{success: bool, source?: string, title?: string, counts?: array<string, int>, error?: string}
+     */
+    public function previewFromPage(string $url, ?string $html, ?array $snapshot, Store $store): array
+    {
+        $fetched = $this->fetchFromPage($url, $html, $snapshot, $store);
+        if (! ($fetched['success'] ?? false)) {
+            return $fetched;
+        }
+
+        $product = $fetched['product'];
+
+        return [
+            'success' => true,
+            'source' => $fetched['source'],
+            'title' => (string) ($product['title'] ?? ''),
+            'counts' => $this->countSections($product),
         ];
     }
 

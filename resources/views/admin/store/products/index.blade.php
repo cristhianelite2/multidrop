@@ -175,6 +175,9 @@
                             }
                             $isCj = $product->isFromCj();
                             $isAe = $product->isFromAliExpress();
+                            $storeViewUrl = ($product->slug && in_array($product->status, ['live', 'draft'], true))
+                                ? route('store.design.page', ['slug' => $store->slug, 'handle' => $product->slug])
+                                : null;
                         @endphp
                         <tr class="border-b border-line/70 last:border-0 hover:bg-mist/20 cursor-pointer" data-product-row>
                             <td class="px-3 py-2 align-middle">
@@ -252,6 +255,27 @@
                             </td>
                             <td class="px-3 py-2">
                                 <div class="flex justify-end gap-1.5 whitespace-nowrap">
+                                    @if($storeViewUrl)
+                                        <a href="{{ $storeViewUrl }}"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           class="admin-btn-secondary !px-2 !py-1 text-xs inline-flex items-center justify-center"
+                                           title="Ver en tienda"
+                                           aria-label="Ver en tienda">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </a>
+                                    @else
+                                        <span class="inline-flex h-[26px] w-[26px] items-center justify-center rounded border border-line/40 text-ink-soft/25 cursor-not-allowed"
+                                              title="{{ $product->slug ? 'Publica el producto (live o borrador) para verlo en tienda' : 'Sin slug — guarda el producto primero' }}">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </span>
+                                    @endif
                                     <a class="admin-btn-secondary !px-2.5 !py-1 text-xs" href="{{ route('admin.store.products.edit', $product) }}">Editar</a>
                                     <button type="button" class="admin-btn-danger !px-2.5 !py-1 text-xs" data-single-delete="{{ $product->id }}">✕</button>
                                 </div>

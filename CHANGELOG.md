@@ -8,6 +8,9 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Pestaña **Publicaciones** en campañas con iframe embebido de Seller Central.
 - URL del embed configurable por tienda (`settings.marketing.sellercentral_embed_url`) o global (`SELLERCENTRAL_EMBED_URL`).
 
+### Catálogo admin
+- Icono de ojo en listado de productos para abrir la ficha en la tienda (nueva pestaña).
+
 ## 2026-08-29
 
 ### Product Hunter / AliExpress

@@ -1104,9 +1104,18 @@
     if (!url || $btn.prop('disabled')) return;
 
     var label = $btn.text();
+    var $form = $btn.closest('form');
+    var $last = $form.find('.js-api-test-last');
     var $st = statusEl($btn);
     $btn.prop('disabled', true).text('Probando…');
-    $st.removeClass('text-teal text-coral hidden').addClass('text-ink-soft/60').text('Consultando…');
+    if ($last.length) {
+      $st.addClass('hidden');
+      $last.removeClass('hidden text-teal text-coral')
+        .addClass('text-ink-soft/60')
+        .text('Consultando…');
+    } else {
+      $st.removeClass('text-teal text-coral hidden').addClass('text-ink-soft/60').text('Consultando…');
+    }
 
     var payload = { _token: csrf };
     if (provider === 'cj') {
@@ -1146,18 +1155,17 @@
     }).done(function (res) {
       var ok = !!(res && (res.ok || res.success));
       var msg = (res && res.message) || (ok ? 'API OK' : 'La prueba falló');
-      $st.toggleClass('text-teal', ok).toggleClass('text-coral', !ok).removeClass('text-ink-soft/60').text(msg);
-      toast(ok, msg);
+      if ($last.length) {
+        $st.addClass('hidden');
+        $last.removeClass('hidden text-teal text-coral text-ink-soft/60')
+          .addClass(ok ? 'text-teal' : 'text-coral')
+          .text('Última prueba: ahora — ' + msg);
+      } else {
+        $st.toggleClass('text-teal', ok).toggleClass('text-coral', !ok).removeClass('text-ink-soft/60 hidden').text(msg);
+        toast(ok, msg);
+      }
       if (provider === 'miia' && res && Array.isArray(res.engines)) {
         fillAiEngineSelects(res.engines);
-      }
-      if (provider === 'cj' || provider === 'aliexpress' || provider === 'cloudflare_browser' || provider === 'r2') {
-        var $last = $btn.closest('form').find('.js-api-test-last');
-        if ($last.length) {
-          $last.removeClass('hidden text-teal text-coral')
-            .addClass(ok ? 'text-teal' : 'text-coral')
-            .text('Última prueba: ahora — ' + msg);
-        }
       }
     }).fail(function (xhr) {
       var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error))
@@ -1166,8 +1174,13 @@
         var first = Object.values(xhr.responseJSON.errors)[0];
         if (Array.isArray(first) && first[0]) msg = first[0];
       }
-      $st.removeClass('text-teal text-ink-soft/60').addClass('text-coral').text(msg);
-      toast(false, msg);
+      if ($last.length) {
+        $st.addClass('hidden');
+        $last.removeClass('hidden text-teal text-ink-soft/60').addClass('text-coral').text('Última prueba: ahora — ' + msg);
+      } else {
+        $st.removeClass('text-teal text-ink-soft/60 hidden').addClass('text-coral').text(msg);
+        toast(false, msg);
+      }
     }).always(function () {
       $btn.prop('disabled', false).text(label);
     });

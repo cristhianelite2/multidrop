@@ -10,6 +10,8 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - URLs enmascaradas `/{f}/stores/{tienda}/products/{id}/…` servidas vía proxy Laravel.
 - Monitoreo de almacenamiento R2 por tienda (recalcular desde bucket).
 - Al importar producto (CJ, AliExpress o manual) se copia media a R2 automáticamente.
+- **Fix prueba R2:** SDK S3 directo, reintento path-style/virtual-hosted, credenciales desde BD sin sobrescribir `********`, mensajes AWS claros.
+- **Fix UI:** un solo mensaje al probar APIs (R2, CJ, AliExpress, Cloudflare) sin toast duplicado.
 
 ### Admin tienda
 - Campo **Correo de la cuenta** en General de la tienda (`settings.contact.email`).

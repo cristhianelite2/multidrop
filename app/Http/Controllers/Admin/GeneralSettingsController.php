@@ -693,9 +693,9 @@ class GeneralSettingsController extends Controller
                     PlatformSetting::put('cloudflare.browser_last_test_message', mb_substr($message, 0, 240), 'cloudflare');
                     break;
                 case 'r2':
-                    $this->applyR2FromRequest($request);
                     $r2 = app(R2StorageManager::class);
                     $r2->applyFromPlatformSettings();
+                    $this->applyR2ConfigOverlay($request);
                     $probe = $r2->testConnection();
                     $ok = (bool) ($probe['success'] ?? false);
                     $message = (string) ($probe['message'] ?? ($ok ? 'OK' : 'Falló'));
@@ -836,6 +836,35 @@ class GeneralSettingsController extends Controller
             PlatformSetting::put('cloudflare.browser_rendering', $on ? '1' : '0', 'cloudflare');
             config(['cloudflare.enabled' => $on]);
         }
+    }
+
+    protected function applyR2ConfigOverlay(Request $request): void
+    {
+        if ($request->has('r2_enabled')) {
+            config(['r2.enabled' => $request->boolean('r2_enabled')]);
+        }
+
+        $map = [
+            'r2_account_id' => 'r2.account_id',
+            'r2_access_key_id' => 'r2.access_key_id',
+            'r2_bucket' => 'r2.bucket',
+            'r2_endpoint' => 'r2.endpoint',
+        ];
+        foreach ($map as $input => $configKey) {
+            $value = $request->input($input);
+            if (is_string($value) && $value !== '' && $value !== '********') {
+                config([$configKey => $value]);
+            }
+        }
+
+        $secret = $request->input('r2_secret_access_key');
+        if (is_string($secret) && $secret !== '' && $secret !== '********') {
+            config(['r2.secret_access_key' => $secret]);
+        }
+
+        $r2 = app(R2StorageManager::class);
+        $r2->ensureEndpoint();
+        $r2->syncDiskConfig();
     }
 
     protected function applyR2FromRequest(Request $request): void

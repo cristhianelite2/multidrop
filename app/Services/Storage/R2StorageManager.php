@@ -4,6 +4,8 @@ namespace App\Services\Storage;
 
 use App\Models\PlatformSetting;
 use App\Models\Store;
+use Aws\Exception\AwsException;
+use Aws\S3\S3Client;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -43,7 +45,7 @@ class R2StorageManager
                 'bucket' => config('r2.bucket'),
                 'endpoint' => config('r2.endpoint'),
                 'url' => env('R2_URL'),
-                'use_path_style_endpoint' => true,
+                'use_path_style_endpoint' => filter_var(config('r2.use_path_style_endpoint', false), FILTER_VALIDATE_BOOLEAN),
                 'throw' => $throw,
             ],
         ]);
@@ -53,8 +55,10 @@ class R2StorageManager
 
     public function ensureEndpoint(): void
     {
-        $endpoint = trim((string) config('r2.endpoint'));
+        $endpoint = rtrim(trim((string) config('r2.endpoint')), '/');
         if ($endpoint !== '') {
+            config(['r2.endpoint' => $endpoint]);
+
             return;
         }
         $accountId = trim((string) config('r2.account_id'));
@@ -73,38 +77,99 @@ class R2StorageManager
             return ['success' => false, 'message' => 'Completa bucket, access key, secret y endpoint (o Account ID para derivarlo).'];
         }
 
-        try {
-            $this->syncDiskConfig(true);
-            $probe = 'multidrop/_probe/'.Str::lower(Str::random(8)).'.txt';
-            $disk = Storage::disk('r2');
-            $disk->put($probe, 'ok');
-            $disk->delete($probe);
-
-            return ['success' => true, 'message' => 'R2 OK · bucket «'.config('r2.bucket').'» accesible.'];
-        } catch (\Throwable $e) {
-            return ['success' => false, 'message' => $this->formatR2Error($e)];
-        } finally {
-            $this->syncDiskConfig(false);
+        if (trim((string) config('r2.secret_access_key')) === '') {
+            return ['success' => false, 'message' => 'Falta el Secret Access Key. Pégalo de nuevo en el formulario y prueba.'];
         }
+
+        $bucket = (string) config('r2.bucket');
+        $key = '_probe/'.Str::lower(Str::random(8)).'.txt';
+
+        $modes = [
+            filter_var(config('r2.use_path_style_endpoint', false), FILTER_VALIDATE_BOOLEAN),
+            ! filter_var(config('r2.use_path_style_endpoint', false), FILTER_VALIDATE_BOOLEAN),
+        ];
+
+        $lastError = null;
+        foreach (array_unique($modes) as $pathStyle) {
+            try {
+                $client = $this->makeS3Client($pathStyle);
+                $client->putObject([
+                    'Bucket' => $bucket,
+                    'Key' => $key,
+                    'Body' => 'ok',
+                    'ContentType' => 'text/plain',
+                ]);
+                $client->deleteObject([
+                    'Bucket' => $bucket,
+                    'Key' => $key,
+                ]);
+
+                config(['r2.use_path_style_endpoint' => $pathStyle]);
+                PlatformSetting::put('storage.r2.use_path_style_endpoint', $pathStyle ? '1' : '0', 'storage');
+                $this->syncDiskConfig(false);
+
+                return ['success' => true, 'message' => 'R2 OK · bucket «'.$bucket.'» accesible.'];
+            } catch (\Throwable $e) {
+                $lastError = $e;
+            }
+        }
+
+        $this->syncDiskConfig(false);
+
+        return ['success' => false, 'message' => $this->formatR2Error($lastError ?? new \RuntimeException('No se pudo conectar con R2.'))];
+    }
+
+    protected function makeS3Client(?bool $pathStyle = null): S3Client
+    {
+        $this->ensureEndpoint();
+
+        if ($pathStyle === null) {
+            $pathStyle = filter_var(config('r2.use_path_style_endpoint', false), FILTER_VALIDATE_BOOLEAN);
+        }
+
+        return new S3Client([
+            'version' => 'latest',
+            'region' => (string) config('r2.region', 'auto'),
+            'endpoint' => (string) config('r2.endpoint'),
+            'use_path_style_endpoint' => $pathStyle,
+            'credentials' => [
+                'key' => (string) config('r2.access_key_id'),
+                'secret' => (string) config('r2.secret_access_key'),
+            ],
+        ]);
     }
 
     protected function formatR2Error(\Throwable $e): string
     {
+        if ($e instanceof AwsException) {
+            return $this->formatAwsException($e);
+        }
+
+        $prev = $e->getPrevious();
+        if ($prev instanceof AwsException) {
+            return $this->formatAwsException($prev);
+        }
+
         $msg = trim($e->getMessage());
-        if (str_contains($msg, 'InvalidAccessKeyId')) {
-            return 'Access Key ID inválida.';
-        }
-        if (str_contains($msg, 'SignatureDoesNotMatch')) {
-            return 'Secret Access Key incorrecta.';
-        }
-        if (str_contains($msg, 'NoSuchBucket')) {
-            return 'El bucket no existe o el nombre no coincide.';
-        }
-        if (str_contains($msg, 'AccessDenied') || str_contains($msg, '403')) {
-            return 'Acceso denegado: el token necesita permiso Object Read & Write sobre el bucket.';
+        if (str_contains($msg, 'Unable to write file')) {
+            return 'No se pudo escribir en el bucket. Revisa Account ID, bucket, Access Key, Secret y que el token tenga permiso Object Read & Write.';
         }
 
         return $msg !== '' ? $msg : 'No se pudo conectar con R2.';
+    }
+
+    protected function formatAwsException(AwsException $e): string
+    {
+        $code = (string) $e->getAwsErrorCode();
+        $msg = trim((string) ($e->getAwsErrorMessage() ?: $e->getMessage()));
+
+        return match ($code) {
+            'InvalidAccessKeyId' => 'Access Key ID inválida.',
+            'SignatureDoesNotMatch' => 'Secret Access Key incorrecta.',
+            'NoSuchBucket' => 'El bucket no existe o el nombre no coincide.',
+            'AccessDenied' => 'Acceso denegado: el token necesita permiso Object Read & Write sobre el bucket.',
+            default => $msg !== '' ? $msg : 'Error de R2 ('.$code.')',
+        };
     }
 
     public function storePrefix(int $storeId): string
@@ -205,7 +270,11 @@ class R2StorageManager
             'r2.access_key_id' => $accessKey,
             'r2.secret_access_key' => $secret,
             'r2.bucket' => $bucket,
-            'r2.endpoint' => $endpoint,
+            'r2.endpoint' => rtrim($endpoint, '/'),
+            'r2.use_path_style_endpoint' => filter_var(
+                PlatformSetting::getValue('storage.r2.use_path_style_endpoint', config('r2.use_path_style_endpoint', false) ? '1' : '0'),
+                FILTER_VALIDATE_BOOLEAN
+            ),
         ]);
 
         $this->syncDiskConfig();

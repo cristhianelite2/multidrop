@@ -64,7 +64,7 @@ return [
             'bucket' => config('r2.bucket'),
             'endpoint' => config('r2.endpoint'),
             'url' => env('R2_URL'),
-            'use_path_style_endpoint' => true,
+            'use_path_style_endpoint' => false,
             'throw' => false,
         ],
 

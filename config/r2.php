@@ -16,6 +16,8 @@ return [
 
   'region' => env('R2_REGION', 'auto'),
 
+  'use_path_style_endpoint' => filter_var(env('R2_USE_PATH_STYLE_ENDPOINT', false), FILTER_VALIDATE_BOOLEAN),
+
   'public_path_prefix' => env('R2_PUBLIC_PATH_PREFIX', 'f'),
 
   'docs' => [

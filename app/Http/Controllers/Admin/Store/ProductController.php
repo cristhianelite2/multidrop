@@ -676,7 +676,7 @@ class ProductController extends Controller
             'success' => true,
             'description' => $out['description'],
             'message' => 'Descripción generada con MIIA.',
-        ]);
+        ], 200, [], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
     public function uploadImage(Request $request, Product $product, StoreContext $storeContext, ProductMediaMirrorService $mirror)

@@ -6,6 +6,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ### Admin productos
 - **Generar descripción con MIIA:** botón ✨ junto a Descripción en el formulario de producto; usa nombre, slug y detalles/especificaciones para redactar copy de venta.
+- **Fix UTF-8 en descripción MIIA:** sanitiza la respuesta de la IA para evitar 500 por caracteres mal formados al devolver JSON.
 
 ### Marketing
 - **Descargar ZIP en prompts con producto:** botón en campaña → Prompts, biblioteca y edición; incluye `prompt.txt` (guion, hook, análisis, segmentos) más imágenes y videos del producto en carpetas `images/` y `videos/`. Soporta varios productos vinculados (`product_id` o `analysis.product_ids`).

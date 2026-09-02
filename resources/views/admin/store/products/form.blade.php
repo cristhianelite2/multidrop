@@ -2306,6 +2306,7 @@
     e.stopPropagation();
     var i = mediaMenuItemIndex($(this));
     if (isNaN(i)) return;
+    if (!confirm('¿Quitar esta imagen de la galería?')) return;
     removeImageAt(i);
   });
   $(document).on('click', '.js-img-up', function (e) {
@@ -2352,6 +2353,7 @@
     e.stopPropagation();
     var i = mediaMenuItemIndex($(this));
     if (isNaN(i)) return;
+    if (!confirm('¿Quitar este video?')) return;
     verifiedVideosData.splice(i, 1);
     renderProductVideos();
   });

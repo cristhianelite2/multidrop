@@ -49,13 +49,7 @@ class ProductVideoPromptService
         $context = $this->buildContext($store, $product, $targetSeconds, $language, $platform, $campaign);
         $messages = $this->buildMessages($context);
 
-        $result = $this->ai->chat('product_video_prompt', $messages, [
-            'temperature' => 0.72,
-            'max_tokens' => 8000,
-            'timeout' => 180,
-            'response_format' => ['type' => 'json_object'],
-        ]);
-
+        $result = $this->callMiia($messages, withJsonFormat: true);
         if (! ($result['success'] ?? false)) {
             return [
                 'success' => false,
@@ -66,9 +60,22 @@ class ProductVideoPromptService
 
         $parsed = $this->parseJson((string) ($result['content'] ?? ''));
         if ($parsed === []) {
+            Log::info('ProductVideoPromptService: reintento sin response_format JSON', [
+                'snippet' => mb_substr((string) ($result['content'] ?? ''), 0, 500),
+            ]);
+            $retry = $this->callMiia($messages, withJsonFormat: false);
+            if ($retry['success'] ?? false) {
+                $parsed = $this->parseJson((string) ($retry['content'] ?? ''));
+                if ($parsed !== []) {
+                    $result = $retry;
+                }
+            }
+        }
+
+        if ($parsed === []) {
             return [
                 'success' => false,
-                'error' => 'MIIA devolvió un formato inválido. Vuelve a intentar.',
+                'error' => 'MIIA devolvió un formato inválido. Vuelve a intentar (si persiste, prueba con menos duración).',
                 'provider' => $result['provider'] ?? 'miia',
             ];
         }
@@ -537,20 +544,237 @@ TXT;
         return max(9, min(45, (int) ($last['end'] ?? 21)));
     }
 
+    /**
+     * @param  list<array{role: string, content: mixed}>  $messages
+     * @return array<string, mixed>
+     */
+    protected function callMiia(array $messages, bool $withJsonFormat = true): array
+    {
+        $options = [
+            'temperature' => 0.72,
+            'max_tokens' => 8000,
+            'timeout' => 180,
+        ];
+        if ($withJsonFormat) {
+            $options['response_format'] = ['type' => 'json_object'];
+        }
+
+        return $this->ai->chat('product_video_prompt', $messages, $options);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     protected function parseJson(string $content): array
     {
-        $content = trim($content);
-        if ($content === '') {
-            return [];
+        $decoded = $this->decodeJsonObject($content);
+        if (is_array($decoded) && $decoded !== []) {
+            return $this->normalizeParsedPayload($decoded);
         }
-        if (preg_match('/\{.*\}/s', $content, $m)) {
-            $decoded = json_decode($m[0], true);
+
+        Log::warning('ProductVideoPromptService: JSON inválido tras sanitizar', [
+            'snippet' => mb_substr($this->sanitizeRawContent($content), 0, 600),
+        ]);
+
+        return [];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function decodeJsonObject(string $content): ?array
+    {
+        $content = $this->sanitizeRawContent($content);
+        if ($content === '') {
+            return null;
+        }
+
+        $candidates = array_values(array_unique(array_filter([
+            $content,
+            $this->extractJsonObject($content),
+            $this->repairTruncatedJson($this->extractJsonObject($content, allowPartial: true) ?? ''),
+        ])));
+
+        foreach ($candidates as $candidate) {
+            if (! is_string($candidate) || trim($candidate) === '') {
+                continue;
+            }
+            $candidate = $this->fixJsonSyntax($candidate);
+            $decoded = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
             if (is_array($decoded)) {
                 return $decoded;
             }
-        }
-        Log::warning('ProductVideoPromptService: JSON inválido', ['snippet' => mb_substr($content, 0, 400)]);
 
-        return [];
+            $fixed = $this->escapeRawNewlinesInJsonStrings($candidate);
+            if ($fixed !== $candidate) {
+                $decoded = json_decode($fixed, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    protected function sanitizeRawContent(string $content): string
+    {
+        $content = trim($content);
+        if ($content === '') {
+            return '';
+        }
+
+        // Quitar BOM y bloques markdown ```json ... ```
+        $content = preg_replace("/^\xEF\xBB\xBF/", '', $content) ?? $content;
+        if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $content, $fence)) {
+            $content = trim($fence[1]);
+        }
+
+        // Comillas tipográficas → ASCII
+        $content = str_replace(
+            ["\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}", '«', '»', '“', '”', '‘', '’'],
+            ['"', '"', "'", "'", '"', '"', '"', '"', "'", "'"],
+            $content
+        );
+
+        // Saltos de línea literales dentro del stream que rompen json_decode
+        $content = str_replace(["\r\n", "\r"], "\n", $content);
+
+        return trim($content);
+    }
+
+    protected function extractJsonObject(string $content, bool $allowPartial = false): ?string
+    {
+        $start = strpos($content, '{');
+        if ($start === false) {
+            return null;
+        }
+
+        $depth = 0;
+        $inString = false;
+        $escape = false;
+        $len = strlen($content);
+
+        for ($i = $start; $i < $len; $i++) {
+            $ch = $content[$i];
+            if ($inString) {
+                if ($escape) {
+                    $escape = false;
+
+                    continue;
+                }
+                if ($ch === '\\') {
+                    $escape = true;
+
+                    continue;
+                }
+                if ($ch === '"') {
+                    $inString = false;
+                }
+
+                continue;
+            }
+            if ($ch === '"') {
+                $inString = true;
+
+                continue;
+            }
+            if ($ch === '{') {
+                $depth++;
+            } elseif ($ch === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($content, $start, $i - $start + 1);
+                }
+            }
+        }
+
+        if ($allowPartial && $depth > 0) {
+            return substr($content, $start);
+        }
+
+        return null;
+    }
+
+    protected function repairTruncatedJson(string $json): ?string
+    {
+        $json = trim($json);
+        if ($json === '' || ! str_starts_with($json, '{')) {
+            return null;
+        }
+
+        // Cortar última entrada incompleta (clave sin valor, coma colgando, etc.)
+        $json = preg_replace('/,\s*"[^"]*"\s*:\s*$/s', '', $json) ?? $json;
+        $json = preg_replace('/,\s*$/', '', $json) ?? $json;
+
+        $openBraces = substr_count($json, '{') - substr_count($json, '}');
+        $openBrackets = substr_count($json, '[') - substr_count($json, ']');
+
+        if ($openBraces <= 0 && $openBrackets <= 0) {
+            return $json;
+        }
+
+        // Cerrar strings abiertas de forma tosca
+        if (preg_match('/"[^"\\\\]*$/s', $json)) {
+            $json .= '"';
+        }
+
+        $json .= str_repeat(']', max(0, $openBrackets));
+        $json .= str_repeat('}', max(0, $openBraces));
+
+        return $json;
+    }
+
+    protected function fixJsonSyntax(string $json): string
+    {
+        // Comentarios // y /* */ que algunos modelos insertan
+        $json = preg_replace('/^\s*\/\/.*$/m', '', $json) ?? $json;
+        $json = preg_replace('/\/\*[\s\S]*?\*\//', '', $json) ?? $json;
+        // Comas finales ilegales
+        $json = preg_replace('/,\s*([}\]])/', '$1', $json) ?? $json;
+
+        return trim($json);
+    }
+
+    protected function escapeRawNewlinesInJsonStrings(string $json): string
+    {
+        return preg_replace_callback(
+            '/"(?:\\\\.|[^"\\\\])*"/s',
+            function (array $match): string {
+                return str_replace(["\r\n", "\n", "\r", "\t"], ['\\n', '\\n', '\\n', '\\t'], $match[0]);
+            },
+            $json
+        ) ?? $json;
+    }
+
+    /**
+     * Acepta respuestas con claves en español o anidadas de forma inconsistente.
+     *
+     * @param  array<string, mixed>  $decoded
+     * @return array<string, mixed>
+     */
+    protected function normalizeParsedPayload(array $decoded): array
+    {
+        if (isset($decoded['data']) && is_array($decoded['data'])) {
+            $decoded = array_merge($decoded, $decoded['data']);
+        }
+
+        if (! isset($decoded['segments']) && isset($decoded['guion']) && is_array($decoded['guion'])) {
+            $decoded['segments'] = $decoded['guion'];
+        }
+        if (! isset($decoded['segments']) && isset($decoded['segmentos']) && is_array($decoded['segmentos'])) {
+            $decoded['segments'] = $decoded['segmentos'];
+        }
+
+        if (! isset($decoded['creative_direction']) && isset($decoded['direccion_creativa']) && is_array($decoded['direccion_creativa'])) {
+            $decoded['creative_direction'] = $decoded['direccion_creativa'];
+        }
+
+        $decoded['hook'] = $decoded['hook'] ?? $decoded['gancho'] ?? null;
+        $decoded['audience'] = $decoded['audience'] ?? $decoded['audiencia'] ?? null;
+        $decoded['product_angle'] = $decoded['product_angle'] ?? $decoded['angulo'] ?? $decoded['angulo_venta'] ?? null;
+        $decoded['summary'] = $decoded['summary'] ?? $decoded['resumen'] ?? null;
+
+        return $decoded;
     }
 }

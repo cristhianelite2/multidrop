@@ -2,7 +2,7 @@
 # Despliegue en shop.ceballosleon.com (droplet)
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/var/www/multidrop}"
+APP_DIR="${APP_DIR:-/var/www/shop}"
 
 cd "$APP_DIR"
 

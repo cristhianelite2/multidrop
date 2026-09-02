@@ -307,23 +307,35 @@
         </div>
 
         {{-- Prompts --}}
+        @php
+            $catalogProducts = $catalogProducts ?? collect();
+            $catalogProductCount = $catalogProducts->count();
+        @endphp
         <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'prompts' ? '' : 'hidden' }}" data-tab-panel="prompts">
             <p class="text-sm text-ink-soft/70">Los prompts alimentan Creatify. Genera uno con IA analizando un producto (imágenes, videos, reseñas) en segmentos de 3 segundos.</p>
 
-            <div class="rounded-xl border border-teal/30 bg-teal/5 p-4 space-y-4" id="md-ai-prompt-box">
+            <div class="rounded-xl border-2 border-teal/40 bg-teal/5 p-4 sm:p-5 space-y-4 shadow-sm" id="md-ai-prompt-box" data-md-prompt-miia="v1">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h3 class="font-semibold text-ink">Generar prompt con MIIA</h3>
+                    <h3 class="font-semibold text-lg text-ink">Generar prompt con MIIA</h3>
                     <span class="text-xs text-ink-soft/55">Segmentos máx. 3s · TikTok / Creatify</span>
                 </div>
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Producto</label>
-                        <select id="md-ai-product" class="admin-input">
-                            <option value="">— Elige un producto —</option>
+                    <div class="sm:col-span-2 space-y-2">
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-ai-product-search">Producto</label>
+                        <input type="search" id="md-ai-product-search" class="admin-input" placeholder="Buscar por nombre, SKU o slug…" autocomplete="off">
+                        <select id="md-ai-product" class="admin-input" size="6" aria-label="Lista de productos">
+                            <option value="">— Cargando catálogo… —</option>
                             @foreach($catalogProducts as $prod)
-                                <option value="{{ $prod->id }}">{{ $prod->name }} @if($prod->status !== 'live')({{ $prod->status }})@endif</option>
+                                <option value="{{ $prod->id }}">#{{ $prod->id }} · {{ $prod->name }} @if($prod->status !== 'live')({{ $prod->status }})@endif</option>
                             @endforeach
                         </select>
+                        <p class="text-xs text-ink-soft/55" id="md-ai-product-hint">
+                            @if($catalogProductCount > 0)
+                                {{ $catalogProductCount }} producto(s) en catálogo. Haz clic en uno de la lista.
+                            @else
+                                Se cargará el catálogo automáticamente…
+                            @endif
+                        </p>
                     </div>
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Duración objetivo</label>
@@ -683,6 +695,88 @@
   var aiSave = document.getElementById('md-ai-save');
   var aiCf = document.getElementById('md-ai-creatify');
   var aiMsg = document.getElementById('md-ai-msg');
+  var aiProductSelect = document.getElementById('md-ai-product');
+  var aiProductSearch = document.getElementById('md-ai-product-search');
+  var aiProductHint = document.getElementById('md-ai-product-hint');
+  var catalogProductsAll = [];
+
+  function renderProductOptions(products) {
+    if (!aiProductSelect) return;
+    var list = products || [];
+    aiProductSelect.innerHTML = '';
+    if (!list.length) {
+      var empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = '— No hay productos en esta tienda —';
+      aiProductSelect.appendChild(empty);
+      if (aiProductHint) {
+        aiProductHint.innerHTML = 'No hay productos. <a class="text-teal underline" href="{{ route('admin.store.products.create') }}">Crear producto</a>';
+      }
+      return;
+    }
+    list.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = String(p.id);
+      var status = p.status && p.status !== 'live' ? ' (' + p.status + ')' : '';
+      var sku = p.sku ? ' · ' + p.sku : '';
+      opt.textContent = '#' + p.id + ' · ' + (p.name || 'Producto') + sku + status;
+      aiProductSelect.appendChild(opt);
+    });
+    if (aiProductHint) {
+      aiProductHint.textContent = list.length + ' producto(s). Selecciona uno de la lista.';
+    }
+  }
+
+  function filterProductOptions() {
+    if (!aiProductSearch) return;
+    var q = (aiProductSearch.value || '').toLowerCase().trim();
+    if (!q) {
+      renderProductOptions(catalogProductsAll);
+      return;
+    }
+    var filtered = catalogProductsAll.filter(function (p) {
+      var hay = ((p.name || '') + ' ' + (p.sku || '') + ' ' + (p.slug || '') + ' ' + p.id).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+    renderProductOptions(filtered);
+  }
+
+  function loadCatalogProducts() {
+    if (!aiProductSelect) return;
+    var url = @json(route('admin.store.marketing.prompts.catalog-products'));
+    var q = aiProductSearch ? aiProductSearch.value.trim() : '';
+    if (q) url += (url.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q);
+    fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.message || 'No se pudo cargar el catálogo');
+        catalogProductsAll = res.products || [];
+        renderProductOptions(catalogProductsAll);
+      })
+      .catch(function (err) {
+        if (aiProductHint) aiProductHint.textContent = err.message || 'Error al cargar productos';
+        if (aiProductSelect.options.length <= 1) {
+          aiProductSelect.innerHTML = '<option value="">— Error al cargar productos —</option>';
+        }
+      });
+  }
+
+  if (aiProductSearch) {
+    var searchTimer;
+    aiProductSearch.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        if (catalogProductsAll.length) {
+          filterProductOptions();
+        } else {
+          loadCatalogProducts();
+        }
+      }, 300);
+    });
+  }
+  if (document.querySelector('[data-md-prompt-miia]')) {
+    loadCatalogProducts();
+  }
 
   function fillPromptForm(data) {
     var map = {
@@ -733,7 +827,7 @@
   }
 
   function callAiGenerate(save, sendCreatify) {
-    var productId = document.getElementById('md-ai-product') && document.getElementById('md-ai-product').value;
+    var productId = aiProductSelect && aiProductSelect.value;
     if (!productId) { if (aiMsg) aiMsg.textContent = 'Elige un producto.'; return; }
     var lengthEl = document.getElementById('md-ai-length');
     var langEl = document.getElementById('md-ai-language');

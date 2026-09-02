@@ -102,9 +102,10 @@ class CampaignController extends Controller
             'libraryPrompts' => MarketingPrompt::query()->where('store_id', $store->id)->orderBy('name')->get(['id', 'name', 'campaign_id']),
             'catalogProducts' => Product::query()
                 ->where('store_id', $store->id)
+                ->orderByDesc('is_featured')
                 ->orderByDesc('id')
-                ->limit(200)
-                ->get(['id', 'name', 'slug', 'image_url', 'status']),
+                ->limit(250)
+                ->get(['id', 'name', 'slug', 'image_url', 'status', 'sku']),
             'sellercentralEmbedUrl' => $this->sellercentralEmbedUrl($store),
             'tab' => (string) request('tab', 'resumen'),
         ]);

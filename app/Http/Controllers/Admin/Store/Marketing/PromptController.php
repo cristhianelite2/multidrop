@@ -107,6 +107,39 @@ class PromptController extends Controller
         return redirect()->route('admin.store.marketing.prompts.index')->with('success', 'Prompt eliminado.');
     }
 
+    public function catalogProducts(StoreContext $storeContext): JsonResponse
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        $q = trim((string) request('q', ''));
+
+        $query = Product::query()
+            ->where('store_id', $store->id)
+            ->orderByDesc('is_featured')
+            ->orderByDesc('id');
+
+        if ($q !== '') {
+            $query->where(function ($builder) use ($q) {
+                $builder->where('name', 'like', '%'.$q.'%')
+                    ->orWhere('sku', 'like', '%'.$q.'%')
+                    ->orWhere('slug', 'like', '%'.$q.'%');
+            });
+        }
+
+        $rows = $query->limit(250)->get(['id', 'name', 'slug', 'sku', 'image_url', 'status']);
+
+        return response()->json([
+            'ok' => true,
+            'products' => $rows->map(fn (Product $p) => [
+                'id' => $p->id,
+                'name' => $p->localizedName(),
+                'slug' => $p->slug,
+                'sku' => $p->sku,
+                'status' => $p->status,
+                'image_url' => $p->image_url,
+            ])->values(),
+        ]);
+    }
+
     public function generateFromProduct(
         Request $request,
         StoreContext $storeContext,

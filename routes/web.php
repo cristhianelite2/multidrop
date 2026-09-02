@@ -216,6 +216,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::get('prompts/create', [MarketingPromptController::class, 'create'])->name('prompts.create');
                     Route::post('prompts', [MarketingPromptController::class, 'store'])->name('prompts.store');
                     Route::post('prompts/generate-from-product', [MarketingPromptController::class, 'generateFromProduct'])->name('prompts.generate-from-product');
+                    Route::get('prompts/catalog/products.json', [MarketingPromptController::class, 'catalogProducts'])->name('prompts.catalog-products');
                     Route::get('prompts/{prompt}', [MarketingPromptController::class, 'edit'])->name('prompts.edit');
                     Route::put('prompts/{prompt}', [MarketingPromptController::class, 'update'])->name('prompts.update');
                     Route::delete('prompts/{prompt}', [MarketingPromptController::class, 'destroy'])->name('prompts.destroy');

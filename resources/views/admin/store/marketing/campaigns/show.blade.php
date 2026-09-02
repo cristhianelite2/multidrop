@@ -867,7 +867,11 @@
       if (aiGen) aiGen.disabled = false;
       if (aiSave) aiSave.disabled = false;
       if (aiCf) aiCf.disabled = false;
-      if (!pack.j.ok) { if (aiMsg) aiMsg.textContent = pack.j.message || 'Error al generar'; return; }
+      if (!pack.j.ok) {
+        if (aiMsg) aiMsg.textContent = pack.j.message || 'Error al generar';
+        if (pack.j.debug_snippet) console.warn('MIIA respuesta (truncada):', pack.j.debug_snippet);
+        return;
+      }
       aiState.productId = productId;
       aiState.segments = pack.j.segments || [];
       aiState.analysis = pack.j.analysis || {};

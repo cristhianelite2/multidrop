@@ -28,11 +28,11 @@ class ProductMarketingMediaService
     /**
      * @return list<string>
      */
-    public function publicImageUrls(Product $product, int $limit = 8): array
+    public function publicImageUrls(Product $product, int $limit = 8, ?Store $store = null): array
     {
         $urls = [];
         foreach ($product->galleryImages() as $url) {
-            $abs = $this->absoluteUrl((string) $url);
+            $abs = $this->absoluteUrl((string) $url, $store);
             if ($abs !== '') {
                 $urls[] = $abs;
             }
@@ -45,13 +45,63 @@ class ProductMarketingMediaService
     }
 
     /**
+     * Partes multimodal para MIIA: base64 desde R2/disco (fiable) con fallback a URL pública.
+     *
+     * @return list<array{type: string, image_url: array{url: string}}>
+     */
+    public function visionImageParts(Store $store, Product $product, int $limit = 4): array
+    {
+        $parts = [];
+        $i = 0;
+        foreach (array_slice($product->galleryImages(), 0, $limit) as $rawUrl) {
+            $rawUrl = trim((string) $rawUrl);
+            if ($rawUrl === '') {
+                continue;
+            }
+            $i++;
+            $fetched = $this->media->fetchBytes($rawUrl, 'product-'.$product->id, $i);
+            if (! is_array($fetched) || ($fetched['body'] ?? '') === '') {
+                $abs = $this->absoluteUrl($rawUrl, $store);
+                if ($abs !== '' && $abs !== $rawUrl) {
+                    $fetched = $this->media->fetchBytes($abs, 'product-'.$product->id, $i);
+                }
+            }
+            if (is_array($fetched) && ($fetched['body'] ?? '') !== '') {
+                $mime = trim((string) ($fetched['mime'] ?? 'image/jpeg'));
+                $mime = preg_replace('/;.*/', '', $mime) ?: 'image/jpeg';
+                if (! str_starts_with($mime, 'image/')) {
+                    $mime = 'image/jpeg';
+                }
+                $parts[] = [
+                    'type' => 'image_url',
+                    'image_url' => [
+                        'url' => 'data:'.$mime.';base64,'.base64_encode((string) $fetched['body']),
+                    ],
+                ];
+
+                continue;
+            }
+
+            $abs = $this->absoluteUrl($rawUrl, $store);
+            if ($abs !== '') {
+                $parts[] = [
+                    'type' => 'image_url',
+                    'image_url' => ['url' => $abs],
+                ];
+            }
+        }
+
+        return $parts;
+    }
+
+    /**
      * @return list<string>
      */
-    public function publicVideoUrls(Product $product, int $limit = 4): array
+    public function publicVideoUrls(Product $product, int $limit = 4, ?Store $store = null): array
     {
         $urls = [];
         foreach ($this->media->videos($product) as $row) {
-            $abs = $this->absoluteUrl((string) ($row['url'] ?? ''));
+            $abs = $this->absoluteUrl((string) ($row['url'] ?? ''), $store);
             if ($abs === '') {
                 continue;
             }
@@ -116,39 +166,57 @@ class ProductMarketingMediaService
             'title' => $name,
             'description' => mb_substr($desc, 0, 1800),
             'url' => $this->productPageUrl($store, $product),
-            'image_urls' => $this->publicImageUrls($product, 8),
-            'video_urls' => $this->publicVideoUrls($product, 4),
+            'image_urls' => $this->publicImageUrls($product, 8, $store),
+            'video_urls' => $this->publicVideoUrls($product, 4, $store),
             'reviews' => $this->reviewSnippets($product, 5),
         ];
     }
 
-    protected function absoluteUrl(string $url): string
+    protected function absoluteUrl(string $url, ?Store $store = null): string
     {
         $url = trim($url);
         if ($url === '') {
             return '';
         }
+
+        $publicBase = $store ? rtrim($store->publicUrl(), '/') : null;
+
         if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            if ($publicBase !== null && MediaUrl::isMaskedUrl($url)) {
+                $storage = MediaUrl::storagePathFromUrl($url);
+                if ($storage) {
+                    return $publicBase.'/'.MediaUrl::prefix().'/'.ltrim($storage, '/');
+                }
+            }
+
             return $url;
         }
-        if (MediaUrl::isMaskedUrl($url)) {
+        if (MediaUrl::isMaskedUrl($url) || str_starts_with(ltrim($url, '/'), MediaUrl::prefix().'/')) {
             $storage = MediaUrl::storagePathFromUrl($url);
             if ($storage) {
-                return MediaUrl::fromStoragePath($storage);
+                $base = $publicBase ?? rtrim((string) config('app.url'), '/');
+
+                return $base.'/'.MediaUrl::prefix().'/'.ltrim($storage, '/');
             }
         }
         if (str_starts_with($url, '/media/')) {
-            return rtrim((string) config('app.url'), '/').$url;
+            $base = $publicBase ?? rtrim((string) config('app.url'), '/');
+
+            return $base.$url;
         }
         if (str_starts_with($url, 'storage/')) {
             return DesignAssetUrl::fromPath($url);
         }
         if (str_starts_with($url, '/')) {
-            if (app()->bound('request') && request()->getHost() !== '') {
-                return rtrim(request()->getSchemeAndHttpHost().request()->getBaseUrl(), '/').$url;
+            $base = $publicBase;
+            if ($base === null && app()->bound('request') && request()->getHost() !== '') {
+                $base = rtrim(request()->getSchemeAndHttpHost().request()->getBaseUrl(), '/');
+            }
+            if ($base === null) {
+                $base = rtrim((string) config('app.url'), '/');
             }
 
-            return rtrim((string) config('app.url'), '/').$url;
+            return $base.$url;
         }
 
         return $url;

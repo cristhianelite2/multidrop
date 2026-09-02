@@ -171,6 +171,7 @@ class PromptController extends Controller
             return response()->json([
                 'ok' => false,
                 'message' => $result['error'] ?? 'No se pudo generar el prompt.',
+                'debug_snippet' => $result['debug_snippet'] ?? null,
             ], 422);
         }
 

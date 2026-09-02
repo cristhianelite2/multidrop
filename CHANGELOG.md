@@ -11,6 +11,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - API `prompts/catalog/products.json` para buscar productos en el generador; script `scripts/deploy-shop.sh` para desplegar en el droplet.
 - **Brief creativo ampliado:** MIIA genera dirección completa (casting por mercado, cámara, luz, audio, captions) + segmentos con talento/cámara/transiciones; script hasta 14k chars para Creatify.
 - **Fix parseo MIIA:** sanitización robusta de JSON (markdown, comillas tipográficas, JSON truncado, comas finales) + reintento automático sin `response_format` si el primer intento falla.
+- **Fix visión MIIA:** imágenes del producto se envían en base64 desde R2 (motor `gemini`), URLs públicas con dominio de la tienda, prompt JSON simplificado y reparación/extracción parcial si la respuesta viene rota.
 
 ### Storefront
 - **Upsell overlay:** se sanitiza CSS de tema que rompía el layout (`display:flex` horizontal en `.md-mod-upsell`) y se añade capa guard de plataforma para overlays inyectados.

@@ -47,9 +47,10 @@ class ProductVideoPromptService
         $campaign = $this->resolveCampaign($store, $options['campaign_id'] ?? null);
 
         $context = $this->buildContext($store, $product, $targetSeconds, $language, $platform, $campaign);
-        $messages = $this->buildMessages($context);
+        $messages = $this->buildMessages($store, $product, $context);
+        $hasVision = count($context['image_urls'] ?? []) > 0;
 
-        $result = $this->callMiia($messages, withJsonFormat: true);
+        $result = $this->callMiia($messages, withJsonFormat: true, withVision: $hasVision);
         if (! ($result['success'] ?? false)) {
             return [
                 'success' => false,
@@ -58,14 +59,16 @@ class ProductVideoPromptService
             ];
         }
 
-        $parsed = $this->parseJson((string) ($result['content'] ?? ''));
+        $rawContent = (string) ($result['content'] ?? '');
+        $parsed = $this->parseJson($rawContent);
         if ($parsed === []) {
             Log::info('ProductVideoPromptService: reintento sin response_format JSON', [
-                'snippet' => mb_substr((string) ($result['content'] ?? ''), 0, 500),
+                'snippet' => mb_substr($rawContent, 0, 500),
             ]);
-            $retry = $this->callMiia($messages, withJsonFormat: false);
+            $retry = $this->callMiia($messages, withJsonFormat: false, withVision: $hasVision);
             if ($retry['success'] ?? false) {
-                $parsed = $this->parseJson((string) ($retry['content'] ?? ''));
+                $rawContent = (string) ($retry['content'] ?? '');
+                $parsed = $this->parseJson($rawContent);
                 if ($parsed !== []) {
                     $result = $retry;
                 }
@@ -73,10 +76,18 @@ class ProductVideoPromptService
         }
 
         if ($parsed === []) {
+            $parsed = $this->repairJsonViaMiia($rawContent, $hasVision);
+            if ($parsed !== []) {
+                Log::info('ProductVideoPromptService: JSON reparado por segunda pasada MIIA');
+            }
+        }
+
+        if ($parsed === []) {
             return [
                 'success' => false,
-                'error' => 'MIIA devolvió un formato inválido. Vuelve a intentar (si persiste, prueba con menos duración).',
+                'error' => 'MIIA devolvió un formato inválido. Vuelve a intentar (si persiste, prueba con 15–21 s de duración).',
                 'provider' => $result['provider'] ?? 'miia',
+                'debug_snippet' => mb_substr($this->sanitizeRawContent($rawContent), 0, 1200),
             ];
         }
 
@@ -103,8 +114,8 @@ class ProductVideoPromptService
             'recommended_format' => trim((string) ($parsed['recommended_format'] ?? 'mixed')),
             'video_length_seconds' => $this->segmentsDuration($segments),
             'creative_direction' => $creative,
-            'casting_notes' => trim((string) ($parsed['casting_notes'] ?? data_get($creative, 'talent.profile', ''))),
-            'camera_notes' => trim((string) ($parsed['camera_notes'] ?? data_get($creative, 'camera.style', ''))),
+            'casting_notes' => $this->segmentFieldToText($parsed['casting_notes'] ?? data_get($creative, 'talent.profile', '')),
+            'camera_notes' => $this->segmentFieldToText($parsed['camera_notes'] ?? data_get($creative, 'camera.style', '')),
             'generated_at' => now()->toIso8601String(),
             'product_id' => $product->id,
         ];
@@ -115,7 +126,7 @@ class ProductVideoPromptService
                 'name' => mb_substr($name, 0, 120),
                 'hook' => mb_substr($hook, 0, 240),
                 'script' => mb_substr($script, 0, self::SCRIPT_MAX_CHARS),
-                'audience' => mb_substr(trim((string) ($parsed['audience'] ?? data_get($creative, 'channel.audience', ''))), 0, 240),
+                'audience' => mb_substr($this->segmentFieldToText($parsed['audience'] ?? data_get($creative, 'channel.audience', '')), 0, 240),
                 'language' => $language,
                 'style' => trim((string) ($parsed['visual_style'] ?? 'DynamicProductTemplate')) ?: 'DynamicProductTemplate',
                 'script_style' => trim((string) ($parsed['script_style'] ?? 'DontWorryWriter')),
@@ -172,8 +183,8 @@ class ProductVideoPromptService
             }
         }
 
-        $imageUrls = $this->media->publicImageUrls($product, 6);
-        $videoUrls = $this->media->publicVideoUrls($product, 3);
+        $imageUrls = $this->media->publicImageUrls($product, 6, $store);
+        $videoUrls = $this->media->publicVideoUrls($product, 3, $store);
         $reviews = $this->media->reviewSnippets($product, 6);
 
         $countries = $store->displayCountries();
@@ -193,6 +204,7 @@ class ProductVideoPromptService
             'has_supplier_videos' => $videoUrls !== [],
             'image_urls' => $imageUrls,
             'video_urls' => $videoUrls,
+            'vision_image_count' => count($this->media->visionImageParts($store, $product, 4)),
             'product_url' => $this->media->productPageUrl($store, $product),
             'target_seconds' => $targetSeconds,
             'min_segments' => (int) max(5, ceil($targetSeconds / 3)),
@@ -232,80 +244,48 @@ class ProductVideoPromptService
      * @param  array<string, mixed>  $context
      * @return list<array{role: string, content: mixed}>
      */
-    protected function buildMessages(array $context): array
+    protected function buildMessages(Store $store, Product $product, array $context): array
     {
         $minSeg = (int) ($context['min_segments'] ?? 7);
         $seconds = (int) ($context['target_seconds'] ?? 21);
+        $imageCount = (int) ($context['vision_image_count'] ?? 0);
 
         $system = <<<TXT
-Eres un director creativo senior de TikTok Shop y performance ads (UGC + product demo).
-Tu entrega NO es un guion corto: es un BRIEF DE PRODUCCIÓN COMPLETO listo para Creatify o un editor humano.
+Eres un director creativo senior de TikTok Shop (UGC + demo de producto).
+Genera un brief listo para Creatify.
 
-OBJETIVO: maximizar compra impulsiva con ritmo TikTok, credibilidad UGC y claridad del producto.
-
-REGLAS:
-- Responde SOLO JSON válido (sin markdown).
-- Mínimo {$minSeg} segmentos, cada uno de MÁXIMO 3 segundos (nunca más de 3s por segmento).
-- Cada segmento debe especificar: voz, talento, cámara, visual, texto en pantalla, audio/SFX y transición.
-- El bloque creative_direction debe ser MUY detallado (cámara, persona, vestuario, set, luz, color, música, captions).
-- Casting: el perfil del talento debe alinearse con primary_market y casting_market_hint (edad, género, etnia/apariencia coherente con el canal, estilo, vestuario, energía).
-- Cámara: especifica POV, lente equivalente, movimiento (handheld, push-in, orbit), encuadre y profundidad de campo.
-- No inventes reseñas, precios ni specs que no estén en los datos.
+REGLAS CRÍTICAS DE FORMATO:
+- Responde ÚNICAMENTE con un objeto JSON válido RFC8259.
+- PROHIBIDO: markdown, bloques ``` , comentarios // o /* */, comas finales, comillas sin escapar.
+- PROHIBIDO anidar objetos dentro de "segments": talent, camera, visual y audio deben ser STRINGS (texto plano).
+- "audience", "casting_notes" y "camera_notes" deben ser STRINGS (no objetos).
+- creative_direction puede tener objetos, pero solo 1 nivel (valores string o arrays de strings).
+- Mínimo {$minSeg} segmentos; cada segmento dura MÁXIMO 3 segundos.
+- No inventes precios, reseñas ni specs que no estén en los datos.
 - recommended_format: "ugc" | "b_roll" | "mixed"
-- visual_style Creatify: "DynamicProductTemplate" (masivo) o "CinematicTemplate" (premium)
-- script_style Creatify: "DontWorryWriter" | "StoryTimeWriter" | "ShoppableVideo" (elige el más adecuado)
+- visual_style: "DynamicProductTemplate" | "CinematicTemplate"
+- script_style: "DontWorryWriter" | "StoryTimeWriter" | "ShoppableVideo"
 
-JSON EXACTO:
+JSON EXACTO (respeta tipos):
 {
-  "summary": "1-2 frases del producto",
-  "product_angle": "ángulo de venta principal",
-  "hook": "frase gancho (máx 14 palabras)",
-  "audience": "audiencia psicográfica detallada",
-  "casting_notes": "resumen casting en 2-3 líneas",
-  "camera_notes": "resumen look de cámara en 2-3 líneas",
-  "recommended_format": "ugc|b_roll|mixed",
+  "summary": "string",
+  "product_angle": "string",
+  "hook": "string max 14 palabras",
+  "audience": "string psicográfico",
+  "casting_notes": "string 2-3 líneas",
+  "camera_notes": "string 2-3 líneas",
+  "recommended_format": "mixed",
   "visual_style": "DynamicProductTemplate",
-  "script_style": "DontWorryWriter",
-  "prompt_name": "nombre corto",
+  "script_style": "ShoppableVideo",
+  "prompt_name": "string corto",
   "creative_direction": {
-    "channel": {
-      "platform": "TikTok",
-      "market": "MX",
-      "tone": "urgente|confiable|aspiracional|...",
-      "audience": "..."
-    },
-    "talent": {
-      "profile": "edad, género, etnia/apariencia según mercado, arquetipo",
-      "wardrobe": "qué viste y por qué",
-      "energy": "cómo actúa y habla",
-      "setting": "dónde graba (cocina, baño, gym, escritorio...)"
-    },
-    "camera": {
-      "format": "9:16 vertical",
-      "style": "UGC handheld + inserts producto",
-      "lens": "equivalente 24-35mm selfie / 50mm producto",
-      "movement": "push-in, whip pan, jump cuts...",
-      "framing": "reglas de encuadre"
-    },
-    "lighting": {
-      "key": "ventana lateral / ring light suave",
-      "mood": "cálido confiable / clínico / premium",
-      "color_grade": "alto contraste TikTok, piel natural"
-    },
-    "audio": {
-      "voice": "acento, ritmo, emoción",
-      "music": "género trending sin copyright",
-      "sfx": "whoosh, pop, ding en momentos clave"
-    },
-    "captions": {
-      "style": "karaoke palabra a palabra, fuente bold",
-      "position": "tercio inferior, safe zone",
-      "emphasis_words": ["palabras a resaltar"]
-    },
-    "brand": {
-      "product_hero_shots": "cómo mostrar el producto",
-      "cta": "texto y acción final"
-    }
+    "channel": { "platform": "TikTok", "market": "MX", "tone": "string", "audience": "string" },
+    "talent": { "profile": "string", "wardrobe": "string", "energy": "string", "setting": "string" },
+    "camera": { "format": "9:16", "style": "string", "lens": "string", "movement": "string", "framing": "string" },
+    "lighting": { "key": "string", "mood": "string", "color_grade": "string" },
+    "audio": { "voice": "string", "music": "string", "sfx": "string" },
+    "captions": { "style": "string", "position": "string", "emphasis_words": ["palabra1"] },
+    "brand": { "product_hero_shots": "string", "cta": "string" }
   },
   "segments": [
     {
@@ -313,30 +293,33 @@ JSON EXACTO:
       "start": 0,
       "end": 3,
       "duration": 3,
-      "type": "hook|problem|agitation|solution|demo|proof|objection|urgency|cta",
-      "voiceover": "texto exacto que se dice",
-      "talent": "qué hace la persona (mirada, gestos, manos)",
-      "camera": "ángulo, movimiento, distancia",
-      "visual": "qué se ve (producto, lifestyle, pantalla split)",
-      "text_on_screen": "texto overlay si aplica",
-      "audio": "música/SFX en ese tramo",
-      "transition": "jump cut|match cut|zoom|swipe",
-      "media_hint": "product_closeup|lifestyle|review|price|cta|supplier_broll"
+      "type": "hook",
+      "voiceover": "texto hablado",
+      "talent": "string acciones del talento",
+      "camera": "string plano y movimiento",
+      "visual": "string qué se ve",
+      "text_on_screen": "string overlay",
+      "audio": "string música/sfx",
+      "transition": "jump cut",
+      "media_hint": "product_closeup"
     }
   ]
 }
 TXT;
 
         $userText = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $intro = "Analiza el producto";
+        if ($imageCount > 0) {
+            $intro .= " y las {$imageCount} imágenes adjuntas (fotos reales del producto)";
+        }
+        $intro .= ". Genera brief + guion segmentado (~{$seconds}s, mínimo {$minSeg} segmentos de máx 3s):\n\n";
+
         $parts = [
-            ['type' => 'text', 'text' => "Analiza producto + imágenes. Genera brief de producción COMPLETO y guion segmentado (~{$seconds}s, mínimo {$minSeg} segmentos de máx 3s). Sé específico en cámara, talento y mercado:\n\n".$userText],
+            ['type' => 'text', 'text' => $intro.$userText],
         ];
 
-        foreach (array_slice($context['image_urls'], 0, 4) as $url) {
-            $parts[] = [
-                'type' => 'image_url',
-                'image_url' => ['url' => $url],
-            ];
+        foreach ($this->media->visionImageParts($store, $product, 4) as $part) {
+            $parts[] = $part;
         }
 
         $content = count($parts) === 1 ? (string) $parts[0]['text'] : $parts;
@@ -469,12 +452,12 @@ TXT;
                 'duration' => $end - $start,
                 'type' => (string) ($row['type'] ?? 'segment'),
                 'voiceover' => $voice,
-                'talent' => trim((string) ($row['talent'] ?? '')),
-                'camera' => trim((string) ($row['camera'] ?? '')),
-                'visual' => trim((string) ($row['visual'] ?? '')),
-                'text_on_screen' => trim((string) ($row['text_on_screen'] ?? '')),
-                'audio' => trim((string) ($row['audio'] ?? '')),
-                'transition' => trim((string) ($row['transition'] ?? '')),
+                'talent' => $this->segmentFieldToText($row['talent'] ?? ''),
+                'camera' => $this->segmentFieldToText($row['camera'] ?? ''),
+                'visual' => $this->segmentFieldToText($row['visual'] ?? ''),
+                'text_on_screen' => $this->segmentFieldToText($row['text_on_screen'] ?? ''),
+                'audio' => $this->segmentFieldToText($row['audio'] ?? ''),
+                'transition' => $this->segmentFieldToText($row['transition'] ?? ''),
                 'media_hint' => (string) ($row['media_hint'] ?? ''),
             ];
             $cursor = $end;
@@ -544,22 +527,95 @@ TXT;
         return max(9, min(45, (int) ($last['end'] ?? 21)));
     }
 
+    protected function segmentFieldToText(mixed $value): string
+    {
+        if (is_string($value)) {
+            return trim($value);
+        }
+        if (is_numeric($value)) {
+            return trim((string) $value);
+        }
+        if (! is_array($value)) {
+            return '';
+        }
+
+        $parts = [];
+        foreach ($value as $key => $item) {
+            if (is_array($item)) {
+                $nested = $this->segmentFieldToText($item);
+                if ($nested !== '') {
+                    $parts[] = (is_string($key) ? ucfirst(str_replace('_', ' ', $key)).': ' : '').$nested;
+                }
+
+                continue;
+            }
+            $text = trim((string) $item);
+            if ($text === '') {
+                continue;
+            }
+            $parts[] = is_string($key) && ! is_numeric($key)
+                ? ucfirst(str_replace('_', ' ', $key)).': '.$text
+                : $text;
+        }
+
+        return trim(implode('. ', $parts));
+    }
+
     /**
      * @param  list<array{role: string, content: mixed}>  $messages
      * @return array<string, mixed>
      */
-    protected function callMiia(array $messages, bool $withJsonFormat = true): array
+    protected function callMiia(array $messages, bool $withJsonFormat = true, bool $withVision = false): array
     {
         $options = [
-            'temperature' => 0.72,
-            'max_tokens' => 8000,
+            'temperature' => 0.65,
+            'max_tokens' => 6000,
             'timeout' => 180,
         ];
         if ($withJsonFormat) {
             $options['response_format'] = ['type' => 'json_object'];
         }
+        if ($withVision) {
+            $options['model'] = 'gemini';
+        }
 
         return $this->ai->chat('product_video_prompt', $messages, $options);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function repairJsonViaMiia(string $brokenJson, bool $withVision = false): array
+    {
+        $snippet = mb_substr($this->sanitizeRawContent($brokenJson), 0, 14000);
+        if ($snippet === '') {
+            return [];
+        }
+
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'Eres un reparador de JSON. Devuelve SOLO un objeto JSON válido RFC8259, sin markdown ni comentarios. '
+                    .'Convierte objetos anidados en strings donde haga falta. Escapa comillas internas. '
+                    .'Conserva summary, hook, product_angle, creative_direction, segments (con voiceover).',
+            ],
+            [
+                'role' => 'user',
+                'content' => "Repara este JSON roto:\n\n".$snippet,
+            ],
+        ];
+
+        $result = $this->callMiia($messages, withJsonFormat: true, withVision: false);
+        if (! ($result['success'] ?? false)) {
+            return $this->extractPartialPayload($snippet);
+        }
+
+        $parsed = $this->parseJson((string) ($result['content'] ?? ''));
+        if ($parsed !== []) {
+            return $parsed;
+        }
+
+        return $this->extractPartialPayload($snippet);
     }
 
     /**
@@ -570,6 +626,13 @@ TXT;
         $decoded = $this->decodeJsonObject($content);
         if (is_array($decoded) && $decoded !== []) {
             return $this->normalizeParsedPayload($decoded);
+        }
+
+        $partial = $this->extractPartialPayload($content);
+        if ($partial !== []) {
+            Log::info('ProductVideoPromptService: payload parcial extraído de JSON roto');
+
+            return $this->normalizeParsedPayload($partial);
         }
 
         Log::warning('ProductVideoPromptService: JSON inválido tras sanitizar', [
@@ -727,13 +790,100 @@ TXT;
 
     protected function fixJsonSyntax(string $json): string
     {
-        // Comentarios // y /* */ que algunos modelos insertan
-        $json = preg_replace('/^\s*\/\/.*$/m', '', $json) ?? $json;
+        // Comentarios // inline y de línea, y /* */
+        $json = preg_replace('/\/\/[^\n\r]*/', '', $json) ?? $json;
         $json = preg_replace('/\/\*[\s\S]*?\*\//', '', $json) ?? $json;
+        // Patrón típico del modelo: "tipo": "producto": "texto" → coma entre valores
+        $json = preg_replace('/"([^"]+)"\s*:\s*"([^"]*)"\s*:\s*"/', '"$1": "$2", "detail": "', $json) ?? $json;
+        // Valores sin comillas tras dos puntos (heurística conservadora)
+        $json = preg_replace('/:\s*([A-Za-zÁÉÍÓÚáéíóú][A-Za-zÁÉÍÓÚáéíóú0-9_\-\s]{0,80})(\s*[,}\]])/', ': "$1"$2', $json) ?? $json;
         // Comas finales ilegales
         $json = preg_replace('/,\s*([}\]])/', '$1', $json) ?? $json;
 
         return trim($json);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function extractPartialPayload(string $content): array
+    {
+        $content = $this->sanitizeRawContent($content);
+        if ($content === '') {
+            return [];
+        }
+
+        $payload = [];
+        foreach (['summary', 'hook', 'product_angle', 'prompt_name', 'recommended_format', 'visual_style', 'script_style'] as $key) {
+            if (preg_match('/"'.preg_quote($key, '/').'"\s*:\s*"((?:\\\\.|[^"\\\\])*)"/s', $content, $match)) {
+                $payload[$key] = stripcslashes($match[1]);
+            }
+        }
+
+        if (preg_match('/"segments"\s*:\s*\[(.*)\]\s*,\s*"(?:additional_notes|creative_direction)/s', $content, $segBlock)
+            || preg_match('/"segments"\s*:\s*\[(.*)\]\s*\}/s', $content, $segBlock)) {
+            $segmentsRaw = $segBlock[1];
+            preg_match_all(
+                '/\{[^{}]*"voiceover"\s*:\s*"((?:\\\\.|[^"\\\\])*)"[^{}]*\}/s',
+                $segmentsRaw,
+                $segMatches,
+                PREG_SET_ORDER
+            );
+            $segments = [];
+            $cursor = 0;
+            foreach ($segMatches as $i => $segMatch) {
+                $voice = stripcslashes($segMatch[1]);
+                if (trim($voice) === '') {
+                    continue;
+                }
+                $type = 'segment';
+                if (preg_match('/"type"\s*:\s*"([^"]+)"/', $segMatch[0], $typeMatch)) {
+                    $type = $typeMatch[1];
+                }
+                $segments[] = [
+                    'index' => $i + 1,
+                    'start' => $cursor,
+                    'end' => $cursor + 3,
+                    'duration' => 3,
+                    'type' => $type,
+                    'voiceover' => $voice,
+                ];
+                $cursor += 3;
+            }
+            if ($segments !== []) {
+                $payload['segments'] = $segments;
+            }
+        }
+
+        if (! isset($payload['segments'])) {
+            preg_match_all('/"voiceover"\s*:\s*"((?:\\\\.|[^"\\\\])*)"/s', $content, $voices);
+            $segments = [];
+            $cursor = 0;
+            foreach ($voices[1] ?? [] as $i => $voiceRaw) {
+                $voice = stripcslashes($voiceRaw);
+                if (trim($voice) === '') {
+                    continue;
+                }
+                $segments[] = [
+                    'index' => $i + 1,
+                    'start' => $cursor,
+                    'end' => $cursor + 3,
+                    'duration' => 3,
+                    'type' => $i === 0 ? 'hook' : 'segment',
+                    'voiceover' => $voice,
+                ];
+                $cursor += 3;
+            }
+            if (count($segments) >= 3) {
+                $payload['segments'] = $segments;
+            }
+        }
+
+        if (($payload['hook'] ?? '') === '' && ! empty($payload['segments'][0]['voiceover'])) {
+            $payload['hook'] = $payload['segments'][0]['voiceover'];
+        }
+
+        return ($payload['hook'] ?? '') !== '' || ! empty($payload['segments']) ? $payload : [];
     }
 
     protected function escapeRawNewlinesInJsonStrings(string $json): string
@@ -771,9 +921,24 @@ TXT;
         }
 
         $decoded['hook'] = $decoded['hook'] ?? $decoded['gancho'] ?? null;
-        $decoded['audience'] = $decoded['audience'] ?? $decoded['audiencia'] ?? null;
+        $decoded['audience'] = $this->segmentFieldToText($decoded['audience'] ?? $decoded['audiencia'] ?? null);
+        $decoded['casting_notes'] = $this->segmentFieldToText($decoded['casting_notes'] ?? $decoded['notas_casting'] ?? null);
+        $decoded['camera_notes'] = $this->segmentFieldToText($decoded['camera_notes'] ?? $decoded['notas_camara'] ?? null);
         $decoded['product_angle'] = $decoded['product_angle'] ?? $decoded['angulo'] ?? $decoded['angulo_venta'] ?? null;
         $decoded['summary'] = $decoded['summary'] ?? $decoded['resumen'] ?? null;
+
+        if (isset($decoded['segments']) && is_array($decoded['segments'])) {
+            foreach ($decoded['segments'] as $idx => $seg) {
+                if (! is_array($seg)) {
+                    continue;
+                }
+                foreach (['talent', 'camera', 'visual', 'audio', 'transition', 'text_on_screen'] as $field) {
+                    if (isset($seg[$field]) && is_array($seg[$field])) {
+                        $decoded['segments'][$idx][$field] = $this->segmentFieldToText($seg[$field]);
+                    }
+                }
+            }
+        }
 
         return $decoded;
     }

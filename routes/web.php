@@ -264,6 +264,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::post('products/{product}/similar-import', [ProductController::class, 'importSimilar'])->name('products.similar-import');
                 Route::get('products/{product}/media/download', [ProductController::class, 'downloadMedia'])->name('products.media.download');
                 Route::get('products/{product}/media/download-zip', [ProductController::class, 'downloadMediaZip'])->name('products.media.download-zip');
+                Route::post('products/{product}/media/remove', [ProductController::class, 'removeMedia'])->name('products.media.remove');
                 Route::post('products/recalculate-prices', [ProductController::class, 'recalculatePrices'])->name('products.recalculate-prices');
                 Route::resource('products', ProductController::class)->except(['show']);
                 Route::post('products/{product}/sync-cj', [ProductController::class, 'syncCj'])->name('products.sync-cj');

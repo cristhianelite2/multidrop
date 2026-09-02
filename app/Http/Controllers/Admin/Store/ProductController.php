@@ -232,6 +232,7 @@ class ProductController extends Controller
             'similar_import_url' => route('admin.store.products.similar-import', $product),
             'media_download_url' => route('admin.store.products.media.download', $product),
             'media_download_zip_url' => route('admin.store.products.media.download-zip', $product),
+            'media_remove_url' => route('admin.store.products.media.remove', $product),
             'currencies' => $currency->catalog(),
             'fx' => $currency->jsPayload(),
             'locale_currency_map' => collect($this->availableLocales($store))
@@ -250,6 +251,8 @@ class ProductController extends Controller
         $data['slug'] = $this->uniqueSlug($store->id, $data['slug'] ?? Str::slug($data['name']), $product->id);
         $data['is_featured'] = $request->boolean('is_featured');
         $data['creative_data'] = $this->mergeCreativeFromRequest($request, $product);
+        $mirror = app(ProductMediaMirrorService::class);
+        $mediaBefore = $mirror->collectProductMediaUrls($product);
         $data['verified_data'] = $this->mergeVerifiedFromRequest($request, $product);
         if ($request->has('verified_videos_present')) {
             $creative = is_array($data['creative_data']) ? $data['creative_data'] : [];
@@ -257,8 +260,9 @@ class ProductController extends Controller
             $data['creative_data'] = $creative;
         }
         $product->update($data);
-
-        app(ProductMediaMirrorService::class)->mirrorProduct($product->fresh());
+        $product = $product->fresh();
+        $mirror->purgeDetachedMedia($product, $mediaBefore, $mirror->collectProductMediaUrls($product));
+        $mirror->mirrorProduct($product);
 
         if ($request->boolean('is_star')) {
             $store->setStarProductId((int) $product->id);
@@ -678,6 +682,24 @@ class ProductController extends Controller
             'url' => $stored['url'],
             'name' => $label !== '' ? $label : 'Video',
         ]);
+    }
+
+    public function removeMedia(Request $request, Product $product, StoreContext $storeContext, ProductMediaMirrorService $mirror)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:2000'],
+            'kind' => ['nullable', Rule::in(['image', 'video'])],
+        ]);
+
+        $out = $mirror->detachMediaUrl($product, $data['url'], $data['kind'] ?? 'image');
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422);
+        }
+
+        return response()->json($out);
     }
 
     public function previewSimilarImport(

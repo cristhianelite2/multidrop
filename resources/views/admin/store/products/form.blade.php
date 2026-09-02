@@ -744,7 +744,7 @@
                         <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
-                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada imagen (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada imagen (mover, copiar, descargar, quitar). Al quitar se elimina de la galería y del almacenamiento (R2).</p>
                 <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-images-grid" class="flex flex-wrap gap-3 min-h-[5rem] overflow-visible rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
                 <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
@@ -767,7 +767,7 @@
                         <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
-                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada video (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada video (mover, copiar, descargar, quitar). Al quitar se elimina del producto y del almacenamiento (R2).</p>
                 <p id="product-video-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-videos-list" class="grid gap-4 sm:grid-cols-2"></div>
                 <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Sube un archivo MP4/WebM o pega la URL del marketplace.</p>
@@ -1926,6 +1926,7 @@
   var productIsCj = @json($isCj);
   var productUploadImageUrl = @json($product->exists ? route('admin.store.products.upload-image', $product) : null);
   var productUploadVideoUrl = @json($product->exists ? route('admin.store.products.upload-video', $product) : null);
+  var productRemoveMediaUrl = @json($media_remove_url ?? null);
   var mediaDownloadUrl = @json($media_download_url ?? null);
 
   function mediaPaths(url) {
@@ -2167,13 +2168,48 @@
 
   function removeImageAt(index) {
     var removed = verifiedImagesData[index];
-    verifiedImagesData.splice(index, 1);
-    var main = String($('input[name=image_url]').val() || '').trim();
-    if (removed && main === removed) {
-      $('input[name=image_url]').val(verifiedImagesData[0] || '');
-      updateMainImagePathRow();
+    if (!removed) return;
+
+    function applyLocal(res) {
+      if (res && Array.isArray(res.images)) {
+        verifiedImagesData = res.images.slice();
+      } else {
+        verifiedImagesData.splice(index, 1);
+      }
+      var main = String($('input[name=image_url]').val() || '').trim();
+      if (res && Object.prototype.hasOwnProperty.call(res, 'image_url')) {
+        $('input[name=image_url]').val(res.image_url || '');
+        updateMainImagePathRow();
+      } else if (removed && main === removed) {
+        $('input[name=image_url]').val(verifiedImagesData[0] || '');
+        updateMainImagePathRow();
+      }
+      renderProductImages();
     }
-    renderProductImages();
+
+    if (!productRemoveMediaUrl) {
+      applyLocal();
+      return;
+    }
+
+    $.ajax({
+      method: 'POST',
+      url: productRemoveMediaUrl,
+      data: {
+        _token: $('meta[name="csrf-token"]').attr('content'),
+        url: removed,
+        kind: 'image'
+      }
+    }).done(function (res) {
+      if (res && res.success) {
+        applyLocal(res);
+      } else {
+        alert((res && res.error) ? res.error : 'No se pudo quitar la imagen.');
+      }
+    }).fail(function (xhr) {
+      var res = xhr.responseJSON || {};
+      alert(res.error || res.message || 'Error al quitar la imagen.');
+    });
   }
 
   function renderProductImages() {
@@ -2354,8 +2390,37 @@
     var i = mediaMenuItemIndex($(this));
     if (isNaN(i)) return;
     if (!confirm('¿Quitar este video?')) return;
-    verifiedVideosData.splice(i, 1);
-    renderProductVideos();
+    var row = verifiedVideosData[i] || {};
+    var url = String(row.url || '').trim();
+
+    function applyLocal() {
+      verifiedVideosData.splice(i, 1);
+      renderProductVideos();
+    }
+
+    if (!productRemoveMediaUrl || !url) {
+      applyLocal();
+      return;
+    }
+
+    $.ajax({
+      method: 'POST',
+      url: productRemoveMediaUrl,
+      data: {
+        _token: $('meta[name="csrf-token"]').attr('content'),
+        url: url,
+        kind: 'video'
+      }
+    }).done(function (res) {
+      if (res && res.success) {
+        applyLocal();
+      } else {
+        alert((res && res.error) ? res.error : 'No se pudo quitar el video.');
+      }
+    }).fail(function (xhr) {
+      var res = xhr.responseJSON || {};
+      alert(res.error || res.message || 'Error al quitar el video.');
+    });
   });
   $(document).on('click', '.js-vid-up', function (e) {
     e.preventDefault();

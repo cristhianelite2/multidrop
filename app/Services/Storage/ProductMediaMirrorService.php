@@ -390,4 +390,265 @@ class ProductMediaMirrorService
 
         return $map[$ct] ?? ($folder === 'videos' ? 'mp4' : 'jpg');
     }
+
+    /**
+     * @return list<string>
+     */
+    public function collectProductMediaUrls(Product $product): array
+    {
+        $urls = [];
+        $push = function (?string $url) use (&$urls): void {
+            $url = trim((string) $url);
+            if ($url !== '') {
+                $urls[] = $url;
+            }
+        };
+
+        $push($product->image_url);
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+
+        foreach (is_array($verified['images'] ?? null) ? $verified['images'] : [] as $img) {
+            $push(is_string($img) ? $img : null);
+        }
+
+        foreach (is_array($verified['videos'] ?? null) ? $verified['videos'] : [] as $video) {
+            if (! is_array($video)) {
+                continue;
+            }
+            $push($video['url'] ?? null);
+            $push($video['cover'] ?? null);
+        }
+
+        foreach (is_array($verified['variants'] ?? null) ? $verified['variants'] : [] as $variant) {
+            if (! is_array($variant)) {
+                continue;
+            }
+            $push($variant['image'] ?? null);
+        }
+
+        foreach (is_array($verified['reviews'] ?? null) ? $verified['reviews'] : [] as $review) {
+            if (! is_array($review)) {
+                continue;
+            }
+            foreach (is_array($review['images'] ?? null) ? $review['images'] : [] as $img) {
+                $push(is_string($img) ? $img : null);
+            }
+        }
+
+        $html = trim((string) ($verified['description_html'] ?? ''));
+        if ($html !== '' && preg_match_all('/\bsrc=(["\'])([^"\']+)\1/i', $html, $matches)) {
+            foreach ($matches[2] as $src) {
+                $push(html_entity_decode((string) $src, ENT_QUOTES | ENT_HTML5));
+            }
+        }
+
+        return array_values(array_unique($urls));
+    }
+
+    public function normalizeMediaUrl(string $url): string
+    {
+        return strtolower(trim($url));
+    }
+
+    public function isUrlReferencedByProduct(Product $product, string $url): bool
+    {
+        $needle = $this->normalizeMediaUrl($url);
+        if ($needle === '') {
+            return false;
+        }
+
+        foreach ($this->collectProductMediaUrls($product) as $candidate) {
+            if ($this->normalizeMediaUrl($candidate) === $needle) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array{success: bool, r2_deleted?: bool, storage_deleted?: bool, error?: string}
+     */
+    public function detachMediaUrl(Product $product, string $url, string $kind = 'image'): array
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return ['success' => false, 'error' => 'URL vacía'];
+        }
+
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+        $changed = false;
+
+        if ($kind === 'video') {
+            $videos = [];
+            foreach (is_array($verified['videos'] ?? null) ? $verified['videos'] : [] as $video) {
+                if (! is_array($video)) {
+                    continue;
+                }
+                if ($this->normalizeMediaUrl((string) ($video['url'] ?? '')) === $this->normalizeMediaUrl($url)) {
+                    $changed = true;
+                    continue;
+                }
+                if ($this->normalizeMediaUrl((string) ($video['cover'] ?? '')) === $this->normalizeMediaUrl($url)) {
+                    $video['cover'] = null;
+                    $changed = true;
+                }
+                $videos[] = $video;
+            }
+            $verified['videos'] = $videos;
+        } else {
+            $images = [];
+            foreach (is_array($verified['images'] ?? null) ? $verified['images'] : [] as $img) {
+                if ($this->normalizeMediaUrl((string) $img) === $this->normalizeMediaUrl($url)) {
+                    $changed = true;
+                    continue;
+                }
+                $images[] = $img;
+            }
+            $verified['images'] = array_values($images);
+        }
+
+        foreach (['reviews', 'comments'] as $reviewKey) {
+            $rows = is_array($verified[$reviewKey] ?? null) ? $verified[$reviewKey] : [];
+            $newRows = [];
+            foreach ($rows as $review) {
+                if (! is_array($review)) {
+                    continue;
+                }
+                $row = $review;
+                $imgs = [];
+                foreach (is_array($review['images'] ?? null) ? $review['images'] : [] as $img) {
+                    if ($this->normalizeMediaUrl((string) $img) === $this->normalizeMediaUrl($url)) {
+                        $changed = true;
+                        continue;
+                    }
+                    $imgs[] = $img;
+                }
+                if ($imgs !== ($review['images'] ?? [])) {
+                    $row['images'] = $imgs;
+                }
+                $newRows[] = $row;
+            }
+            if ($newRows !== $rows) {
+                $verified[$reviewKey] = $newRows;
+            }
+        }
+
+        $variants = is_array($verified['variants'] ?? null) ? $verified['variants'] : [];
+        $newVariants = [];
+        foreach ($variants as $variant) {
+            if (! is_array($variant)) {
+                continue;
+            }
+            $row = $variant;
+            if ($this->normalizeMediaUrl((string) ($variant['image'] ?? '')) === $this->normalizeMediaUrl($url)) {
+                $row['image'] = null;
+                $changed = true;
+            }
+            $newVariants[] = $row;
+        }
+        if ($newVariants !== $variants) {
+            $verified['variants'] = $newVariants;
+        }
+
+        if ($this->normalizeMediaUrl((string) ($product->image_url ?? '')) === $this->normalizeMediaUrl($url)) {
+            $product->image_url = $verified['images'][0] ?? null;
+            $changed = true;
+        }
+
+        if ($changed) {
+            $product->verified_data = $verified;
+            $product->save();
+        }
+
+        $product = $product->fresh() ?? $product;
+        $storageDeleted = false;
+        $r2Deleted = false;
+        if (! $this->isUrlReferencedByProduct($product, $url)) {
+            $storageDeleted = $this->deleteStoredMediaFile($product, $url);
+            $r2Deleted = $storageDeleted && MediaUrl::isMaskedUrl($url);
+        }
+
+        return [
+            'success' => true,
+            'r2_deleted' => $r2Deleted,
+            'storage_deleted' => $storageDeleted,
+            'image_url' => $product->image_url,
+            'images' => array_values(is_array($product->verified_data['images'] ?? null) ? $product->verified_data['images'] : []),
+        ];
+    }
+
+  /**
+   * @return list<string>
+   */
+    public function purgeDetachedMedia(Product $product, array $beforeUrls, array $afterUrls): array
+    {
+        $before = [];
+        foreach ($beforeUrls as $url) {
+            $before[$this->normalizeMediaUrl((string) $url)] = (string) $url;
+        }
+        $after = [];
+        foreach ($afterUrls as $url) {
+            $after[$this->normalizeMediaUrl((string) $url)] = true;
+        }
+
+        $deleted = [];
+        foreach ($before as $key => $url) {
+            if (isset($after[$key])) {
+                continue;
+            }
+            if ($this->deleteStoredMediaFile($product, $url)) {
+                $deleted[] = $url;
+            }
+        }
+
+        return $deleted;
+    }
+
+    public function deleteStoredMediaFile(Product $product, string $url): bool
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+
+        if (MediaUrl::isMaskedUrl($url)) {
+            if (! $this->r2->enabled()) {
+                return false;
+            }
+
+            $storagePath = MediaUrl::storagePathFromUrl($url);
+            if ($storagePath === null) {
+                return false;
+            }
+
+            $expectedPrefix = $this->r2->productPrefix((int) $product->store_id, (int) $product->id).'/';
+            if (! str_starts_with($storagePath, $expectedPrefix)) {
+                return false;
+            }
+
+            if (! $this->r2->disk()->exists($storagePath)) {
+                return false;
+            }
+
+            $deleted = $this->r2->disk()->delete($storagePath);
+            if ($deleted) {
+                $store = $product->store ?: Store::query()->find($product->store_id);
+                if ($store) {
+                    $this->r2->refreshStoreStats($store);
+                }
+            }
+
+            return (bool) $deleted;
+        }
+
+        if ($this->isLocalStorageUrl($url)) {
+            $localPath = $this->localPathFromUrl($url);
+            if ($localPath && is_file($localPath)) {
+                return @unlink($localPath);
+            }
+        }
+
+        return false;
+    }
 }

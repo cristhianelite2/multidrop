@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Multidrop AliExpress Hunter",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Captura fichas AE/CJ, extrae media al producto por SKU y menú contextual para imágenes.",
     "action": {
         "default_title": "Multidrop Hunter",

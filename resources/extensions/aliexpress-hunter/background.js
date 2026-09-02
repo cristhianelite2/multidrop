@@ -274,9 +274,176 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
 function normalizeImageUrl(url) {
   url = String(url || '').trim();
   if (!url) return '';
+  if (/^\/\//.test(url)) url = 'https:' + url;
+  url = url.replace(/\.(jpg|jpeg|png|webp|avif)_\.(avif|webp)$/i, '.$1');
   url = url.replace(/\.(jpg|jpeg|png|webp)_[0-9]+x[0-9]+\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$3');
-  url = url.replace(/_(?:[0-9]+x[0-9]+|summ)\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$2');
+  url = url.replace(/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$2');
   return url;
+}
+
+/**
+ * En la pestaña AE/CJ, localiza la misma imagen del thumb en el carrusel / runParams
+ * y devuelve la URL en tamaño grande.
+ */
+async function resolveFullImageUrl(tabId, thumbUrl) {
+  if (!tabId) return normalizeImageUrl(thumbUrl);
+  var injected = await chrome.scripting.executeScript({
+    target: { tabId: tabId },
+    world: 'MAIN',
+    args: [thumbUrl],
+    func: function (thumbUrl) {
+      function absUrl(url) {
+        url = String(url || '').trim();
+        if (!url) return '';
+        if (/^https?:\/\//i.test(url)) return url;
+        if (url.indexOf('//') === 0) return location.protocol + url;
+        if (url.charAt(0) === '/') return location.origin + url;
+        return url;
+      }
+      function normalize(url) {
+        url = absUrl(url);
+        if (!url) return '';
+        url = url.replace(/\.(jpg|jpeg|png|webp|avif)_\.(avif|webp)$/i, '.$1');
+        url = url.replace(/\.(jpg|jpeg|png|webp)_[0-9]+x[0-9]+\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$3');
+        url = url.replace(/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$2');
+        if (/^https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+/i.test(url)) {
+          var km = url.match(/^(https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+)/i);
+          if (km) return km[1] + '.jpg';
+        }
+        return url;
+      }
+      function key(url) {
+        url = normalize(url);
+        var m = url.match(/\/(kf\/[A-Za-z0-9._-]+)/i);
+        if (m) return m[1].replace(/_\d+x\d+.*$/, '');
+        return url.split('?')[0];
+      }
+      function score(url) {
+        var s = 0;
+        url = String(url || '');
+        if (!/_\d+x\d+/i.test(url)) s += 1000;
+        var m = url.match(/_(\d+)x(\d+)/i);
+        if (m) s += Math.max(parseInt(m[1], 10) || 0, parseInt(m[2], 10) || 0);
+        if (/\.(jpe?g|png|webp)(\?|$)/i.test(url) && !/\.(jpe?g|png|webp)_/i.test(url)) s += 100;
+        return s;
+      }
+      function pick(urls) {
+        var best = '';
+        var bestScore = -1;
+        (urls || []).forEach(function (u) {
+          u = normalize(u);
+          if (!u) return;
+          var sc = score(u);
+          if (sc > bestScore) {
+            bestScore = sc;
+            best = u;
+          }
+        });
+        return best;
+      }
+      function pushUnique(list, url) {
+        url = normalize(url);
+        if (!url || !/^https?:\/\//i.test(url)) return;
+        if (/shipping--|sku-item|review--|avatar|favicon|logo|icon/i.test(url)) return;
+        if (url.indexOf('/kf/') < 0 && url.indexOf('aliexpress-media') < 0) return;
+        for (var i = 0; i < list.length; i++) {
+          if (key(list[i]) === key(url)) return;
+        }
+        list.push(url);
+      }
+
+      var thumbKey = key(thumbUrl);
+      if (!thumbKey) return normalize(thumbUrl);
+
+      var candidates = [];
+
+      try {
+        var rp = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
+        var data = rp && (rp.data || rp);
+        var im = data && data.imageModule;
+        ['imagePathList', 'summImagePathList', 'imageList'].forEach(function (listKey) {
+          var lists = [im && im[listKey], data && data[listKey]];
+          lists.forEach(function (list) {
+            if (!Array.isArray(list)) return;
+            list.forEach(function (item) {
+              var u = typeof item === 'string' ? item : (item && (item.url || item.imageUrl || item.imgUrl || item.src)) || '';
+              pushUnique(candidates, u);
+            });
+          });
+        });
+      } catch (eRp) {}
+
+      var domSelectors = [
+        '[class*="image-view"] img',
+        '[class*="slider--item"] img',
+        '[class*="slider--thumb"] img',
+        '[class*="magnifier"] img',
+        '[class*="gallery"] img',
+        '[class*="product-image"] img',
+        'img[src*="/kf/"]',
+        'img[data-src*="/kf/"]'
+      ];
+      domSelectors.forEach(function (sel) {
+        try {
+          document.querySelectorAll(sel).forEach(function (img) {
+            pushUnique(candidates, img.currentSrc || img.src || img.getAttribute('data-src') || '');
+          });
+        } catch (eDom) {}
+      });
+
+      var same = candidates.filter(function (u) { return key(u) === thumbKey; });
+      var resolved = pick(same);
+      if (resolved) return resolved;
+
+      var thumbEl = null;
+      try {
+        document.querySelectorAll('img[src], img[data-src]').forEach(function (img) {
+          if (thumbEl) return;
+          var src = img.currentSrc || img.src || img.getAttribute('data-src') || '';
+          if (key(src) === thumbKey) thumbEl = img;
+        });
+      } catch (eFind) {}
+
+      if (thumbEl) {
+        var thumbWrap = thumbEl.closest('[class*="slider--item"], [class*="thumb"], li, button, a');
+        var idx = -1;
+        if (thumbWrap && thumbWrap.parentElement) {
+          var siblings = thumbWrap.parentElement.querySelectorAll('[class*="slider--item"], [class*="thumb"], li, button, a');
+          for (var si = 0; si < siblings.length; si++) {
+            if (siblings[si] === thumbWrap) { idx = si; break; }
+          }
+        }
+        var mainSelectors = [
+          '[class*="image-view--wrap"] img',
+          '[class*="image-view-magnifier"] img',
+          '[class*="main-image"] img',
+          '[class*="slider--main"] img',
+          '[class*="image-view"] img'
+        ];
+        for (var mi = 0; mi < mainSelectors.length; mi++) {
+          var mains = document.querySelectorAll(mainSelectors[mi]);
+          if (!mains.length) continue;
+          if (idx >= 0 && idx < mains.length) {
+            var mainSrc = mains[idx].currentSrc || mains[idx].src || mains[idx].getAttribute('data-src') || '';
+            if (key(mainSrc) === thumbKey) {
+              resolved = normalize(mainSrc);
+              if (resolved) return resolved;
+            }
+          }
+          for (var mj = 0; mj < mains.length; mj++) {
+            var ms = mains[mj].currentSrc || mains[mj].src || mains[mj].getAttribute('data-src') || '';
+            if (key(ms) === thumbKey) pushUnique(same, ms);
+          }
+        }
+        resolved = pick(same);
+        if (resolved) return resolved;
+      }
+
+      return normalize(thumbUrl);
+    }
+  });
+  var resolved = injected && injected[0] && injected[0].result;
+  return resolved || normalizeImageUrl(thumbUrl);
 }
 
 function notifyUser(title, message) {
@@ -310,12 +477,23 @@ chrome.runtime.onInstalled.addListener(setupContextMenus);
 chrome.runtime.onStartup.addListener(setupContextMenus);
 setupContextMenus();
 
-chrome.contextMenus.onClicked.addListener(function (info) {
+chrome.contextMenus.onClicked.addListener(function (info, tab) {
   if (!info || info.menuItemId !== 'multidrop-extract-image') return;
   (async function () {
-    var imageUrl = normalizeImageUrl(info.srcUrl || info.linkUrl || '');
-    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+    var thumbUrl = normalizeImageUrl(info.srcUrl || info.linkUrl || '');
+    if (!thumbUrl || !/^https?:\/\//i.test(thumbUrl)) {
       notifyUser('Multidrop Hunter', 'No pude leer la URL de la imagen.');
+      return;
+    }
+    var tabId = tab && tab.id;
+    var imageUrl = thumbUrl;
+    try {
+      imageUrl = await resolveFullImageUrl(tabId, thumbUrl);
+    } catch (eResolve) {
+      imageUrl = thumbUrl;
+    }
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      notifyUser('Multidrop Hunter', 'No pude resolver la imagen grande del carrusel.');
       return;
     }
     var cfg = await chrome.storage.sync.get([

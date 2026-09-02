@@ -38,7 +38,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - **Fix timeout al extraer videos** (v1.0.8): snapshot compacto, detección de video en página, ruta rápida sin enrich remoto y keep-alive del service worker.
 - **Fix message port closed** (v1.0.9): no serializar runParams completo; lectura rápida en background y fetch de extract desde el popup; snapshot-only para videos.
 - **Fix extract solo videos:** sin error `shipping_price` ni lógica de envío/descripción al importar únicamente videos o imágenes.
-- **Extensión Hunter 1.1.0:** menú contextual **Extraer imagen a Multidrop** en imágenes de AE/CJ (clic derecho → copia al producto destino por SKU, con mirror R2).
+- **Extensión Hunter 1.1.1:** menú contextual resuelve thumb del carrusel AE/CJ a imagen grande (`imagePathList` / visor principal) antes de importar.
 - Endpoint `plugin-import-image` para importar una sola imagen desde URL al producto seleccionado en el plugin.
 
 ## 2026-08-31

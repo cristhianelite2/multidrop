@@ -453,7 +453,7 @@ class Product extends Model
         $overrides = $this->currencyPrices();
         $isCombo = (bool) data_get($this->creative_data, 'is_combo', false);
         if (! $isCombo && isset($overrides[$to]) && (float) ($overrides[$to]['price'] ?? 0) > 0) {
-            return [
+            $out = [
                 'currency' => $to,
                 'price' => (float) $overrides[$to]['price'],
                 'compare_at_price' => $overrides[$to]['compare_at_price'],
@@ -461,12 +461,14 @@ class Product extends Model
                 'converted' => strtoupper((string) ($this->currency ?: $to)) !== $to,
                 'source' => 'manual',
             ];
+
+            return app(\App\Services\Commerce\ProductRetailPriceResolver::class)->apply($this, $out);
         }
 
         $out = $fx->convertProductPrices($this, $to, $isCombo ? 'none' : $this->roundingFor($to));
         $out['source'] = ! empty($out['converted']) ? 'fx' : 'base';
 
-        return $out;
+        return app(\App\Services\Commerce\ProductRetailPriceResolver::class)->apply($this, $out);
     }
 
     public function formattedPriceIn(string $currency, ?\App\Services\Currency\CurrencyService $fx = null): string

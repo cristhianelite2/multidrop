@@ -4,6 +4,10 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ## 2026-09-01
 
+### Storefront
+- **Precio de vitrina:** si el precio guardado coincide con el de compra (importación marketplace), el storefront y el checkout calculan automáticamente precio de venta + compare tachado (fees + margen + charm pricing).
+- Importación AliExpress ya no copia el precio del marketplace como precio de venta; solo rellena `purchase_price`.
+
 ### Plataforma
 - Integración **Cloudflare R2** para imágenes y videos de productos.
 - Configuración en General de plataforma (bucket, API keys S3, prueba de conexión).

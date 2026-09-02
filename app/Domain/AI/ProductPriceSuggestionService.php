@@ -380,6 +380,11 @@ TXT;
         return $bestScore === INF ? $closest : $best;
     }
 
+  public function suggestCompare(float $price, string $code): ?float
+    {
+        return $this->attractiveCompare($price, $code);
+    }
+
     protected function attractiveCompare(float $price, string $code): ?float
     {
         $up = $this->attractivePrice($price * 1.28, $code);

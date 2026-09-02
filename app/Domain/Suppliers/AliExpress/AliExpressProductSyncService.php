@@ -24,12 +24,12 @@ class AliExpressProductSyncService
         }
 
         $currency = strtoupper((string) ($store->market?->currency ?: ($detail['currency'] ?? 'MXN')));
-        $price = isset($hints['sell']) ? (float) $hints['sell'] : (isset($detail['price']) ? (float) $detail['price'] : 0);
+        $marketPrice = isset($detail['price']) ? (float) $detail['price'] : 0;
+        $price = isset($hints['sell']) ? (float) $hints['sell'] : 0.0;
         $compare = isset($detail['compare_at_price']) ? (float) $detail['compare_at_price'] : null;
 
         $fx = app(CurrencyService::class);
         $srcCurrency = strtoupper((string) ($detail['currency'] ?? 'USD'));
-        $marketPrice = isset($detail['price']) ? (float) $detail['price'] : 0;
         $purchaseLocal = $marketPrice > 0
             ? $fx->roundAmount($fx->convert($marketPrice, $srcCurrency, $currency, false), $currency)
             : null;
@@ -95,8 +95,8 @@ class AliExpressProductSyncService
                     'slug' => $this->uniqueSlug($store->id, Str::slug($title) ?: 'ae-'.$aeId),
                     'image_url' => $image !== '' ? mb_substr($image, 0, 500) : null,
                     'description' => mb_substr($description, 0, 20000) ?: null,
-                    'price' => $price,
-                    'compare_at_price' => ($compare && $compare > $price) ? $compare : null,
+                    'price' => $price > 0 ? $price : 0,
+                    'compare_at_price' => ($price > 0 && $compare && $compare > $price) ? $compare : null,
                     'purchase_price' => $purchaseLocal,
                     'currency' => $currency,
                     'status' => 'draft',

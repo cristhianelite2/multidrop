@@ -316,8 +316,10 @@
                         ? (float) $inputPurchase
                         : $costLocal;
                     $inputPrice = old('price', $product->price);
-                    // Si no hay precio guardado y sí hay sugerido, usar sugerido en el input
-                    if (($inputPrice === null || $inputPrice === '' || (float) $inputPrice <= 0) && $suggestedLocal) {
+                    // Si no hay precio de vitrina (o coincide con compra), usar sugerido en el input
+                    $priceLooksLikeCost = $purchaseForCalc !== null && $purchaseForCalc > 0
+                        && ($inputPrice === null || $inputPrice === '' || (float) $inputPrice <= (float) $purchaseForCalc);
+                    if (($inputPrice === null || $inputPrice === '' || (float) $inputPrice <= 0 || $priceLooksLikeCost) && $suggestedLocal) {
                         $inputPrice = $suggestedLocal;
                     }
                     if ($inputPrice !== null && $inputPrice !== '') {

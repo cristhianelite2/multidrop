@@ -33,7 +33,10 @@
                         <td class="px-4 py-3 text-xs">{{ $p->target_platform }} · {{ $p->language }}</td>
                         <td class="px-4 py-3 text-xs text-ink-soft">{{ $p->campaign?->name ?: 'Biblioteca' }}</td>
                         <td class="px-4 py-3">
-                            <div class="flex justify-end gap-2">
+                            <div class="flex justify-end flex-wrap gap-2">
+                                @if($p->hasLinkedProducts())
+                                    <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.download-zip', $p) }}">Descargar ZIP</a>
+                                @endif
                                 <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.edit', $p) }}">Editar</a>
                                 <form method="post" action="{{ route('admin.store.marketing.prompts.destroy', $p) }}" onsubmit="return confirm('¿Eliminar este prompt?')">
                                     @csrf @method('DELETE')

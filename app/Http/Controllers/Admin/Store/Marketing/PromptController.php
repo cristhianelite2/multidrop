@@ -9,8 +9,10 @@ use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
 use App\Models\Product;
 use App\Services\Admin\StoreContext;
+use App\Services\Marketing\PromptExportZipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class PromptController extends Controller
 {
@@ -89,6 +91,30 @@ class PromptController extends Controller
         }
 
         return back()->with('success', 'Prompt actualizado.');
+    }
+
+    public function downloadZip(
+        StoreContext $storeContext,
+        MarketingPrompt $prompt,
+        PromptExportZipService $exporter
+    ): BinaryFileResponse|\Illuminate\Http\RedirectResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $prompt->store_id === (int) $store->id, 404);
+
+        if (! $prompt->hasLinkedProducts()) {
+            abort(404, 'Este prompt no tiene productos vinculados.');
+        }
+
+        if (! class_exists(\ZipArchive::class)) {
+            return back()->with('error', 'La extensión ZIP de PHP no está disponible en el servidor.');
+        }
+
+        $zipPath = $exporter->buildZip($store, $prompt);
+        if ($zipPath === null) {
+            return back()->with('error', 'No se pudo generar el ZIP (sin archivos o error de descarga).');
+        }
+
+        return response()->download($zipPath, $exporter->downloadFilename($prompt))->deleteFileAfterSend(true);
     }
 
     public function destroy(StoreContext $storeContext, MarketingPrompt $prompt)

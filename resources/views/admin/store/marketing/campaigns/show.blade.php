@@ -394,7 +394,12 @@
                             @endif
                         </p>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap gap-2">
+                        @if($p->product_id || $p->product || $p->hasLinkedProducts())
+                            <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.download-zip', $p) }}" title="Imágenes, videos y prompt.txt">
+                                Descargar ZIP
+                            </a>
+                        @endif
                         <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.edit', $p) }}">Editar</a>
                         <form method="post" action="{{ route('admin.store.marketing.prompts.destroy', $p) }}" onsubmit="return confirm('¿Eliminar este prompt?')">
                             @csrf @method('DELETE')

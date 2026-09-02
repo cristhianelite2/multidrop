@@ -59,6 +59,11 @@
             </div>
         </div>
 
-        <button class="admin-btn">Guardar</button>
+        <div class="flex flex-wrap gap-2">
+            <button class="admin-btn">Guardar</button>
+            @if($prompt->exists && $prompt->hasLinkedProducts())
+                <a class="admin-btn-secondary" href="{{ route('admin.store.marketing.prompts.download-zip', $prompt) }}">Descargar ZIP (media + prompt)</a>
+            @endif
+        </div>
     </form>
 @endsection

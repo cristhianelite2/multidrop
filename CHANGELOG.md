@@ -2,6 +2,11 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-09-02
+
+### Marketing
+- **Descargar ZIP en prompts con producto:** botón en campaña → Prompts, biblioteca y edición; incluye `prompt.txt` (guion, hook, análisis, segmentos) más imágenes y videos del producto en carpetas `images/` y `videos/`. Soporta varios productos vinculados (`product_id` o `analysis.product_ids`).
+
 ## 2026-09-01
 
 ### Marketing

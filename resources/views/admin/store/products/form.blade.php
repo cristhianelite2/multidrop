@@ -744,7 +744,7 @@
                 </div>
                 <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada imagen (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
                 <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
-                <div id="product-images-grid" class="flex flex-wrap gap-2 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
+                <div id="product-images-grid" class="flex flex-wrap gap-3 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3 pr-4"></div>
                 <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
                 <div class="mt-3 flex flex-wrap items-end gap-2">
                     <div class="min-w-0 flex-1">
@@ -1990,35 +1990,38 @@
     var url = String(paths.url || '').trim();
     var dl = url ? mediaDirectDownloadUrl(url) : '';
     var lines = [];
-    var panelClass = opts.openDown ? 'top-full mt-1' : 'bottom-full mb-1';
+    var placement = opts.placement || (opts.openDown ? 'below' : 'right');
+    var panelPos = placement === 'below' ? 'top-full right-0 mt-1' : 'left-full top-0 ml-1';
+    var panelMin = opts.panelMinWidth || (placement === 'below' ? '14.5rem' : '10.5rem');
+    var itemClass = 'js-media-menu-item block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist' + (placement === 'below' ? ' whitespace-nowrap' : '');
 
     if (opts.showMain) {
-      lines.push('<button type="button" class="js-media-menu-item js-img-main block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">★ Imagen principal</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-img-main">★ Imagen principal</button>');
     }
     if (opts.showImageMove) {
-      lines.push('<button type="button" class="js-media-menu-item js-img-up block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↑ Mover antes</button>');
-      lines.push('<button type="button" class="js-media-menu-item js-img-down block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↓ Mover después</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-img-up">↑ Mover antes</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-img-down">↓ Mover después</button>');
     }
     if (opts.showVideoMove) {
-      lines.push('<button type="button" class="js-media-menu-item js-vid-up block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↑ Mover antes</button>');
-      lines.push('<button type="button" class="js-media-menu-item js-vid-down block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↓ Mover después</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-vid-up">↑ Mover antes</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-vid-down">↓ Mover después</button>');
     }
     if (url) {
-      lines.push('<button type="button" class="js-media-menu-item js-copy-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>');
-      lines.push('<button type="button" class="js-media-menu-item js-copy-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-copy-media" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>');
+      lines.push('<button type="button" class="' + itemClass + ' js-copy-media" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>');
       if (dl) {
-        lines.push('<a class="js-media-menu-item js-download-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" href="' + escapeHtml(dl) + '" download>Descargar</a>');
+        lines.push('<a class="' + itemClass + ' js-download-media" href="' + escapeHtml(dl) + '" download>Descargar</a>');
       }
     }
     if (opts.deleteClass) {
-      lines.push('<button type="button" class="js-media-menu-item ' + opts.deleteClass + ' block w-full border-t border-line px-3 py-2 text-left text-xs text-coral hover:bg-coral/10">Quitar</button>');
+      lines.push('<button type="button" class="js-media-menu-item ' + opts.deleteClass + ' block w-full border-t border-line px-3 py-2 text-left text-xs text-coral hover:bg-coral/10' + (placement === 'below' ? ' whitespace-nowrap' : '') + '">Quitar</button>');
     }
     if (!lines.length) return '';
 
     var triggerClass = opts.triggerClass || 'rounded bg-ink/75 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white hover:bg-ink';
     return '<div class="media-item-menu relative">' +
       '<button type="button" class="js-media-menu-trigger ' + triggerClass + '" title="Opciones">⋯</button>' +
-      '<div class="js-media-menu-panel absolute right-0 z-40 hidden min-w-[11rem] overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg ' + panelClass + '">' +
+      '<div class="js-media-menu-panel absolute z-50 hidden overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg ' + panelPos + '" style="min-width:' + panelMin + '">' +
         lines.join('') +
       '</div>' +
     '</div>';
@@ -2116,22 +2119,23 @@
       var isMain = main !== '' && main === url;
       var paths = mediaPaths(url);
       var $item = $(
-        '<div class="product-image-item js-media-drag-item w-40 shrink-0" data-index="' + i + '" draggable="true">' +
+        '<div class="product-image-item js-media-drag-item relative w-40 shrink-0" data-index="' + i + '" draggable="true">' +
           '<div class="relative h-24 w-full overflow-hidden rounded-lg border border-line bg-mist group">' +
           '<span class="absolute left-1 top-1 z-10 rounded bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-white">' + (i + 1) + '</span>' +
-          (isMain ? '<span class="absolute right-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
+          (isMain ? '<span class="absolute right-8 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
           '<button type="button" class="js-media-drag-handle absolute left-1 bottom-1 z-10 cursor-grab rounded bg-ink/70 px-1 py-0.5 text-[10px] text-white active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
-          '<div class="absolute right-1 bottom-1 z-20">' +
+          '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
+            '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
+          '</button>' +
+          '</div>' +
+          '<div class="absolute -right-1 top-1/2 z-30 -translate-y-1/2 translate-x-1/2">' +
             mediaItemMenuHtml({
               paths: paths,
               showMain: !isMain,
               showImageMove: true,
-              deleteClass: 'js-img-del'
+              deleteClass: 'js-img-del',
+              placement: 'right'
             }) +
-          '</div>' +
-          '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
-            '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
-          '</button>' +
           '</div>' +
         '</div>'
       );
@@ -2163,7 +2167,8 @@
               paths: urlPaths,
               showVideoMove: true,
               deleteClass: 'js-vid-del',
-              openDown: true,
+              placement: 'below',
+              panelMinWidth: '15rem',
               triggerClass: 'rounded border border-line bg-white px-2 py-0.5 text-sm font-bold leading-none text-ink-soft hover:bg-mist'
             }) +
           '</div>' +
@@ -2183,7 +2188,8 @@
                 '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono flex-1" value="' + escapeHtml(cover) + '" placeholder="https://…">' +
                 (cover ? mediaItemMenuHtml({
                   paths: coverPaths,
-                  openDown: true,
+                  placement: 'below',
+                  panelMinWidth: '15rem',
                   triggerClass: 'shrink-0 rounded border border-line bg-white px-2 py-1.5 text-sm font-bold leading-none text-ink-soft hover:bg-mist'
                 }) : '') +
               '</div></div>' +

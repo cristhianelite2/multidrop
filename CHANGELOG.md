@@ -4,9 +4,14 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ## 2026-09-01
 
+### Marketing
+- **Prompts con IA por producto:** en campaña → pestaña Prompts, selecciona un producto y MIIA analiza nombre, imágenes, videos y reseñas para generar un guion TikTok en segmentos de máx. 3 segundos (hook → CTA).
+- El prompt se puede guardar en la campaña o enviar directo a **Creatify** con las imágenes y videos del producto (`link_with_params` + `override_script`).
+- `marketing_prompts` guarda `product_id`, `segments` y `analysis` para reutilizar y ajustar duración del video en Creatify.
+
 ### Storefront
 - **Upsell overlay:** se sanitiza CSS de tema que rompía el layout (`display:flex` horizontal en `.md-mod-upsell`) y se añade capa guard de plataforma para overlays inyectados.
-- **Galería admin:** fix clic en «Quitar» y acciones del menú ⋯ cuando el panel flotante está en `body`; confirmación antes de quitar imagen o video; eliminación inmediata en BD y borrado del archivo en Cloudflare R2.
+- **Galería admin:** fix clic en «Quitar» y acciones del menú ⋯ cuando el panel flotante está en `body`; confirmación antes de quitar imagen o video; eliminación inmediata en BD y vista; borrado de R2 en segundo plano (job `afterResponse`) sin recalcular todo el bucket.
 - **Precio de vitrina:** si el precio guardado coincide con el de compra (importación marketplace), el storefront y el checkout calculan automáticamente precio de venta + compare tachado (fees + margen + charm pricing).
 - Importación AliExpress ya no copia el precio del marketplace como precio de venta; solo rellena `purchase_price`.
 

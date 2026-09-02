@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Admin\Store\Marketing;
 
+use App\Domain\AI\ProductVideoPromptService;
 use App\Http\Controllers\Admin\Concerns\ResolvesCurrentStore;
 use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
+use App\Models\Product;
 use App\Services\Admin\StoreContext;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PromptController extends Controller
@@ -104,6 +107,83 @@ class PromptController extends Controller
         return redirect()->route('admin.store.marketing.prompts.index')->with('success', 'Prompt eliminado.');
     }
 
+    public function generateFromProduct(
+        Request $request,
+        StoreContext $storeContext,
+        ProductVideoPromptService $generator
+    ): JsonResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        $data = $request->validate([
+            'product_id' => ['required', 'integer'],
+            'video_length' => ['nullable', 'integer', 'min:9', 'max:30'],
+            'language' => ['nullable', 'string', 'max:16'],
+            'target_platform' => ['nullable', 'in:Tiktok,Meta'],
+            'save' => ['nullable', 'boolean'],
+            'campaign_id' => ['nullable', 'integer'],
+        ]);
+
+        $product = Product::query()
+            ->where('store_id', $store->id)
+            ->where('id', $data['product_id'])
+            ->firstOrFail();
+
+        $result = $generator->generate($store, $product, [
+            'video_length' => (int) ($data['video_length'] ?? 15),
+            'language' => $data['language'] ?? 'es',
+            'target_platform' => $data['target_platform'] ?? 'Tiktok',
+        ]);
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'ok' => false,
+                'message' => $result['error'] ?? 'No se pudo generar el prompt.',
+            ], 422);
+        }
+
+        $promptId = null;
+        if ($request->boolean('save')) {
+            $campaignId = $data['campaign_id'] ?? null;
+            if ($campaignId) {
+                $exists = MarketingCampaign::query()
+                    ->where('store_id', $store->id)
+                    ->where('id', $campaignId)
+                    ->exists();
+                if (! $exists) {
+                    $campaignId = null;
+                }
+            }
+
+            $row = MarketingPrompt::create([
+                'store_id' => $store->id,
+                'campaign_id' => $campaignId,
+                'product_id' => $product->id,
+                'name' => $result['prompt']['name'],
+                'hook' => $result['prompt']['hook'],
+                'script' => $result['prompt']['script'],
+                'segments' => $result['segments'] ?? [],
+                'analysis' => $result['analysis'] ?? [],
+                'audience' => $result['prompt']['audience'] ?? null,
+                'language' => $result['prompt']['language'] ?? 'es',
+                'style' => $result['prompt']['style'] ?? 'DynamicProductTemplate',
+                'target_platform' => $result['prompt']['target_platform'] ?? 'Tiktok',
+            ]);
+            $promptId = $row->id;
+        }
+
+        return response()->json([
+            'ok' => true,
+            'prompt' => $result['prompt'],
+            'analysis' => $result['analysis'],
+            'segments' => $result['segments'],
+            'media' => $result['media'],
+            'prompt_id' => $promptId,
+            'product' => [
+                'id' => $product->id,
+                'name' => $product->localizedName(),
+            ],
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -118,12 +198,39 @@ class PromptController extends Controller
             'style' => ['nullable', 'string', 'max:80'],
             'target_platform' => ['required', 'in:Tiktok,Meta'],
             'campaign_id' => ['nullable', 'integer'],
+            'product_id' => ['nullable', 'integer'],
+            'segments' => ['nullable'],
+            'analysis' => ['nullable'],
         ]);
         $cid = $data['campaign_id'] ?? null;
         if ($cid) {
             $ok = MarketingCampaign::query()->where('store_id', $storeId)->where('id', $cid)->exists();
             if (! $ok) {
                 $data['campaign_id'] = null;
+            }
+        }
+        $pid = $data['product_id'] ?? null;
+        if ($pid) {
+            $ok = Product::query()->where('store_id', $storeId)->where('id', $pid)->exists();
+            if (! $ok) {
+                $data['product_id'] = null;
+            }
+        }
+        foreach (['segments', 'analysis'] as $jsonKey) {
+            if (! isset($data[$jsonKey])) {
+                continue;
+            }
+            if (is_string($data[$jsonKey])) {
+                $trim = trim($data[$jsonKey]);
+                if ($trim === '') {
+                    $data[$jsonKey] = null;
+
+                    continue;
+                }
+                $decoded = json_decode($trim, true);
+                $data[$jsonKey] = is_array($decoded) ? $decoded : null;
+            } elseif (! is_array($data[$jsonKey])) {
+                $data[$jsonKey] = null;
             }
         }
 

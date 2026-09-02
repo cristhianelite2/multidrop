@@ -7,8 +7,10 @@ use App\Http\Controllers\Admin\Concerns\ResolvesCurrentStore;
 use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
+use App\Models\Product;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignService;
+use App\Services\Marketing\ProductMarketingMediaService;
 use App\Services\Marketing\VideoIngestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +23,8 @@ class CreatifyController extends Controller
         Request $request,
         StoreContext $storeContext,
         CreatifyClient $client,
-        CampaignService $campaigns
+        CampaignService $campaigns,
+        ProductMarketingMediaService $productMedia
     ): JsonResponse {
         $store = $this->currentStoreOrFail($storeContext);
         if (! $client->configured()) {
@@ -38,13 +41,27 @@ class CreatifyController extends Controller
         $prompt = MarketingPrompt::query()
             ->where('store_id', $store->id)
             ->where('id', $data['prompt_id'])
+            ->with('product')
             ->firstOrFail();
+
+        $product = $prompt->product_id
+            ? Product::query()->where('store_id', $store->id)->where('id', $prompt->product_id)->first()
+            : null;
 
         $url = $campaign->landing_url
             ?: ($campaign->landing_handle ? $campaigns->urlForHandle($store, (string) $campaign->landing_handle) : $store->publicUrl());
+        if ($product) {
+            $url = $productMedia->productPageUrl($store, $product);
+        }
 
         try {
-            $link = $client->createLink($url, $store->name.' · '.$campaign->name);
+            if ($product) {
+                $linkPayload = $productMedia->creatifyLinkPayload($store, $product);
+                $linkPayload['url'] = $url;
+                $link = $client->createLinkWithParams($linkPayload);
+            } else {
+                $link = $client->createLink($url, $store->name.' · '.$campaign->name);
+            }
             $linkId = (string) ($link['id'] ?? '');
             if ($linkId === '') {
                 return response()->json(['ok' => false, 'message' => 'Creatify no devolvió id de enlace.'], 502);
@@ -66,7 +83,7 @@ class CreatifyController extends Controller
                 'override_script' => $script,
                 'visual_style' => $prompt->style ?: null,
                 'aspect_ratio' => '9x16',
-                'video_length' => 15,
+                'video_length' => $prompt->videoLengthSeconds(),
             ]);
             $jobId = (string) ($job['id'] ?? '');
             if ($jobId === '') {

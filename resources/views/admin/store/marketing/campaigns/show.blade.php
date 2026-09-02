@@ -308,14 +308,75 @@
 
         {{-- Prompts --}}
         <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'prompts' ? '' : 'hidden' }}" data-tab-panel="prompts">
-            <p class="text-sm text-ink-soft/70">Los prompts son solo el combustible de Creatify. El anuncio real vive en <strong>Videos</strong>.</p>
+            <p class="text-sm text-ink-soft/70">Los prompts alimentan Creatify. Genera uno con IA analizando un producto (imágenes, videos, reseñas) en segmentos de 3 segundos.</p>
+
+            <div class="rounded-xl border border-teal/30 bg-teal/5 p-4 space-y-4" id="md-ai-prompt-box">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h3 class="font-semibold text-ink">Generar prompt con MIIA</h3>
+                    <span class="text-xs text-ink-soft/55">Segmentos máx. 3s · TikTok / Creatify</span>
+                </div>
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div class="sm:col-span-2">
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Producto</label>
+                        <select id="md-ai-product" class="admin-input">
+                            <option value="">— Elige un producto —</option>
+                            @foreach($catalogProducts as $prod)
+                                <option value="{{ $prod->id }}">{{ $prod->name }} @if($prod->status !== 'live')({{ $prod->status }})@endif</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Duración objetivo</label>
+                        <select id="md-ai-length" class="admin-input">
+                            <option value="15">15 s (5 segmentos)</option>
+                            <option value="18">18 s (6 segmentos)</option>
+                            <option value="21">21 s (7 segmentos)</option>
+                            <option value="24">24 s (8 segmentos)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Idioma</label>
+                        <input type="text" id="md-ai-language" value="es" class="admin-input" maxlength="16">
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" class="admin-btn" id="md-ai-generate">Analizar producto y generar</button>
+                    <button type="button" class="admin-btn-secondary hidden" id="md-ai-save">Guardar en esta campaña</button>
+                    <button type="button" class="admin-btn-secondary hidden" id="md-ai-creatify" @disabled(! $creatify['ok'])>Guardar y enviar a Creatify</button>
+                </div>
+                <p class="text-sm text-ink-soft/70" id="md-ai-msg"></p>
+                <div id="md-ai-analysis" class="hidden rounded-lg border border-line bg-white/60 p-3 text-sm space-y-1"></div>
+                <div id="md-ai-segments-wrap" class="hidden overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-ink-soft/60 border-b border-line">
+                                <th class="py-2 pr-2">Tiempo</th>
+                                <th class="py-2 pr-2">Tipo</th>
+                                <th class="py-2 pr-2">Voz</th>
+                                <th class="py-2">Visual</th>
+                            </tr>
+                        </thead>
+                        <tbody id="md-ai-segments"></tbody>
+                    </table>
+                </div>
+            </div>
 
             @forelse($campaign->prompts as $p)
                 <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-line p-4">
                     <div class="min-w-0">
                         <div class="font-semibold text-ink">{{ $p->name }}</div>
                         <p class="mt-1 text-sm text-ink-soft/70">{{ $p->hook ?: \Illuminate\Support\Str::limit($p->script, 120) }}</p>
-                        <p class="mt-1 text-xs text-ink-soft/50">{{ $p->target_platform }} · {{ $p->language }}</p>
+                        <p class="mt-1 text-xs text-ink-soft/50">
+                            {{ $p->target_platform }} · {{ $p->language }}
+                            @if($p->product)
+                                · {{ \Illuminate\Support\Str::limit($p->product->name, 40) }}
+                            @elseif($p->product_id)
+                                · Producto #{{ $p->product_id }}
+                            @endif
+                            @if(is_array($p->segments) && count($p->segments))
+                                · {{ count($p->segments) }} segmentos
+                            @endif
+                        </p>
                     </div>
                     <div class="flex gap-2">
                         <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.edit', $p) }}">Editar</a>
@@ -329,26 +390,29 @@
                 <p class="text-sm text-ink-soft/60">Ningún prompt en esta campaña. Si ya tienes el video, no hace falta.</p>
             @endforelse
 
-            <form method="post" action="{{ route('admin.store.marketing.prompts.store') }}" class="space-y-3 rounded-xl border border-dashed border-line p-4">
+            <form method="post" action="{{ route('admin.store.marketing.prompts.store') }}" class="space-y-3 rounded-xl border border-dashed border-line p-4" id="md-prompt-form">
                 @csrf
                 <input type="hidden" name="campaign_id" value="{{ $campaign->id }}">
-                <h3 class="font-semibold text-ink">Añadir prompt</h3>
+                <input type="hidden" name="product_id" id="md-prompt-product-id" value="">
+                <input type="hidden" name="segments" id="md-prompt-segments" value="">
+                <input type="hidden" name="analysis" id="md-prompt-analysis" value="">
+                <h3 class="font-semibold text-ink">Añadir prompt manualmente</h3>
                 <div class="grid gap-3 sm:grid-cols-2">
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
-                        <input type="text" name="name" class="admin-input" required maxlength="120" placeholder="Hook problema + CTA">
+                        <input type="text" name="name" id="md-prompt-name" class="admin-input" required maxlength="120" placeholder="Hook problema + CTA">
                     </div>
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Hook</label>
-                        <input type="text" name="hook" class="admin-input" maxlength="240">
+                        <input type="text" name="hook" id="md-prompt-hook" class="admin-input" maxlength="240">
                     </div>
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Script</label>
-                        <textarea name="script" class="admin-input" rows="4" required maxlength="4000"></textarea>
+                        <textarea name="script" id="md-prompt-script" class="admin-input" rows="6" required maxlength="4000"></textarea>
                     </div>
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Audiencia</label>
-                        <input type="text" name="audience" class="admin-input" maxlength="240">
+                        <input type="text" name="audience" id="md-prompt-audience" class="admin-input" maxlength="240">
                     </div>
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Plataforma</label>
@@ -363,7 +427,7 @@
                     </div>
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Estilo Creatify</label>
-                        <input type="text" name="style" value="DynamicProductTemplate" class="admin-input" maxlength="80">
+                        <input type="text" name="style" id="md-prompt-style" value="DynamicProductTemplate" class="admin-input" maxlength="80">
                     </div>
                 </div>
                 <button class="admin-btn">Añadir a esta campaña</button>
@@ -562,49 +626,171 @@
     });
   }
 
-  var go = document.getElementById('md-cf-go');
-  var msg = document.getElementById('md-cf-msg');
-  if (!go) return;
   var campaignId = @json($campaign->id);
   var csrf = document.querySelector('meta[name="csrf-token"]');
   var token = csrf ? csrf.getAttribute('content') : '';
-  function say(t) { if (msg) msg.textContent = t; }
+
   function adsUrl() {
     var url = new URL(window.location.href);
     url.searchParams.set('tab', 'ads');
     return url.toString();
   }
-  function poll(jobId, promptId) {
+  function pollCreatify(jobId, promptId, onMsg, onDone) {
     fetch(@json(route('admin.store.marketing.creatify.poll')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
       body: JSON.stringify({ job_id: jobId, campaign_id: campaignId, prompt_id: promptId })
     }).then(function (r) { return r.json(); }).then(function (res) {
-      if (!res.ok) { say(res.message || 'Error'); go.disabled = false; return; }
+      if (!res.ok) { if (onDone) onDone(res.message || 'Error'); return; }
       if (res.status === 'done') {
-        say('Video listo. Recargando…');
+        if (onMsg) onMsg('Video listo. Recargando…');
         window.location.href = adsUrl();
         return;
       }
-      say('Generando… ' + (res.progress || 0) + '% (' + (res.status || 'pending') + ')');
-      setTimeout(function () { poll(jobId, promptId); }, 4000);
-    }).catch(function () { say('Error de red al consultar el job'); go.disabled = false; });
+      if (onMsg) onMsg('Generando… ' + (res.progress || 0) + '% (' + (res.status || 'pending') + ')');
+      setTimeout(function () { pollCreatify(jobId, promptId, onMsg, onDone); }, 4000);
+    }).catch(function () { if (onDone) onDone('Error de red al consultar el job'); });
   }
-  go.addEventListener('click', function () {
-    var promptId = document.getElementById('md-cf-prompt').value;
-    if (!promptId) { say('Elige un prompt.'); return; }
-    go.disabled = true;
-    say('Enviando a Creatify…');
+  function startCreatify(promptId, onMsg, onDone) {
     fetch(@json(route('admin.store.marketing.creatify.generate')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
       body: JSON.stringify({ campaign_id: campaignId, prompt_id: promptId })
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (pack) {
-      if (!pack.j.ok) { say(pack.j.message || 'No se pudo generar'); go.disabled = false; return; }
-      say('Job ' + pack.j.job_id + '…');
-      poll(pack.j.job_id, promptId);
-    }).catch(function () { say('Error de red'); go.disabled = false; });
-  });
+      if (!pack.j.ok) { if (onDone) onDone(pack.j.message || 'No se pudo generar'); return; }
+      if (onMsg) onMsg('Job ' + pack.j.job_id + '…');
+      pollCreatify(pack.j.job_id, promptId, onMsg, onDone);
+    }).catch(function () { if (onDone) onDone('Error de red'); });
+  }
+
+  var go = document.getElementById('md-cf-go');
+  var cfMsg = document.getElementById('md-cf-msg');
+  if (go) {
+    go.addEventListener('click', function () {
+      var promptId = document.getElementById('md-cf-prompt').value;
+      if (!promptId) { if (cfMsg) cfMsg.textContent = 'Elige un prompt.'; return; }
+      go.disabled = true;
+      if (cfMsg) cfMsg.textContent = 'Enviando a Creatify…';
+      startCreatify(promptId, function (t) { if (cfMsg) cfMsg.textContent = t; }, function (err) {
+        if (cfMsg) cfMsg.textContent = err;
+        go.disabled = false;
+      });
+    });
+  }
+
+  var aiState = { productId: null, segments: [], analysis: {}, prompt: null, savedPromptId: null };
+  var aiGen = document.getElementById('md-ai-generate');
+  var aiSave = document.getElementById('md-ai-save');
+  var aiCf = document.getElementById('md-ai-creatify');
+  var aiMsg = document.getElementById('md-ai-msg');
+
+  function fillPromptForm(data) {
+    var map = {
+      'md-prompt-name': data.name || '',
+      'md-prompt-hook': data.hook || '',
+      'md-prompt-script': data.script || '',
+      'md-prompt-audience': data.audience || '',
+      'md-prompt-style': data.style || 'DynamicProductTemplate',
+      'md-prompt-product-id': aiState.productId || ''
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.value = map[id];
+    });
+    var segEl = document.getElementById('md-prompt-segments');
+    var anaEl = document.getElementById('md-prompt-analysis');
+    if (segEl) segEl.value = JSON.stringify(aiState.segments || []);
+    if (anaEl) anaEl.value = JSON.stringify(aiState.analysis || {});
+  }
+
+  function renderAiPreview(res) {
+    var analysisBox = document.getElementById('md-ai-analysis');
+    var segWrap = document.getElementById('md-ai-segments-wrap');
+    var segBody = document.getElementById('md-ai-segments');
+    if (analysisBox && res.analysis) {
+      analysisBox.classList.remove('hidden');
+      analysisBox.innerHTML =
+        '<div><strong>Resumen:</strong> ' + (res.analysis.summary || '—') + '</div>' +
+        '<div><strong>Ángulo:</strong> ' + (res.analysis.product_angle || '—') + '</div>' +
+        '<div><strong>Formato:</strong> ' + (res.analysis.recommended_format || 'mixed') + '</div>';
+    }
+    if (segBody && res.segments) {
+      segBody.innerHTML = '';
+      res.segments.forEach(function (s) {
+        var tr = document.createElement('tr');
+        tr.className = 'border-b border-line/60';
+        tr.innerHTML =
+          '<td class="py-2 pr-2 whitespace-nowrap">' + (s.start ?? 0) + '–' + (s.end ?? 0) + 's</td>' +
+          '<td class="py-2 pr-2">' + (s.type || '') + '</td>' +
+          '<td class="py-2 pr-2">' + (s.voiceover || '') + '</td>' +
+          '<td class="py-2 text-ink-soft/70">' + (s.visual || '') + '</td>';
+        segBody.appendChild(tr);
+      });
+      if (segWrap) segWrap.classList.remove('hidden');
+    }
+    if (aiSave) aiSave.classList.remove('hidden');
+    if (aiCf) aiCf.classList.remove('hidden');
+  }
+
+  function callAiGenerate(save, sendCreatify) {
+    var productId = document.getElementById('md-ai-product') && document.getElementById('md-ai-product').value;
+    if (!productId) { if (aiMsg) aiMsg.textContent = 'Elige un producto.'; return; }
+    var lengthEl = document.getElementById('md-ai-length');
+    var langEl = document.getElementById('md-ai-language');
+    if (aiGen) aiGen.disabled = true;
+    if (aiSave) aiSave.disabled = true;
+    if (aiCf) aiCf.disabled = true;
+    if (aiMsg) aiMsg.textContent = 'MIIA analizando producto (imágenes, datos, reseñas)… puede tardar 1–2 min.';
+    fetch(@json(route('admin.store.marketing.prompts.generate-from-product')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({
+        product_id: parseInt(productId, 10),
+        video_length: lengthEl ? parseInt(lengthEl.value, 10) : 15,
+        language: langEl ? langEl.value : 'es',
+        target_platform: 'Tiktok',
+        save: !!save,
+        campaign_id: campaignId
+      })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (pack) {
+      if (aiGen) aiGen.disabled = false;
+      if (aiSave) aiSave.disabled = false;
+      if (aiCf) aiCf.disabled = false;
+      if (!pack.j.ok) { if (aiMsg) aiMsg.textContent = pack.j.message || 'Error al generar'; return; }
+      aiState.productId = productId;
+      aiState.segments = pack.j.segments || [];
+      aiState.analysis = pack.j.analysis || {};
+      aiState.prompt = pack.j.prompt || {};
+      aiState.savedPromptId = pack.j.prompt_id || aiState.savedPromptId;
+      fillPromptForm(pack.j.prompt || {});
+      renderAiPreview(pack.j);
+      var media = pack.j.media || {};
+      var extra = (media.image_urls && media.image_urls.length ? ' · ' + media.image_urls.length + ' imgs' : '') +
+        (media.video_urls && media.video_urls.length ? ' · ' + media.video_urls.length + ' videos' : '');
+      if (aiMsg) aiMsg.textContent = 'Prompt listo para ' + (pack.j.product && pack.j.product.name ? pack.j.product.name : 'producto') + extra + (pack.j.prompt_id ? ' · Guardado #' + pack.j.prompt_id : '');
+      if (save && pack.j.prompt_id && sendCreatify && aiCf) {
+        if (aiMsg) aiMsg.textContent = 'Prompt guardado. Enviando a Creatify…';
+        aiCf.disabled = true;
+        startCreatify(pack.j.prompt_id, function (t) { if (aiMsg) aiMsg.textContent = t; }, function (err) {
+          if (aiMsg) aiMsg.textContent = err;
+          aiCf.disabled = false;
+        });
+      } else if (save && pack.j.prompt_id && !sendCreatify) {
+        window.location.reload();
+      } else if (save && !pack.j.prompt_id) {
+        window.location.reload();
+      }
+    }).catch(function () {
+      if (aiGen) aiGen.disabled = false;
+      if (aiSave) aiSave.disabled = false;
+      if (aiCf) aiCf.disabled = false;
+      if (aiMsg) aiMsg.textContent = 'Error de red';
+    });
+  }
+
+  if (aiGen) aiGen.addEventListener('click', function () { callAiGenerate(false, false); });
+  if (aiSave) aiSave.addEventListener('click', function () { callAiGenerate(true, false); });
+  if (aiCf) aiCf.addEventListener('click', function () { callAiGenerate(true, true); });
 })(jQuery);
 </script>
 @endpush

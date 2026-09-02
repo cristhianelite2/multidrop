@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\Concerns\ResolvesCurrentStore;
 use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
+use App\Models\Product;
 use App\Models\Store;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignOptimizerService;
@@ -84,7 +85,7 @@ class CampaignController extends Controller
     ) {
         $store = $this->currentStoreOrFail($storeContext);
         $this->assertStore($store->id, $campaign->store_id);
-        $campaign->load(['videos.prompt', 'prompts']);
+        $campaign->load(['videos.prompt', 'prompts.product']);
 
         return view('admin.store.marketing.campaigns.show', [
             'store' => $store,
@@ -99,6 +100,11 @@ class CampaignController extends Controller
             'ffmpeg' => $ingest->ffmpegAvailable(),
             'maxMb' => (int) config('multidrop.marketing.max_video_mb', 80),
             'libraryPrompts' => MarketingPrompt::query()->where('store_id', $store->id)->orderBy('name')->get(['id', 'name', 'campaign_id']),
+            'catalogProducts' => Product::query()
+                ->where('store_id', $store->id)
+                ->orderByDesc('id')
+                ->limit(200)
+                ->get(['id', 'name', 'slug', 'image_url', 'status']),
             'sellercentralEmbedUrl' => $this->sellercentralEmbedUrl($store),
             'tab' => (string) request('tab', 'resumen'),
         ]);

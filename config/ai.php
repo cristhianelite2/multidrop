@@ -95,6 +95,12 @@ return [
             'kind' => 'chat',
             'default_engine' => 'free',
         ],
+        'product_video_prompt' => [
+            'label' => 'Prompt TikTok por producto',
+            'hint' => 'Guion segmentado (3s) para Creatify',
+            'kind' => 'chat',
+            'default_engine' => 'free',
+        ],
         'store_seo' => [
             'label' => 'SEO de tienda',
             'hint' => 'Título, meta, slogan y about',

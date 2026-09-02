@@ -39,6 +39,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - **Fix message port closed** (v1.0.9): no serializar runParams completo; lectura rápida en background y fetch de extract desde el popup; snapshot-only para videos.
 - **Fix extract solo videos:** sin error `shipping_price` ni lógica de envío/descripción al importar únicamente videos o imágenes.
 - **Extensión Hunter 1.1.1:** menú contextual resuelve thumb del carrusel AE/CJ a imagen grande (`imagePathList` / visor principal) antes de importar.
+- **Galería admin:** reordenar y quitar imágenes y videos con ↑ ↓, arrastrar (⋮⋮) o ×; controles siempre visibles.
 - Endpoint `plugin-import-image` para importar una sola imagen desde URL al producto seleccionado en el plugin.
 
 ## 2026-08-31

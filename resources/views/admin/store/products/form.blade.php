@@ -742,6 +742,7 @@
                         <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra para reordenar. Usa ↑ ↓ o quita con ×. Guarda el producto para aplicar cambios.</p>
                 <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-images-grid" class="flex flex-wrap gap-2 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
                 <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
@@ -764,6 +765,7 @@
                         <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra para reordenar o usa ↑ ↓. Quita con ×. Guarda el producto para aplicar cambios.</p>
                 <p id="product-video-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-videos-list" class="grid gap-4 sm:grid-cols-2"></div>
                 <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Sube un archivo MP4/WebM o pega la URL del marketplace.</p>
@@ -2033,6 +2035,14 @@
     return url;
   }
 
+  function moveArrayItem(arr, from, to) {
+    if (!arr || from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return;
+    var item = arr.splice(from, 1)[0];
+    arr.splice(to, 0, item);
+  }
+
+  var mediaDragFrom = -1;
+
   function syncMediaHiddenInputs() {
     var $imgHidden = $('#verified-images-hidden').empty();
     verifiedImagesData.forEach(function (url, i) {
@@ -2055,6 +2065,17 @@
     return true;
   }
 
+  function removeImageAt(index) {
+    var removed = verifiedImagesData[index];
+    verifiedImagesData.splice(index, 1);
+    var main = String($('input[name=image_url]').val() || '').trim();
+    if (removed && main === removed) {
+      $('input[name=image_url]').val(verifiedImagesData[0] || '');
+      updateMainImagePathRow();
+    }
+    renderProductImages();
+  }
+
   function renderProductImages() {
     var $grid = $('#product-images-grid').empty();
     var main = String($('input[name=image_url]').val() || '').trim();
@@ -2064,13 +2085,15 @@
       var isMain = main !== '' && main === url;
       var paths = mediaPaths(url);
       var $item = $(
-        '<div class="product-image-item w-40 shrink-0" data-index="' + i + '">' +
+        '<div class="product-image-item js-media-drag-item w-40 shrink-0" data-index="' + i + '" draggable="true">' +
           '<div class="relative h-24 w-full overflow-hidden rounded-lg border border-line bg-mist group">' +
-          (isMain ? '<span class="absolute left-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
+          '<span class="absolute left-1 top-1 z-10 rounded bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-white">' + (i + 1) + '</span>' +
+          (isMain ? '<span class="absolute right-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
+          '<button type="button" class="js-media-drag-handle absolute left-1 bottom-8 z-10 cursor-grab rounded bg-ink/70 px-1 py-0.5 text-[10px] text-white active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
           '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
             '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
           '</button>' +
-          '<div class="absolute inset-x-0 bottom-0 flex gap-1 bg-ink/70 p-1 opacity-0 transition group-hover:opacity-100">' +
+          '<div class="absolute inset-x-0 bottom-0 flex gap-1 bg-ink/75 p-1">' +
             '<button type="button" class="js-img-main flex-1 rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Usar como imagen principal">★</button>' +
             '<button type="button" class="js-img-up rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover antes">↑</button>' +
             '<button type="button" class="js-img-down rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover después">↓</button>' +
@@ -2098,7 +2121,18 @@
       var urlPaths = mediaPaths(url);
       var coverPaths = mediaPaths(cover);
       var $card = $(
-        '<div class="product-video-item overflow-hidden rounded-xl border border-line bg-white" data-index="' + i + '">' +
+        '<div class="product-video-item js-media-drag-item overflow-hidden rounded-xl border border-line bg-white" data-index="' + i + '" draggable="true">' +
+          '<div class="flex items-center justify-between gap-2 border-b border-line bg-mist/30 px-3 py-2">' +
+            '<div class="flex items-center gap-2 min-w-0">' +
+              '<button type="button" class="js-media-drag-handle shrink-0 cursor-grab rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
+              '<span class="truncate text-xs font-semibold text-ink">Video ' + (i + 1) + '</span>' +
+            '</div>' +
+            '<div class="flex shrink-0 items-center gap-1">' +
+              '<button type="button" class="js-vid-up rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft hover:bg-mist" title="Mover antes">↑</button>' +
+              '<button type="button" class="js-vid-down rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft hover:bg-mist" title="Mover después">↓</button>' +
+              '<button type="button" class="js-vid-del rounded border border-coral/30 bg-coral/10 px-1.5 py-0.5 text-[10px] text-coral hover:bg-coral/20" title="Quitar">×</button>' +
+            '</div>' +
+          '</div>' +
           '<div class="bg-ink/95">' +
             (play
               ? '<video class="mx-auto max-h-56 w-full" controls playsinline preload="metadata"' + posterAttr + ' src="' + escapeHtml(play) + '"></video>'
@@ -2115,7 +2149,6 @@
               '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(cover) + '" placeholder="https://…"></div>' +
             '</div>' +
             (cover ? mediaPathActionsHtml(coverPaths).replace('mt-1.5', 'mt-0') : '') +
-            '<div class="flex justify-end"><button type="button" class="js-vid-del text-xs text-coral hover:underline">Quitar video</button></div>' +
           '</div>' +
         '</div>'
       );
@@ -2154,8 +2187,7 @@
   $('#product-images-grid').on('click', '.js-img-del', function (e) {
     e.stopPropagation();
     var i = Number($(this).closest('.product-image-item').attr('data-index'));
-    verifiedImagesData.splice(i, 1);
-    renderProductImages();
+    removeImageAt(i);
   });
   $('#product-images-grid').on('click', '.js-img-up', function (e) {
     e.stopPropagation();
@@ -2199,6 +2231,60 @@
     verifiedVideosData.splice(i, 1);
     renderProductVideos();
   });
+  $('#product-videos-list').on('click', '.js-vid-up', function () {
+    var i = Number($(this).closest('.product-video-item').attr('data-index'));
+    if (i <= 0) return;
+    moveArrayItem(verifiedVideosData, i, i - 1);
+    renderProductVideos();
+  });
+  $('#product-videos-list').on('click', '.js-vid-down', function () {
+    var i = Number($(this).closest('.product-video-item').attr('data-index'));
+    if (i >= verifiedVideosData.length - 1) return;
+    moveArrayItem(verifiedVideosData, i, i + 1);
+    renderProductVideos();
+  });
+
+  function bindMediaDragReorder($container, itemSelector, dataRef, renderFn) {
+    $container.on('dragstart', itemSelector, function (e) {
+      if ($(e.target).closest('.js-img-main, .js-img-up, .js-img-down, .js-img-del, .js-vid-up, .js-vid-down, .js-vid-del, .js-zoomable, input, textarea, select, a, video, label').length) {
+        e.preventDefault();
+        return;
+      }
+      mediaDragFrom = Number($(this).attr('data-index'));
+      if (isNaN(mediaDragFrom)) return;
+      e.originalEvent.dataTransfer.effectAllowed = 'move';
+      e.originalEvent.dataTransfer.setData('text/plain', String(mediaDragFrom));
+      $(this).addClass('opacity-60 ring-2 ring-teal/40');
+    });
+    $container.on('dragend', itemSelector, function () {
+      mediaDragFrom = -1;
+      $(itemSelector).removeClass('opacity-60 ring-2 ring-teal/40 ring-teal/50');
+    });
+    $container.on('dragover', itemSelector, function (e) {
+      if (mediaDragFrom < 0) return;
+      e.preventDefault();
+      $(this).addClass('ring-2 ring-teal/50');
+    });
+    $container.on('dragleave', itemSelector, function () {
+      $(this).removeClass('ring-2 ring-teal/50');
+    });
+    $container.on('drop', itemSelector, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      $(itemSelector).removeClass('ring-2 ring-teal/50');
+      var to = Number($(this).attr('data-index'));
+      if (mediaDragFrom < 0 || isNaN(to) || mediaDragFrom === to) {
+        mediaDragFrom = -1;
+        return;
+      }
+      moveArrayItem(dataRef, mediaDragFrom, to);
+      mediaDragFrom = -1;
+      renderFn();
+    });
+  }
+
+  bindMediaDragReorder($('#product-images-grid'), '.product-image-item', verifiedImagesData, renderProductImages);
+  bindMediaDragReorder($('#product-videos-list'), '.product-video-item', verifiedVideosData, renderProductVideos);
 
   $(document).on('click', '.js-copy-media', function (e) {
     e.preventDefault();
@@ -2313,14 +2399,22 @@
     uploadProductVideoFiles(this.files);
   });
   $('#product-images-grid').on('dragover', function (e) {
-    e.preventDefault();
-    $(this).addClass('ring-2 ring-teal/40');
-  }).on('dragleave drop', function (e) {
+    var dt = e.originalEvent && e.originalEvent.dataTransfer;
+    if (dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0) {
+      e.preventDefault();
+      $(this).addClass('ring-2 ring-teal/40');
+    }
+  }).on('dragleave', function (e) {
+    var dt = e.originalEvent && e.originalEvent.dataTransfer;
+    if (dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0) {
+      $(this).removeClass('ring-2 ring-teal/40');
+    }
+  }).on('drop', function (e) {
+    var dt = e.originalEvent && e.originalEvent.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
     e.preventDefault();
     $(this).removeClass('ring-2 ring-teal/40');
-    if (e.type === 'drop' && e.originalEvent && e.originalEvent.dataTransfer) {
-      uploadProductImageFiles(e.originalEvent.dataTransfer.files);
-    }
+    uploadProductImageFiles(dt.files);
   });
 
   if ($('#product-media-card').length) {

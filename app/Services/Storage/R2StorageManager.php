@@ -252,6 +252,23 @@ class R2StorageManager
         $store->save();
     }
 
+    public function decrementStoreStats(Store $store, int $bytes, string $type = 'image'): void
+    {
+        $settings = is_array($store->settings) ? $store->settings : [];
+        $storage = is_array($settings['storage'] ?? null) ? $settings['storage'] : [];
+        $storage['r2_bytes'] = max(0, (int) ($storage['r2_bytes'] ?? 0) - max(0, $bytes));
+        $storage['r2_files'] = max(0, (int) ($storage['r2_files'] ?? 0) - 1);
+        if ($type === 'video') {
+            $storage['r2_videos'] = max(0, (int) ($storage['r2_videos'] ?? 0) - 1);
+        } else {
+            $storage['r2_images'] = max(0, (int) ($storage['r2_images'] ?? 0) - 1);
+        }
+        $storage['r2_synced_at'] = now()->toIso8601String();
+        $settings['storage'] = $storage;
+        $store->settings = $settings;
+        $store->save();
+    }
+
     public function applyFromPlatformSettings(): void
     {
         $enabled = filter_var(PlatformSetting::getValue('storage.r2.enabled', '0'), FILTER_VALIDATE_BOOLEAN);

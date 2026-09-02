@@ -2,6 +2,7 @@
 
 namespace App\Services\Storage;
 
+use App\Jobs\DeleteProductMediaFromStorageJob;
 use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Http\UploadedFile;
@@ -562,20 +563,34 @@ class ProductMediaMirrorService
         }
 
         $product = $product->fresh() ?? $product;
-        $storageDeleted = false;
-        $r2Deleted = false;
-        if (! $this->isUrlReferencedByProduct($product, $url)) {
-            $storageDeleted = $this->deleteStoredMediaFile($product, $url);
-            $r2Deleted = $storageDeleted && MediaUrl::isMaskedUrl($url);
+        $queued = false;
+        if (! $this->isUrlReferencedByProduct($product, $url) && $this->shouldDeleteStoredMedia($url)) {
+            $this->queueMediaFileDeletion($product, $url);
+            $queued = true;
         }
 
         return [
             'success' => true,
-            'r2_deleted' => $r2Deleted,
-            'storage_deleted' => $storageDeleted,
+            'storage_delete_queued' => $queued,
             'image_url' => $product->image_url,
             'images' => array_values(is_array($product->verified_data['images'] ?? null) ? $product->verified_data['images'] : []),
         ];
+    }
+
+    public function shouldDeleteStoredMedia(string $url): bool
+    {
+        $url = trim($url);
+
+        return $url !== '' && (MediaUrl::isMaskedUrl($url) || $this->isLocalStorageUrl($url));
+    }
+
+    public function queueMediaFileDeletion(Product $product, string $url): void
+    {
+        if (! $this->shouldDeleteStoredMedia($url)) {
+            return;
+        }
+
+        DeleteProductMediaFromStorageJob::dispatch((int) $product->id, trim($url))->afterResponse();
     }
 
   /**
@@ -592,17 +607,18 @@ class ProductMediaMirrorService
             $after[$this->normalizeMediaUrl((string) $url)] = true;
         }
 
-        $deleted = [];
+        $queued = [];
         foreach ($before as $key => $url) {
             if (isset($after[$key])) {
                 continue;
             }
-            if ($this->deleteStoredMediaFile($product, $url)) {
-                $deleted[] = $url;
+            if ($this->shouldDeleteStoredMedia($url)) {
+                $this->queueMediaFileDeletion($product, $url);
+                $queued[] = $url;
             }
         }
 
-        return $deleted;
+        return $queued;
     }
 
     public function deleteStoredMediaFile(Product $product, string $url): bool
@@ -631,11 +647,19 @@ class ProductMediaMirrorService
                 return false;
             }
 
+            $size = 0;
+            try {
+                $size = (int) $this->r2->disk()->size($storagePath);
+            } catch (\Throwable) {
+                $size = 0;
+            }
+
             $deleted = $this->r2->disk()->delete($storagePath);
             if ($deleted) {
                 $store = $product->store ?: Store::query()->find($product->store_id);
                 if ($store) {
-                    $this->r2->refreshStoreStats($store);
+                    $type = str_contains($storagePath, '/videos/') ? 'video' : 'image';
+                    $this->r2->decrementStoreStats($store, $size, $type);
                 }
             }
 

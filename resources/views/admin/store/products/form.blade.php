@@ -744,7 +744,7 @@
                 </div>
                 <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada imagen (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
                 <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
-                <div id="product-images-grid" class="flex flex-wrap gap-3 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3 pr-4"></div>
+                <div id="product-images-grid" class="flex flex-wrap gap-3 min-h-[5rem] overflow-visible rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
                 <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
                 <div class="mt-3 flex flex-wrap items-end gap-2">
                     <div class="min-w-0 flex-1">
@@ -1991,9 +1991,8 @@
     var dl = url ? mediaDirectDownloadUrl(url) : '';
     var lines = [];
     var placement = opts.placement || (opts.openDown ? 'below' : 'right');
-    var panelPos = placement === 'below' ? 'top-full right-0 mt-1' : 'left-full top-0 ml-1';
     var panelMin = opts.panelMinWidth || (placement === 'below' ? '14.5rem' : '10.5rem');
-    var itemClass = 'js-media-menu-item block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist' + (placement === 'below' ? ' whitespace-nowrap' : '');
+    var itemClass = 'js-media-menu-item block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist whitespace-nowrap';
 
     if (opts.showMain) {
       lines.push('<button type="button" class="' + itemClass + ' js-img-main">★ Imagen principal</button>');
@@ -2014,21 +2013,72 @@
       }
     }
     if (opts.deleteClass) {
-      lines.push('<button type="button" class="js-media-menu-item ' + opts.deleteClass + ' block w-full border-t border-line px-3 py-2 text-left text-xs text-coral hover:bg-coral/10' + (placement === 'below' ? ' whitespace-nowrap' : '') + '">Quitar</button>');
+      lines.push('<button type="button" class="js-media-menu-item ' + opts.deleteClass + ' block w-full border-t border-line px-3 py-2 text-left text-xs text-coral hover:bg-coral/10 whitespace-nowrap">Quitar</button>');
     }
     if (!lines.length) return '';
 
     var triggerClass = opts.triggerClass || 'rounded bg-ink/75 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white hover:bg-ink';
     return '<div class="media-item-menu relative">' +
       '<button type="button" class="js-media-menu-trigger ' + triggerClass + '" title="Opciones">⋯</button>' +
-      '<div class="js-media-menu-panel absolute z-50 hidden overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg ' + panelPos + '" style="min-width:' + panelMin + '">' +
+      '<div class="js-media-menu-panel hidden overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg" data-placement="' + placement + '" data-panel-min="' + escapeHtml(panelMin) + '">' +
         lines.join('') +
       '</div>' +
     '</div>';
   }
 
+  var activeMediaMenuTrigger = null;
+  var activeMediaMenuPanel = null;
+
+  function positionMediaMenuPanel($trigger, $panel) {
+    if (!$trigger.length || !$panel.length) return;
+    var rect = $trigger[0].getBoundingClientRect();
+    var placement = String($panel.attr('data-placement') || 'right');
+    var minW = String($panel.attr('data-panel-min') || '10.5rem');
+    $panel.css({
+      position: 'fixed',
+      zIndex: 10050,
+      minWidth: minW,
+      maxHeight: 'calc(100vh - 16px)',
+      overflowY: 'auto'
+    });
+    $panel.removeClass('hidden');
+    var panelW = $panel.outerWidth();
+    var panelH = $panel.outerHeight();
+    var top;
+    var left;
+    if (placement === 'below') {
+      top = rect.bottom + 6;
+      left = rect.right - panelW;
+      if (left < 8) left = 8;
+      if (top + panelH > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - panelH - 6);
+      }
+    } else {
+      top = rect.top + (rect.height / 2) - (panelH / 2);
+      left = rect.right + 8;
+      if (left + panelW > window.innerWidth - 8) {
+        left = rect.left - panelW - 8;
+      }
+      if (top < 8) top = 8;
+      if (top + panelH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - panelH - 8);
+      }
+    }
+    $panel.css({ top: top + 'px', left: left + 'px' });
+  }
+
   function closeAllMediaMenus() {
-    $('.js-media-menu-panel').addClass('hidden');
+    $('.js-media-menu-panel').each(function () {
+      var $panel = $(this);
+      $panel.addClass('hidden').css({ position: '', top: '', left: '', zIndex: '', minWidth: '', maxHeight: '', overflowY: '' });
+      var $home = $panel.data('media-menu-home');
+      if ($home && $home.length) {
+        $home.append($panel);
+        $panel.removeData('media-menu-home');
+      }
+    });
+    activeMediaMenuTrigger = null;
+    activeMediaMenuPanel = null;
   }
 
   function updateMainImagePathRow() {
@@ -2111,6 +2161,7 @@
   }
 
   function renderProductImages() {
+    closeAllMediaMenus();
     var $grid = $('#product-images-grid').empty();
     var main = String($('input[name=image_url]').val() || '').trim();
     var has = verifiedImagesData.length > 0;
@@ -2124,11 +2175,7 @@
           '<span class="absolute left-1 top-1 z-10 rounded bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-white">' + (i + 1) + '</span>' +
           (isMain ? '<span class="absolute right-8 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
           '<button type="button" class="js-media-drag-handle absolute left-1 bottom-1 z-10 cursor-grab rounded bg-ink/70 px-1 py-0.5 text-[10px] text-white active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
-          '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
-            '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
-          '</button>' +
-          '</div>' +
-          '<div class="absolute -right-1 top-1/2 z-30 -translate-y-1/2 translate-x-1/2">' +
+          '<div class="absolute right-1 top-1 z-30">' +
             mediaItemMenuHtml({
               paths: paths,
               showMain: !isMain,
@@ -2136,6 +2183,10 @@
               deleteClass: 'js-img-del',
               placement: 'right'
             }) +
+          '</div>' +
+          '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
+            '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
+          '</button>' +
           '</div>' +
         '</div>'
       );
@@ -2145,6 +2196,7 @@
   }
 
   function renderProductVideos() {
+    closeAllMediaMenus();
     var $list = $('#product-videos-list').empty();
     var has = verifiedVideosData.length > 0;
     $('#product-videos-empty').toggleClass('hidden', has);
@@ -2334,18 +2386,32 @@
   $(document).on('click', '.js-media-menu-trigger', function (e) {
     e.preventDefault();
     e.stopPropagation();
-    var $panel = $(this).closest('.media-item-menu').find('.js-media-menu-panel');
+    var $trigger = $(this);
+    var $menu = $trigger.closest('.media-item-menu');
+    var $panel = $menu.find('.js-media-menu-panel');
     var willOpen = $panel.hasClass('hidden');
     closeAllMediaMenus();
-    if (willOpen) {
-      $panel.removeClass('hidden');
-    }
+    if (!willOpen) return;
+    $panel.data('media-menu-home', $menu);
+    $('body').append($panel);
+    positionMediaMenuPanel($trigger, $panel);
+    activeMediaMenuTrigger = $trigger;
+    activeMediaMenuPanel = $panel;
   });
   $(document).on('click', function () {
     closeAllMediaMenus();
   });
   $(document).on('click', '.js-media-menu-panel', function (e) {
     e.stopPropagation();
+  });
+  $(document).on('click', '.js-media-menu-item', function () {
+    if ($(this).hasClass('js-download-media')) return;
+    setTimeout(closeAllMediaMenus, 0);
+  });
+  $(window).on('scroll resize', function () {
+    if (!activeMediaMenuTrigger || !activeMediaMenuPanel) return;
+    if (activeMediaMenuPanel.hasClass('hidden')) return;
+    positionMediaMenuPanel(activeMediaMenuTrigger, activeMediaMenuPanel);
   });
 
   $(document).on('click', '.js-copy-media', function (e) {

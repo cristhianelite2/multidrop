@@ -86,10 +86,21 @@ class MiiaProvider implements AiProviderInterface
             }
 
             $json = $response->json();
+            $content = $json['choices'][0]['message']['content'] ?? '';
+            if (! is_string($content)) {
+                $content = is_scalar($content) ? (string) $content : '';
+            }
+            // Conservar UTF-8 válido; solo descartar bytes rotos (nunca reinterpretar Latin-1 entero)
+            if ($content !== '' && ! mb_check_encoding($content, 'UTF-8')) {
+                $stripped = @iconv('UTF-8', 'UTF-8//IGNORE', $content);
+                if (is_string($stripped)) {
+                    $content = $stripped;
+                }
+            }
 
             return [
                 'success' => true,
-                'content' => $json['choices'][0]['message']['content'] ?? '',
+                'content' => $content,
                 'raw' => $json,
                 'provider' => $this->name(),
             ];

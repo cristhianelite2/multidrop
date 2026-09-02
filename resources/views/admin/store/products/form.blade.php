@@ -1345,8 +1345,9 @@
       method: 'POST',
       dataType: 'json',
       timeout: 120000,
+      contentType: 'application/json; charset=UTF-8',
       headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
-      data: { _token: csrf, name: name, slug: slug, details: details }
+      data: JSON.stringify({ name: name, slug: slug, details: details })
     }).done(function (res) {
       if (res && res.success && res.description) {
         $('#field-description').val(String(res.description)).trigger('input');

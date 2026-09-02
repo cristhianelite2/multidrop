@@ -742,7 +742,7 @@
                         <button type="button" id="btn-add-image-url" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
-                <p class="mb-2 text-xs text-ink-soft/55">Arrastra para reordenar. Usa ↑ ↓ o quita con ×. Guarda el producto para aplicar cambios.</p>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada imagen (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
                 <p id="product-image-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-images-grid" class="flex flex-wrap gap-2 min-h-[5rem] rounded-xl border border-dashed border-line bg-mist/20 p-3"></div>
                 <p id="product-images-empty" class="mt-2 text-sm text-ink-soft/55 {{ count($editableImages) ? 'hidden' : '' }}">Sin imágenes en la galería. Sube un archivo, añade una URL o importa desde el marketplace.</p>
@@ -765,7 +765,7 @@
                         <button type="button" id="btn-add-video-row" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Añadir URL</button>
                     </div>
                 </div>
-                <p class="mb-2 text-xs text-ink-soft/55">Arrastra para reordenar o usa ↑ ↓. Quita con ×. Guarda el producto para aplicar cambios.</p>
+                <p class="mb-2 text-xs text-ink-soft/55">Arrastra con ⋮⋮ o usa el menú ⋯ de cada video (mover, copiar, descargar, quitar). Guarda el producto para aplicar.</p>
                 <p id="product-video-upload-status" class="mb-2 hidden text-xs text-ink-soft/60"></p>
                 <div id="product-videos-list" class="grid gap-4 sm:grid-cols-2"></div>
                 <p id="product-videos-empty" class="text-sm text-ink-soft/55 {{ count($editableVideos) ? 'hidden' : '' }}">Sin videos. Sube un archivo MP4/WebM o pega la URL del marketplace.</p>
@@ -1984,17 +1984,48 @@
     return url;
   }
 
-  function mediaPathActionsHtml(paths) {
-    if (!paths.url) return '';
-    var dl = mediaDirectDownloadUrl(paths.url);
-    return '<div class="mt-1.5 space-y-1">' +
-      '<p class="media-path-label truncate font-mono text-[9px] leading-tight text-ink-soft/70" title="' + escapeHtml(paths.label) + '">' + escapeHtml(paths.label) + '</p>' +
-      '<div class="flex flex-wrap gap-1.5">' +
-        '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>' +
-        '<button type="button" class="js-copy-media text-[9px] font-medium text-teal hover:underline" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>' +
-        (dl ? '<a class="js-download-media text-[9px] font-medium text-teal hover:underline" href="' + escapeHtml(dl) + '" download>Descargar</a>' : '') +
+  function mediaItemMenuHtml(opts) {
+    opts = opts || {};
+    var paths = opts.paths || {};
+    var url = String(paths.url || '').trim();
+    var dl = url ? mediaDirectDownloadUrl(url) : '';
+    var lines = [];
+    var panelClass = opts.openDown ? 'top-full mt-1' : 'bottom-full mb-1';
+
+    if (opts.showMain) {
+      lines.push('<button type="button" class="js-media-menu-item js-img-main block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">★ Imagen principal</button>');
+    }
+    if (opts.showImageMove) {
+      lines.push('<button type="button" class="js-media-menu-item js-img-up block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↑ Mover antes</button>');
+      lines.push('<button type="button" class="js-media-menu-item js-img-down block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↓ Mover después</button>');
+    }
+    if (opts.showVideoMove) {
+      lines.push('<button type="button" class="js-media-menu-item js-vid-up block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↑ Mover antes</button>');
+      lines.push('<button type="button" class="js-media-menu-item js-vid-down block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist">↓ Mover después</button>');
+    }
+    if (url) {
+      lines.push('<button type="button" class="js-media-menu-item js-copy-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" data-copy="' + escapeHtml(paths.path || paths.url) + '">Copiar ruta</button>');
+      lines.push('<button type="button" class="js-media-menu-item js-copy-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" data-copy="' + escapeHtml(paths.url) + '">Copiar URL</button>');
+      if (dl) {
+        lines.push('<a class="js-media-menu-item js-download-media block w-full px-3 py-2 text-left text-xs text-ink hover:bg-mist" href="' + escapeHtml(dl) + '" download>Descargar</a>');
+      }
+    }
+    if (opts.deleteClass) {
+      lines.push('<button type="button" class="js-media-menu-item ' + opts.deleteClass + ' block w-full border-t border-line px-3 py-2 text-left text-xs text-coral hover:bg-coral/10">Quitar</button>');
+    }
+    if (!lines.length) return '';
+
+    var triggerClass = opts.triggerClass || 'rounded bg-ink/75 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white hover:bg-ink';
+    return '<div class="media-item-menu relative">' +
+      '<button type="button" class="js-media-menu-trigger ' + triggerClass + '" title="Opciones">⋯</button>' +
+      '<div class="js-media-menu-panel absolute right-0 z-40 hidden min-w-[11rem] overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg ' + panelClass + '">' +
+        lines.join('') +
       '</div>' +
     '</div>';
+  }
+
+  function closeAllMediaMenus() {
+    $('.js-media-menu-panel').addClass('hidden');
   }
 
   function updateMainImagePathRow() {
@@ -2089,18 +2120,19 @@
           '<div class="relative h-24 w-full overflow-hidden rounded-lg border border-line bg-mist group">' +
           '<span class="absolute left-1 top-1 z-10 rounded bg-ink/75 px-1.5 py-0.5 text-[9px] font-semibold text-white">' + (i + 1) + '</span>' +
           (isMain ? '<span class="absolute right-1 top-1 z-10 rounded bg-teal/90 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">Principal</span>' : '') +
-          '<button type="button" class="js-media-drag-handle absolute left-1 bottom-8 z-10 cursor-grab rounded bg-ink/70 px-1 py-0.5 text-[10px] text-white active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
+          '<button type="button" class="js-media-drag-handle absolute left-1 bottom-1 z-10 cursor-grab rounded bg-ink/70 px-1 py-0.5 text-[10px] text-white active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
+          '<div class="absolute right-1 bottom-1 z-20">' +
+            mediaItemMenuHtml({
+              paths: paths,
+              showMain: !isMain,
+              showImageMove: true,
+              deleteClass: 'js-img-del'
+            }) +
+          '</div>' +
           '<button type="button" class="js-zoomable block h-full w-full cursor-zoom-in" data-src="' + escapeHtml(url) + '">' +
             '<img src="' + escapeHtml(url) + '" alt="" class="h-full w-full object-cover pointer-events-none" loading="lazy" referrerpolicy="no-referrer">' +
           '</button>' +
-          '<div class="absolute inset-x-0 bottom-0 flex gap-1 bg-ink/75 p-1">' +
-            '<button type="button" class="js-img-main flex-1 rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Usar como imagen principal">★</button>' +
-            '<button type="button" class="js-img-up rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover antes">↑</button>' +
-            '<button type="button" class="js-img-down rounded bg-white/15 px-1 py-0.5 text-[10px] text-white hover:bg-white/25" title="Mover después">↓</button>' +
-            '<button type="button" class="js-img-del rounded bg-coral/80 px-1 py-0.5 text-[10px] text-white hover:bg-coral" title="Quitar">×</button>' +
           '</div>' +
-          '</div>' +
-          mediaPathActionsHtml(paths) +
         '</div>'
       );
       $grid.append($item);
@@ -2127,11 +2159,13 @@
               '<button type="button" class="js-media-drag-handle shrink-0 cursor-grab rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft active:cursor-grabbing" title="Arrastrar para mover">⋮⋮</button>' +
               '<span class="truncate text-xs font-semibold text-ink">Video ' + (i + 1) + '</span>' +
             '</div>' +
-            '<div class="flex shrink-0 items-center gap-1">' +
-              '<button type="button" class="js-vid-up rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft hover:bg-mist" title="Mover antes">↑</button>' +
-              '<button type="button" class="js-vid-down rounded border border-line bg-white px-1.5 py-0.5 text-[10px] text-ink-soft hover:bg-mist" title="Mover después">↓</button>' +
-              '<button type="button" class="js-vid-del rounded border border-coral/30 bg-coral/10 px-1.5 py-0.5 text-[10px] text-coral hover:bg-coral/20" title="Quitar">×</button>' +
-            '</div>' +
+            mediaItemMenuHtml({
+              paths: urlPaths,
+              showVideoMove: true,
+              deleteClass: 'js-vid-del',
+              openDown: true,
+              triggerClass: 'rounded border border-line bg-white px-2 py-0.5 text-sm font-bold leading-none text-ink-soft hover:bg-mist'
+            }) +
           '</div>' +
           '<div class="bg-ink/95">' +
             (play
@@ -2141,14 +2175,19 @@
           '<div class="space-y-2 p-3">' +
             '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">URL del video</label>' +
             '<input type="url" class="js-vid-url admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(url) + '" placeholder="https://…"></div>' +
-            mediaPathActionsHtml(urlPaths) +
             '<div class="grid gap-2 sm:grid-cols-2">' +
               '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Nombre</label>' +
               '<input type="text" class="js-vid-name admin-input !py-1.5 text-xs" value="' + escapeHtml(name) + '"></div>' +
               '<div><label class="mb-1 block text-[10px] font-medium uppercase tracking-wide text-ink-soft/55">Poster (URL)</label>' +
-              '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono" value="' + escapeHtml(cover) + '" placeholder="https://…"></div>' +
+              '<div class="flex items-end gap-2">' +
+                '<input type="url" class="js-vid-cover admin-input !py-1.5 text-xs font-mono flex-1" value="' + escapeHtml(cover) + '" placeholder="https://…">' +
+                (cover ? mediaItemMenuHtml({
+                  paths: coverPaths,
+                  openDown: true,
+                  triggerClass: 'shrink-0 rounded border border-line bg-white px-2 py-1.5 text-sm font-bold leading-none text-ink-soft hover:bg-mist'
+                }) : '') +
+              '</div></div>' +
             '</div>' +
-            (cover ? mediaPathActionsHtml(coverPaths).replace('mt-1.5', 'mt-0') : '') +
           '</div>' +
         '</div>'
       );
@@ -2246,7 +2285,7 @@
 
   function bindMediaDragReorder($container, itemSelector, dataRef, renderFn) {
     $container.on('dragstart', itemSelector, function (e) {
-      if ($(e.target).closest('.js-img-main, .js-img-up, .js-img-down, .js-img-del, .js-vid-up, .js-vid-down, .js-vid-del, .js-zoomable, input, textarea, select, a, video, label').length) {
+      if ($(e.target).closest('.js-img-main, .js-img-up, .js-img-down, .js-img-del, .js-vid-up, .js-vid-down, .js-vid-del, .js-zoomable, .js-media-menu-trigger, .js-media-menu-panel, .js-media-menu-item, input, textarea, select, a, video, label').length) {
         e.preventDefault();
         return;
       }
@@ -2285,6 +2324,23 @@
 
   bindMediaDragReorder($('#product-images-grid'), '.product-image-item', verifiedImagesData, renderProductImages);
   bindMediaDragReorder($('#product-videos-list'), '.product-video-item', verifiedVideosData, renderProductVideos);
+
+  $(document).on('click', '.js-media-menu-trigger', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $panel = $(this).closest('.media-item-menu').find('.js-media-menu-panel');
+    var willOpen = $panel.hasClass('hidden');
+    closeAllMediaMenus();
+    if (willOpen) {
+      $panel.removeClass('hidden');
+    }
+  });
+  $(document).on('click', function () {
+    closeAllMediaMenus();
+  });
+  $(document).on('click', '.js-media-menu-panel', function (e) {
+    e.stopPropagation();
+  });
 
   $(document).on('click', '.js-copy-media', function (e) {
     e.preventDefault();

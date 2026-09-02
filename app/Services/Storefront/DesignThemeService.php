@@ -1738,6 +1738,10 @@ CSS;
   bottom: 88px;
   z-index: 99990;
   max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   background: var(--md-panel, var(--md-mod-bg));
   color: var(--md-mod-text);
   border: 1px solid var(--md-line, var(--md-mod-line));
@@ -1753,6 +1757,11 @@ CSS;
   gap: 8px;
   align-items: start;
   font-weight: 700;
+  margin-bottom: 4px;
+}
+.md-mod-upsell .md-mod-upsell-body {
+  width: 100%;
+  box-sizing: border-box;
 }
 .md-mod-upsell p { margin: 8px 0; color: var(--md-mod-muted); }
 .md-mod-upsell-product {
@@ -1764,6 +1773,10 @@ CSS;
   border-radius: 12px;
   background: color-mix(in srgb, var(--md-mod-primary) 8%, transparent);
   border: 1px solid var(--md-mod-line);
+}
+.md-mod-upsell-product > div {
+  min-width: 0;
+  flex: 1;
 }
 .md-mod-upsell-product img {
   width: 48px;
@@ -2108,14 +2121,66 @@ CSS;
         $parts = [
             $this->platformModuleCss(),
             $this->pdpRuntimeCss(),
-            trim($this->resolveModulesCss($design)),
-            trim((string) ($design['global_css'] ?? '')),
+            trim($this->sanitizeThemeCss($this->resolveModulesCss($design))),
+            trim($this->sanitizeThemeCss((string) ($design['global_css'] ?? ''))),
             trim((string) ($page['css'] ?? '')),
             $this->platformMobileCss(),
             $this->resolveThemeMobileCss($design),
+            $this->platformOverlayGuardCss(),
         ];
 
         return trim(implode("\n\n", array_filter($parts, fn ($p) => $p !== '')));
+    }
+
+    /**
+     * Quita reglas de tema que rompen overlays inyectados por la plataforma.
+     */
+    public function sanitizeThemeCss(string $css): string
+    {
+        $css = trim($css);
+        if ($css === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\.md-mod-upsell\s*,\s*\.md-mod-cross\s*\{[^}]*\}/i',
+            '/\.md-mod-upsell__img[^,{]*,\s*\.md-mod-cross__img\s*\{[^}]*\}/i',
+            '/\.md-mod-upsell__title[^,{]*,\s*\.md-mod-cross__title\s*\{[^}]*\}/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $css = preg_replace($pattern, '', $css) ?? $css;
+        }
+
+        return trim(preg_replace("/\n{3,}/", "\n\n", $css) ?? $css);
+    }
+
+    /**
+     * Capa final: protege layout de overlays aunque el tema pise selectores .md-mod-*.
+     */
+    public function platformOverlayGuardCss(): string
+    {
+        return <<<'CSS'
+[data-md-module="upsell"].md-mod-upsell,
+#md-upsell-demo.md-mod-upsell {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 0 !important;
+}
+.md-mod-upsell .md-mod-upsell-head,
+.md-mod-upsell .md-mod-upsell-body,
+.md-mod-upsell .md-btn,
+.md-mod-upsell-msg {
+  width: 100%;
+  box-sizing: border-box;
+}
+.md-mod-upsell .md-mod-upsell-product {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+}
+CSS;
     }
 
     /**
@@ -2776,7 +2841,7 @@ Claves válidas: `{$moduleKeys}`
 | `atc_modal` | Modal "Agregado al carrito" | `#md-atc-modal` |
 | `cookies` | Banner + preferencias UE (Necesarias / Analítica / Marketing) | `.md-mod-cookies` |
 
-**Overlays** (`roulette`, `social_proof`, `upsell`, `atc_modal`, `cookies`): la plataforma los inyecta sola. **Estilízalos en `modules.css`**, no dupliques su HTML.
+**Overlays** (`roulette`, `social_proof`, `upsell`, `atc_modal`, `cookies`): la plataforma los inyecta sola. **Estilízalos en `modules.css`**, no dupliques su HTML. **No uses `display:flex` en `.md-mod-upsell` ni clases BEM inventadas (`md-mod-upsell__img`);** la plataforma usa `.md-mod-upsell-head`, `.md-mod-upsell-body`, `.md-mod-upsell-product`, `.md-mod-upsell-name`, `.md-mod-upsell-prices`.
 
 ---
 

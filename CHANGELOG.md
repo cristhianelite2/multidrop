@@ -5,6 +5,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 ## 2026-09-01
 
 ### Storefront
+- **Upsell overlay:** se sanitiza CSS de tema que rompía el layout (`display:flex` horizontal en `.md-mod-upsell`) y se añade capa guard de plataforma para overlays inyectados.
 - **Precio de vitrina:** si el precio guardado coincide con el de compra (importación marketplace), el storefront y el checkout calculan automáticamente precio de venta + compare tachado (fees + margen + charm pricing).
 - Importación AliExpress ya no copia el precio del marketplace como precio de venta; solo rellena `purchase_price`.
 

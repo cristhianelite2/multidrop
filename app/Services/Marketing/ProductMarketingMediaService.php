@@ -28,6 +28,99 @@ class ProductMarketingMediaService
     /**
      * @return list<string>
      */
+    public function exportImageUrls(Product $product): array
+    {
+        $urls = $product->galleryImages();
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+
+        foreach (is_array($verified['reviews'] ?? null) ? $verified['reviews'] : [] as $review) {
+            if (! is_array($review)) {
+                continue;
+            }
+            foreach (is_array($review['images'] ?? null) ? $review['images'] : [] as $img) {
+                if (is_string($img) && trim($img) !== '') {
+                    $urls[] = trim($img);
+                }
+            }
+        }
+
+        $unique = [];
+        $seen = [];
+        foreach ($urls as $url) {
+            $key = strtolower(trim($url));
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $unique[] = trim($url);
+        }
+
+        return $unique;
+    }
+
+    /**
+     * @return list<array{url: string, name: string}>
+     */
+    public function exportVideoEntries(Product $product): array
+    {
+        $rows = [];
+        $seen = [];
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+
+        foreach (is_array($verified['videos'] ?? null) ? $verified['videos'] : [] as $i => $video) {
+            if (! is_array($video)) {
+                continue;
+            }
+            $url = trim((string) ($video['url'] ?? $video['play_url'] ?? $video['source_url'] ?? $video['videoUrl'] ?? ''));
+            if ($url === '') {
+                continue;
+            }
+            if (str_contains(strtolower($url), '.m3u8')) {
+                continue;
+            }
+            $key = strtolower($url);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $rows[] = [
+                'url' => $url,
+                'name' => trim((string) ($video['name'] ?? $video['videoName'] ?? '')) ?: ('video-'.($i + 1)),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return array{body: string, mime: string, filename: string}|null
+     */
+    public function fetchMediaBytes(Store $store, Product $product, string $rawUrl, string $prefix, int $index): ?array
+    {
+        $rawUrl = trim($rawUrl);
+        if ($rawUrl === '') {
+            return null;
+        }
+
+        $candidates = [$rawUrl];
+        $absolute = $this->absoluteUrl($rawUrl, $store);
+        if ($absolute !== '' && ! in_array($absolute, $candidates, true)) {
+            $candidates[] = $absolute;
+        }
+
+        foreach ($candidates as $candidate) {
+            $file = $this->media->fetchBytes($candidate, $prefix.'-'.$product->id, $index);
+            if ($file !== null) {
+                return $file;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
     public function publicImageUrls(Product $product, int $limit = 8, ?Store $store = null): array
     {
         $urls = [];

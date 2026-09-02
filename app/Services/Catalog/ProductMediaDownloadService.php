@@ -90,6 +90,43 @@ class ProductMediaDownloadService
             return null;
         }
 
+        foreach ($this->urlCandidates($url) as $candidate) {
+            $file = $this->fetchBytesFromCandidate($candidate, $fallbackPrefix, $index);
+            if ($file !== null) {
+                return $file;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function urlCandidates(string $url): array
+    {
+        $candidates = [];
+        $push = function (string $candidate) use (&$candidates): void {
+            $candidate = trim($candidate);
+            if ($candidate !== '' && ! in_array($candidate, $candidates, true)) {
+                $candidates[] = $candidate;
+            }
+        };
+
+        $push($url);
+        $withoutQuery = strtok($url, '?') ?: '';
+        $push($withoutQuery);
+        $withoutFragment = strtok($withoutQuery, '#') ?: '';
+        $push($withoutFragment);
+
+        return $candidates;
+    }
+
+    /**
+     * @return array{body: string, mime: string, filename: string}|null
+     */
+    protected function fetchBytesFromCandidate(string $url, string $fallbackPrefix, int $index): ?array
+    {
         $storagePath = MediaUrl::storagePathFromUrl($url);
         if ($storagePath && app(\App\Services\Storage\R2StorageManager::class)->enabled()) {
             $disk = app(\App\Services\Storage\R2StorageManager::class)->disk();
@@ -116,8 +153,12 @@ class ProductMediaDownloadService
         }
 
         try {
-            $response = Http::timeout(90)
-                ->withHeaders(['User-Agent' => 'Multidrop/1.0'])
+            $response = Http::timeout(120)
+                ->withHeaders([
+                    'User-Agent' => 'Multidrop/1.0',
+                    'Referer' => 'https://www.aliexpress.com/',
+                    'Accept' => '*/*',
+                ])
                 ->get($url);
             if (! $response->successful()) {
                 return null;
@@ -207,12 +248,21 @@ class ProductMediaDownloadService
     {
         $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         $pos = strpos($path, '/storage/');
-        if ($pos === false) {
-            return null;
-        }
-        $relative = ltrim(substr($path, $pos + strlen('/storage/')), '/');
+        if ($pos !== false) {
+            $relative = ltrim(substr($path, $pos + strlen('/storage/')), '/');
 
-        return $relative !== '' ? storage_path('app/public/'.$relative) : null;
+            return $relative !== '' ? storage_path('app/public/'.$relative) : null;
+        }
+
+        $storagePath = MediaUrl::storagePathFromUrl($url);
+        if ($storagePath) {
+            $local = storage_path('app/public/'.$storagePath);
+            if (is_readable($local)) {
+                return $local;
+            }
+        }
+
+        return null;
     }
 
     protected function mimeFromPath(string $path): string

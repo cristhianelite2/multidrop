@@ -5,7 +5,6 @@ namespace App\Services\Marketing;
 use App\Models\MarketingPrompt;
 use App\Models\Product;
 use App\Models\Store;
-use App\Services\Catalog\ProductMediaDownloadService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use ZipArchive;
@@ -14,7 +13,6 @@ class PromptExportZipService
 {
     public function __construct(
         protected ProductMarketingMediaService $media,
-        protected ProductMediaDownloadService $downloads,
     ) {}
 
     public function buildZip(Store $store, MarketingPrompt $prompt): ?string
@@ -39,28 +37,38 @@ class PromptExportZipService
             return null;
         }
 
+        $manifest = [];
         $zip->addFromString('prompt.txt', $this->buildPromptText($store, $prompt, $products));
 
         $multiProduct = $products->count() > 1;
         foreach ($products as $product) {
             $prefix = $multiProduct ? 'product-'.$product->id.'/' : '';
 
-            foreach ($this->media->publicImageUrls($product, 20, $store) as $i => $url) {
-                $file = $this->downloads->fetchBytes($url, 'image', $i + 1);
+            foreach ($this->media->exportImageUrls($product) as $i => $rawUrl) {
+                $file = $this->media->fetchMediaBytes($store, $product, $rawUrl, 'image', $i + 1);
                 if ($file) {
-                    $zip->addFromString($prefix.'images/'.$file['filename'], $file['body']);
+                    $entry = $prefix.'images/'.$this->zipEntryName($i + 1, $file['filename']);
+                    $zip->addFromString($entry, $file['body']);
+                    $manifest[] = $entry;
+                } else {
+                    $manifest[] = '# MISSING image: '.$rawUrl;
                 }
             }
 
-            $videoRows = $this->media->publicVideoUrls($product, 10, $store);
-            foreach ($videoRows as $i => $url) {
-                $file = $this->downloads->fetchBytes($url, 'video', $i + 1);
+            foreach ($this->media->exportVideoEntries($product) as $i => $video) {
+                $file = $this->media->fetchMediaBytes($store, $product, $video['url'], 'video', $i + 1);
                 if ($file) {
-                    $zip->addFromString($prefix.'videos/'.$file['filename'], $file['body']);
+                    $baseName = $this->videoZipFilename($video['name'], $file['filename'], $i + 1);
+                    $entry = $prefix.'videos/'.$this->zipEntryName($i + 1, $baseName);
+                    $zip->addFromString($entry, $file['body']);
+                    $manifest[] = $entry;
+                } else {
+                    $manifest[] = '# MISSING video: '.$video['url'];
                 }
             }
         }
 
+        $zip->addFromString('manifest.txt', implode("\n", $manifest)."\n");
         $zip->close();
 
         return $zipPath;
@@ -76,6 +84,31 @@ class PromptExportZipService
         return 'prompt-'.$prompt->id.'-'.Str::limit($slug, 40, '').'.zip';
     }
 
+    protected function zipEntryName(int $index, string $filename): string
+    {
+        $safe = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $filename) ?: ('file-'.$index);
+        $safe = trim($safe, '-.');
+        if ($safe === '') {
+            $safe = 'file-'.$index;
+        }
+
+        return sprintf('%03d-%s', $index, $safe);
+    }
+
+    protected function videoZipFilename(string $preferredName, string $fetchedName, int $index): string
+    {
+        $preferred = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $preferredName) ?: '';
+        if ($preferred !== '' && str_contains($preferred, '.')) {
+            return $preferred;
+        }
+
+        if (str_contains($fetchedName, '.')) {
+            return $fetchedName;
+        }
+
+        return ($preferred !== '' ? $preferred : 'video-'.$index).'.mp4';
+    }
+
     /**
      * @return Collection<int, Product>
      */
@@ -89,6 +122,7 @@ class PromptExportZipService
         return Product::query()
             ->where('store_id', $store->id)
             ->whereIn('id', $ids)
+            ->with('variants')
             ->orderBy('id')
             ->get();
     }
@@ -123,6 +157,8 @@ class PromptExportZipService
             foreach ($products as $product) {
                 $lines[] = '#'.$product->id.' · '.$product->localizedName();
                 $lines[] = 'URL: '.$this->media->productPageUrl($store, $product);
+                $lines[] = 'Imágenes en catálogo: '.count($this->media->exportImageUrls($product));
+                $lines[] = 'Videos en catálogo: '.count($this->media->exportVideoEntries($product));
             }
             $lines[] = '';
         }

@@ -340,10 +340,12 @@
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Duración objetivo</label>
                         <select id="md-ai-length" class="admin-input">
-                            <option value="15">15 s (5 segmentos)</option>
-                            <option value="18">18 s (6 segmentos)</option>
-                            <option value="21">21 s (7 segmentos)</option>
-                            <option value="24">24 s (8 segmentos)</option>
+                            <option value="15">15 s (~5 segmentos)</option>
+                            <option value="21" selected>21 s (~7 segmentos)</option>
+                            <option value="24">24 s (~8 segmentos)</option>
+                            <option value="30">30 s (~10 segmentos)</option>
+                            <option value="36">36 s (~12 segmentos)</option>
+                            <option value="45">45 s (~15 segmentos)</option>
                         </select>
                     </div>
                     <div>
@@ -357,14 +359,16 @@
                     <button type="button" class="admin-btn-secondary hidden" id="md-ai-creatify" @disabled(! $creatify['ok'])>Guardar y enviar a Creatify</button>
                 </div>
                 <p class="text-sm text-ink-soft/70" id="md-ai-msg"></p>
-                <div id="md-ai-analysis" class="hidden rounded-lg border border-line bg-white/60 p-3 text-sm space-y-1"></div>
+                <div id="md-ai-analysis" class="hidden rounded-lg border border-line bg-white/60 p-3 text-sm space-y-2 max-h-64 overflow-y-auto"></div>
                 <div id="md-ai-segments-wrap" class="hidden overflow-x-auto">
-                    <table class="w-full text-sm">
+                    <table class="w-full text-sm min-w-[900px]">
                         <thead>
                             <tr class="text-left text-ink-soft/60 border-b border-line">
                                 <th class="py-2 pr-2">Tiempo</th>
                                 <th class="py-2 pr-2">Tipo</th>
                                 <th class="py-2 pr-2">Voz</th>
+                                <th class="py-2 pr-2">Talento</th>
+                                <th class="py-2 pr-2">Cámara</th>
                                 <th class="py-2">Visual</th>
                             </tr>
                         </thead>
@@ -420,7 +424,7 @@
                     </div>
                     <div class="sm:col-span-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Script</label>
-                        <textarea name="script" id="md-prompt-script" class="admin-input" rows="6" required maxlength="4000"></textarea>
+                        <textarea name="script" id="md-prompt-script" class="admin-input font-mono text-xs" rows="18" required maxlength="14000"></textarea>
                     </div>
                     <div>
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft">Audiencia</label>
@@ -797,27 +801,40 @@
     if (anaEl) anaEl.value = JSON.stringify(aiState.analysis || {});
   }
 
+  function esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   function renderAiPreview(res) {
     var analysisBox = document.getElementById('md-ai-analysis');
     var segWrap = document.getElementById('md-ai-segments-wrap');
     var segBody = document.getElementById('md-ai-segments');
     if (analysisBox && res.analysis) {
       analysisBox.classList.remove('hidden');
-      analysisBox.innerHTML =
-        '<div><strong>Resumen:</strong> ' + (res.analysis.summary || '—') + '</div>' +
-        '<div><strong>Ángulo:</strong> ' + (res.analysis.product_angle || '—') + '</div>' +
-        '<div><strong>Formato:</strong> ' + (res.analysis.recommended_format || 'mixed') + '</div>';
+      var cd = res.analysis.creative_direction || {};
+      var talent = cd.talent || {};
+      var camera = cd.camera || {};
+      var html = ''
+        + '<div><strong>Resumen:</strong> ' + esc(res.analysis.summary || '—') + '</div>'
+        + '<div><strong>Ángulo:</strong> ' + esc(res.analysis.product_angle || '—') + '</div>'
+        + '<div><strong>Casting:</strong> ' + esc(res.analysis.casting_notes || talent.profile || '—') + '</div>'
+        + '<div><strong>Talento:</strong> ' + esc([talent.wardrobe, talent.energy, talent.setting].filter(Boolean).join(' · ') || '—') + '</div>'
+        + '<div><strong>Cámara:</strong> ' + esc(res.analysis.camera_notes || [camera.style, camera.lens, camera.movement].filter(Boolean).join(' · ') || '—') + '</div>'
+        + '<div><strong>Formato:</strong> ' + esc(res.analysis.recommended_format || 'mixed') + '</div>';
+      analysisBox.innerHTML = html;
     }
     if (segBody && res.segments) {
       segBody.innerHTML = '';
       res.segments.forEach(function (s) {
         var tr = document.createElement('tr');
-        tr.className = 'border-b border-line/60';
+        tr.className = 'border-b border-line/60 align-top';
         tr.innerHTML =
           '<td class="py-2 pr-2 whitespace-nowrap">' + (s.start ?? 0) + '–' + (s.end ?? 0) + 's</td>' +
-          '<td class="py-2 pr-2">' + (s.type || '') + '</td>' +
-          '<td class="py-2 pr-2">' + (s.voiceover || '') + '</td>' +
-          '<td class="py-2 text-ink-soft/70">' + (s.visual || '') + '</td>';
+          '<td class="py-2 pr-2">' + esc(s.type || '') + '</td>' +
+          '<td class="py-2 pr-2 max-w-[200px]">' + esc(s.voiceover || '') + '</td>' +
+          '<td class="py-2 pr-2 max-w-[180px] text-ink-soft/80">' + esc(s.talent || '') + '</td>' +
+          '<td class="py-2 pr-2 max-w-[160px] text-ink-soft/80">' + esc(s.camera || '') + '</td>' +
+          '<td class="py-2 text-ink-soft/70 max-w-[180px]">' + esc(s.visual || '') + '</td>';
         segBody.appendChild(tr);
       });
       if (segWrap) segWrap.classList.remove('hidden');
@@ -834,13 +851,13 @@
     if (aiGen) aiGen.disabled = true;
     if (aiSave) aiSave.disabled = true;
     if (aiCf) aiCf.disabled = true;
-    if (aiMsg) aiMsg.textContent = 'MIIA analizando producto (imágenes, datos, reseñas)… puede tardar 1–2 min.';
+    if (aiMsg) aiMsg.textContent = 'MIIA analizando producto y redactando brief completo (cámara, talento, segmentos)… puede tardar 2–3 min.';
     fetch(@json(route('admin.store.marketing.prompts.generate-from-product')), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
       body: JSON.stringify({
         product_id: parseInt(productId, 10),
-        video_length: lengthEl ? parseInt(lengthEl.value, 10) : 15,
+        video_length: lengthEl ? parseInt(lengthEl.value, 10) : 21,
         language: langEl ? langEl.value : 'es',
         target_platform: 'Tiktok',
         save: !!save,

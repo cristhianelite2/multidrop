@@ -9,6 +9,7 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - El prompt se puede guardar en la campaña o enviar directo a **Creatify** con las imágenes y videos del producto (`link_with_params` + `override_script`).
 - `marketing_prompts` guarda `product_id`, `segments` y `analysis` para reutilizar y ajustar duración del video en Creatify.
 - API `prompts/catalog/products.json` para buscar productos en el generador; script `scripts/deploy-shop.sh` para desplegar en el droplet.
+- **Brief creativo ampliado:** MIIA genera dirección completa (casting por mercado, cámara, luz, audio, captions) + segmentos con talento/cámara/transiciones; script hasta 14k chars para Creatify.
 
 ### Storefront
 - **Upsell overlay:** se sanitiza CSS de tema que rompía el layout (`display:flex` horizontal en `.md-mod-upsell`) y se añade capa guard de plataforma para overlays inyectados.

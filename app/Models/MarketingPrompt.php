@@ -56,7 +56,7 @@ class MarketingPrompt extends Model
         if ($segments !== []) {
             $last = $segments[array_key_last($segments)];
 
-            return max(9, min(60, (int) data_get($last, 'end', 15)));
+            return max(9, min(45, (int) data_get($last, 'end', 15)));
         }
 
         return 15;

@@ -97,7 +97,7 @@ return [
         ],
         'product_video_prompt' => [
             'label' => 'Prompt TikTok por producto',
-            'hint' => 'Guion segmentado (3s) para Creatify',
+            'hint' => 'Brief creativo completo (cámara, talento, segmentos 3s) para Creatify',
             'kind' => 'chat',
             'default_engine' => 'free',
         ],

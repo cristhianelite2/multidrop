@@ -148,7 +148,7 @@ class PromptController extends Controller
         $store = $this->currentStoreOrFail($storeContext);
         $data = $request->validate([
             'product_id' => ['required', 'integer'],
-            'video_length' => ['nullable', 'integer', 'min:9', 'max:30'],
+            'video_length' => ['nullable', 'integer', 'min:9', 'max:45'],
             'language' => ['nullable', 'string', 'max:16'],
             'target_platform' => ['nullable', 'in:Tiktok,Meta'],
             'save' => ['nullable', 'boolean'],
@@ -161,9 +161,10 @@ class PromptController extends Controller
             ->firstOrFail();
 
         $result = $generator->generate($store, $product, [
-            'video_length' => (int) ($data['video_length'] ?? 15),
+            'video_length' => (int) ($data['video_length'] ?? 21),
             'language' => $data['language'] ?? 'es',
             'target_platform' => $data['target_platform'] ?? 'Tiktok',
+            'campaign_id' => $data['campaign_id'] ?? null,
         ]);
 
         if (! ($result['success'] ?? false)) {
@@ -194,7 +195,9 @@ class PromptController extends Controller
                 'hook' => $result['prompt']['hook'],
                 'script' => $result['prompt']['script'],
                 'segments' => $result['segments'] ?? [],
-                'analysis' => $result['analysis'] ?? [],
+                'analysis' => array_merge(is_array($result['analysis'] ?? null) ? $result['analysis'] : [], [
+                    'script_style' => $result['prompt']['script_style'] ?? null,
+                ]),
                 'audience' => $result['prompt']['audience'] ?? null,
                 'language' => $result['prompt']['language'] ?? 'es',
                 'style' => $result['prompt']['style'] ?? 'DynamicProductTemplate',
@@ -225,7 +228,7 @@ class PromptController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'hook' => ['nullable', 'string', 'max:240'],
-            'script' => ['required', 'string', 'max:4000'],
+            'script' => ['required', 'string', 'max:14000'],
             'audience' => ['nullable', 'string', 'max:240'],
             'language' => ['required', 'string', 'max:16'],
             'style' => ['nullable', 'string', 'max:80'],

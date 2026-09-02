@@ -66,6 +66,10 @@ class MiiaProvider implements AiProviderInterface
             $body['response_format'] = $options['response_format'];
         }
 
+        if (! empty($options['max_tokens'])) {
+            $body['max_tokens'] = (int) $options['max_tokens'];
+        }
+
         try {
             $response = Http::timeout((int) ($options['timeout'] ?? $config['timeout'] ?? 90))
                 ->withToken($apiKey)

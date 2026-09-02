@@ -58,6 +58,11 @@ class CreatifyController extends Controller
             if ($product) {
                 $linkPayload = $productMedia->creatifyLinkPayload($store, $product);
                 $linkPayload['url'] = $url;
+                $brief = trim((string) data_get($prompt->analysis, 'summary', ''));
+                $casting = trim((string) data_get($prompt->analysis, 'casting_notes', ''));
+                if ($brief !== '' || $casting !== '') {
+                    $linkPayload['description'] = mb_substr(trim($brief."\n\n".$casting."\n\n".(string) $prompt->script), 0, 1800);
+                }
                 $link = $client->createLinkWithParams($linkPayload);
             } else {
                 $link = $client->createLink($url, $store->name.' · '.$campaign->name);
@@ -82,6 +87,7 @@ class CreatifyController extends Controller
                 'target_audience' => $prompt->audience,
                 'override_script' => $script,
                 'visual_style' => $prompt->style ?: null,
+                'script_style' => data_get($prompt->analysis, 'script_style') ?: null,
                 'aspect_ratio' => '9x16',
                 'video_length' => $prompt->videoLengthSeconds(),
             ]);

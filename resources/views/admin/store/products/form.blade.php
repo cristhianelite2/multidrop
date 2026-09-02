@@ -2019,10 +2019,11 @@
     }
     if (!lines.length) return '';
 
+    var mediaIndexAttr = (opts.mediaIndex != null && opts.mediaIndex !== '') ? (' data-media-index="' + escapeHtml(String(opts.mediaIndex)) + '"') : '';
     var triggerClass = opts.triggerClass || 'rounded bg-ink/75 px-1.5 py-0.5 text-[11px] font-bold leading-none text-white hover:bg-ink';
     return '<div class="media-item-menu relative">' +
       '<button type="button" class="js-media-menu-trigger ' + triggerClass + '" title="Opciones">⋯</button>' +
-      '<div class="js-media-menu-panel hidden overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg" data-placement="' + placement + '" data-panel-min="' + escapeHtml(panelMin) + '">' +
+      '<div class="js-media-menu-panel hidden overflow-hidden rounded-lg border border-line bg-white py-1 shadow-lg" data-placement="' + placement + '" data-panel-min="' + escapeHtml(panelMin) + '"' + mediaIndexAttr + '">' +
         lines.join('') +
       '</div>' +
     '</div>';
@@ -2067,6 +2068,19 @@
       }
     }
     $panel.css({ top: top + 'px', left: left + 'px' });
+  }
+
+  function mediaMenuItemIndex($el) {
+    var $panel = $el.closest('.js-media-menu-panel');
+    if ($panel.length) {
+      var fromPanel = Number($panel.attr('data-media-index'));
+      if (!isNaN(fromPanel)) return fromPanel;
+    }
+    var $item = $el.closest('.product-image-item, .product-video-item');
+    if ($item.length) {
+      return Number($item.attr('data-index'));
+    }
+    return NaN;
   }
 
   function closeAllMediaMenus() {
@@ -2183,6 +2197,7 @@
               showMain: !isMain,
               showImageMove: true,
               deleteClass: 'js-img-del',
+              mediaIndex: i,
               placement: 'right'
             }) +
           '</div>' +
@@ -2221,6 +2236,7 @@
               paths: urlPaths,
               showVideoMove: true,
               deleteClass: 'js-vid-del',
+              mediaIndex: i,
               placement: 'below',
               panelMinWidth: '15rem',
               triggerClass: 'rounded border border-line bg-white px-2 py-0.5 text-sm font-bold leading-none text-ink-soft hover:bg-mist'
@@ -2274,33 +2290,39 @@
     }
   });
 
-  $('#product-images-grid').on('click', '.js-img-main', function (e) {
+  $(document).on('click', '.js-img-main', function (e) {
+    e.preventDefault();
     e.stopPropagation();
-    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i)) return;
     var url = verifiedImagesData[i];
     if (!url) return;
     $('input[name=image_url]').val(url);
     updateMainImagePathRow();
     renderProductImages();
   });
-  $('#product-images-grid').on('click', '.js-img-del', function (e) {
+  $(document).on('click', '.js-img-del', function (e) {
+    e.preventDefault();
     e.stopPropagation();
-    var i = Number($(this).closest('.product-image-item').attr('data-index'));
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i)) return;
     removeImageAt(i);
   });
-  $('#product-images-grid').on('click', '.js-img-up', function (e) {
+  $(document).on('click', '.js-img-up', function (e) {
+    e.preventDefault();
     e.stopPropagation();
-    var i = Number($(this).closest('.product-image-item').attr('data-index'));
-    if (i <= 0) return;
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i) || i <= 0) return;
     var tmp = verifiedImagesData[i - 1];
     verifiedImagesData[i - 1] = verifiedImagesData[i];
     verifiedImagesData[i] = tmp;
     renderProductImages();
   });
-  $('#product-images-grid').on('click', '.js-img-down', function (e) {
+  $(document).on('click', '.js-img-down', function (e) {
+    e.preventDefault();
     e.stopPropagation();
-    var i = Number($(this).closest('.product-image-item').attr('data-index'));
-    if (i >= verifiedImagesData.length - 1) return;
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i) || i >= verifiedImagesData.length - 1) return;
     var tmp = verifiedImagesData[i + 1];
     verifiedImagesData[i + 1] = verifiedImagesData[i];
     verifiedImagesData[i] = tmp;
@@ -2325,20 +2347,27 @@
   $('#product-videos-list').on('change', '.js-vid-url, .js-vid-cover', function () {
     renderProductVideos();
   });
-  $('#product-videos-list').on('click', '.js-vid-del', function () {
-    var i = Number($(this).closest('.product-video-item').attr('data-index'));
+  $(document).on('click', '.js-vid-del', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i)) return;
     verifiedVideosData.splice(i, 1);
     renderProductVideos();
   });
-  $('#product-videos-list').on('click', '.js-vid-up', function () {
-    var i = Number($(this).closest('.product-video-item').attr('data-index'));
-    if (i <= 0) return;
+  $(document).on('click', '.js-vid-up', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i) || i <= 0) return;
     moveArrayItem(verifiedVideosData, i, i - 1);
     renderProductVideos();
   });
-  $('#product-videos-list').on('click', '.js-vid-down', function () {
-    var i = Number($(this).closest('.product-video-item').attr('data-index'));
-    if (i >= verifiedVideosData.length - 1) return;
+  $(document).on('click', '.js-vid-down', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var i = mediaMenuItemIndex($(this));
+    if (isNaN(i) || i >= verifiedVideosData.length - 1) return;
     moveArrayItem(verifiedVideosData, i, i + 1);
     renderProductVideos();
   });
@@ -2394,20 +2423,26 @@
     var willOpen = $panel.hasClass('hidden');
     closeAllMediaMenus();
     if (!willOpen) return;
+    var $item = $trigger.closest('.product-image-item, .product-video-item');
+    if ($item.length) {
+      $panel.attr('data-media-index', $item.attr('data-index') || '');
+    }
     $panel.data('media-menu-home', $menu);
     $('body').append($panel);
     positionMediaMenuPanel($trigger, $panel);
     activeMediaMenuTrigger = $trigger;
     activeMediaMenuPanel = $panel;
   });
-  $(document).on('click', function () {
+  $(document).on('click', function (e) {
+    if ($(e.target).closest('.js-media-menu-panel, .js-media-menu-trigger, .media-item-menu').length) return;
     closeAllMediaMenus();
   });
   $(document).on('click', '.js-media-menu-panel', function (e) {
     e.stopPropagation();
   });
-  $(document).on('click', '.js-media-menu-item', function () {
+  $(document).on('click', '.js-media-menu-item', function (e) {
     if ($(this).hasClass('js-download-media')) return;
+    e.stopPropagation();
     setTimeout(closeAllMediaMenus, 0);
   });
   $(window).on('scroll resize', function () {

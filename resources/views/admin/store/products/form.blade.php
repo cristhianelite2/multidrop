@@ -255,7 +255,17 @@
             </div>
             <div class="sm:col-span-2">
                 <label class="mb-1.5 block text-sm font-medium text-ink-soft">Descripción</label>
-                <textarea id="field-description" rows="6" class="admin-input">{{ $activeT['description'] ?? $product->description }}</textarea>
+                <div class="flex gap-2 items-start">
+                    <textarea id="field-description" rows="6" class="admin-input flex-1 min-w-0">{{ $activeT['description'] ?? $product->description }}</textarea>
+                    <button type="button" id="btn-generate-description" class="admin-btn-secondary shrink-0 !px-2.5 min-w-[2.4rem] mt-0.5"
+                            title="{{ $hasMiia ? 'Generar descripción con IA (nombre, slug y detalles)' : 'Configura MIIA en General para generar con IA' }}"
+                            data-title-idle="{{ $hasMiia ? 'Generar descripción con IA (nombre, slug y detalles)' : 'Configura MIIA en General para generar con IA' }}"
+                            @disabled(! $hasMiia)>
+                        <span id="btn-generate-description-icon" aria-hidden="true">✨</span>
+                        <span class="sr-only" id="btn-generate-description-label">Generar descripción con IA</span>
+                    </button>
+                </div>
+                <p class="mt-1 text-xs text-ink-soft/55">La IA usa nombre, slug y detalles del producto para redactar la descripción de venta.</p>
                 <textarea name="description" id="main-description" class="hidden">{{ old('description', $product->description) }}</textarea>
             </div>
         </div>
@@ -1128,6 +1138,7 @@
   var syncUrl = @json($isCj ? route('admin.store.products.sync-cj', $product) : null);
   var translateUrl = @json($product->exists ? route('admin.store.products.translate', $product) : null);
   var compressNameUrl = @json(route('admin.store.products.compress-name'));
+  var generateDescriptionUrl = @json(route('admin.store.products.generate-description'));
   var suggestPricesUrl = @json(route('admin.store.products.suggest-prices'));
   var defaultLocale = @json($defaultLocale);
   var activeLocale = String($('#active-locale').val() || defaultLocale);
@@ -1294,6 +1305,61 @@
     }).always(function () {
       $btn.prop('disabled', false).attr('aria-busy', 'false').attr('title', idleTitle);
       $label.text('Acortar nombre con IA');
+      $icon.text('✨');
+    });
+  });
+
+  function collectProductDetails() {
+    var details = [];
+    $('#verified-details-rows .verified-detail-row').each(function () {
+      var name = String($(this).find('input[name*="[name]"]').val() || '').trim();
+      var value = String($(this).find('input[name*="[value]"]').val() || '').trim();
+      if (!name && !value) return;
+      details.push({ name: name, value: value });
+    });
+    return details;
+  }
+
+  $('#btn-generate-description').on('click', function () {
+    if (!generateDescriptionUrl) return;
+    var name = sanitizeProductName($('#field-name').val());
+    if (!name) {
+      alert('Escribe un nombre primero.');
+      return;
+    }
+    var slug = String($('input[name="slug"]').val() || '').trim();
+    var details = collectProductDetails();
+    var existing = String($('#field-description').val() || '').trim();
+    if (existing && !window.confirm('¿Reemplazar la descripción actual con una generada por MIIA?')) {
+      return;
+    }
+    var $btn = $(this);
+    var $icon = $('#btn-generate-description-icon');
+    var $label = $('#btn-generate-description-label');
+    var idleTitle = String($btn.data('title-idle') || 'Generar descripción con IA');
+    $btn.prop('disabled', true).attr('aria-busy', 'true').attr('title', 'Generando descripción…');
+    $label.text('Generando descripción…');
+    $icon.html('<i class="fa-solid fa-spinner fa-spin text-teal" aria-hidden="true"></i>');
+    $.ajax({
+      url: generateDescriptionUrl,
+      method: 'POST',
+      dataType: 'json',
+      timeout: 120000,
+      headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' },
+      data: { _token: csrf, name: name, slug: slug, details: details }
+    }).done(function (res) {
+      if (res && res.success && res.description) {
+        $('#field-description').val(String(res.description)).trigger('input');
+        if (window.AdminToast) AdminToast.success(res.message || 'Descripción generada');
+      } else {
+        alert((res && res.error) || 'No se pudo generar la descripción.');
+      }
+    }).fail(function (xhr) {
+      var res = xhr.responseJSON || {};
+      alert(res.error || 'Error al generar la descripción.');
+    }).always(function () {
+      $btn.prop('disabled', false).attr('aria-busy', 'false').attr('title', idleTitle);
+      $label.text('Generar descripción con IA');
       $icon.text('✨');
     });
   });

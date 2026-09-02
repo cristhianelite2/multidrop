@@ -89,6 +89,12 @@ return [
             'kind' => 'chat',
             'default_engine' => 'free',
         ],
+        'product_generate_description' => [
+            'label' => 'Generar descripción de producto',
+            'hint' => 'Descripción de venta desde nombre, slug y detalles',
+            'kind' => 'chat',
+            'default_engine' => 'free',
+        ],
         'product_discovery' => [
             'label' => 'Discovery de productos',
             'hint' => 'Keywords y ángulos a partir de un problema',

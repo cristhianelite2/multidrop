@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin\Store;
 
+use App\Domain\AI\ProductDescriptionGenerationService;
 use App\Domain\AI\ProductNameCompressionService;
 use App\Domain\AI\ProductPriceSuggestionService;
 use App\Domain\AI\ProductTranslationService;
@@ -644,6 +645,37 @@ class ProductController extends Controller
             'success' => true,
             'name' => $out['name'],
             'message' => 'Nombre acortado con MIIA.',
+        ]);
+    }
+
+    public function generateDescription(
+        Request $request,
+        StoreContext $storeContext,
+        ProductDescriptionGenerationService $generator
+    ) {
+        $this->currentStoreOrFail($storeContext);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:500'],
+            'slug' => ['nullable', 'string', 'max:255'],
+            'details' => ['nullable', 'array', 'max:80'],
+            'details.*.name' => ['nullable', 'string', 'max:255'],
+            'details.*.value' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $out = $generator->generate(
+            $data['name'],
+            (string) ($data['slug'] ?? ''),
+            is_array($data['details'] ?? null) ? $data['details'] : []
+        );
+        if (! ($out['success'] ?? false)) {
+            return response()->json($out, 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'description' => $out['description'],
+            'message' => 'Descripción generada con MIIA.',
         ]);
     }
 

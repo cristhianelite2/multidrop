@@ -4,6 +4,9 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 
 ## 2026-09-02
 
+### Admin productos
+- **Generar descripción con MIIA:** botón ✨ junto a Descripción en el formulario de producto; usa nombre, slug y detalles/especificaciones para redactar copy de venta.
+
 ### Marketing
 - **Descargar ZIP en prompts con producto:** botón en campaña → Prompts, biblioteca y edición; incluye `prompt.txt` (guion, hook, análisis, segmentos) más imágenes y videos del producto en carpetas `images/` y `videos/`. Soporta varios productos vinculados (`product_id` o `analysis.product_ids`).
 - **Fix ZIP de prompts:** exporta todas las imágenes de galería + reseñas, todos los videos, nombres únicos en el ZIP, descarga fiable desde R2 (raw + URL pública) y `manifest.txt` con lo incluido/fallido.

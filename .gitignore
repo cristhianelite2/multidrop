@@ -21,3 +21,9 @@ yarn-error.log
 
 # DB dumps locales (backup al publicar)
 /backups
+/database/backups
+
+# Sesiones/cookies locales y herramientas de dev (no van al servidor)
+/cloud
+/.opencode
+/tools/remotion-ads

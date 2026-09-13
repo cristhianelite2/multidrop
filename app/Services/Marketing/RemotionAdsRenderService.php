@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
@@ -49,6 +50,26 @@ class RemotionAdsRenderService
         return max(120, (int) config('multidrop.marketing.remotion.timeout_seconds', 1800));
     }
 
+    public function mode(): string
+    {
+        return (string) config('multidrop.marketing.remotion.mode', 'local');
+    }
+
+    public function isRemote(): bool
+    {
+        return $this->mode() === 'remote' && $this->remoteBaseUrl() !== '' && $this->remoteToken() !== '';
+    }
+
+    public function remoteBaseUrl(): string
+    {
+        return rtrim((string) config('multidrop.marketing.remotion.remote_url', ''), '/\\');
+    }
+
+    public function remoteToken(): string
+    {
+        return trim((string) config('multidrop.marketing.remotion.remote_token', ''));
+    }
+
     /**
      * Entorno para subprocess Python: hereda el del PHP y sobrescribe claves.
      *
@@ -85,6 +106,12 @@ class RemotionAdsRenderService
 
     public function configured(): bool
     {
+        if ($this->mode() !== 'local') {
+            // mode=remote (o desconocido) se considera instalado si hay bridge configurado;
+            // el pipeline corre en la máquina remota que tiene tools/remotion-ads.
+            return $this->remoteBaseUrl() !== '' && $this->remoteToken() !== '';
+        }
+
         $root = $this->root();
 
         return is_dir($root)
@@ -211,7 +238,279 @@ class RemotionAdsRenderService
             }
         }
 
+        // En mode=remote el progreso real vive en el bridge (job remoto). Lo
+        // fusionamos mientras el job local no llegó a estado terminal.
+        $cacheStateAfter = (string) ($cached['state'] ?? '');
+        if (in_array($cacheStateAfter, ['queued', 'running', 'prepared', 'props_ready'], true) && $this->isRemote()) {
+            $remote = $this->fetchRemoteStatus($jobId);
+            if (is_array($remote)) {
+                $remoteState = (string) ($remote['state'] ?? 'unknown');
+                $remoteMsg = trim((string) ($remote['message'] ?? ''));
+                if (isset($remote['step'])) {
+                    $cached['step'] = (int) $remote['step'];
+                }
+                if (isset($remote['steps'])) {
+                    $cached['steps'] = (int) $remote['steps'];
+                }
+                if ($remoteMsg !== '') {
+                    $cached['pipeline_message'] = $remoteMsg;
+                    $cached['message'] = $remoteMsg;
+                }
+                if (in_array($remoteState, ['queued', 'prepared', 'props_ready', 'running'], true)) {
+                    $cached['state'] = 'running';
+                    if ($remoteState === 'props_ready') {
+                        $cached['message'] = $remoteMsg !== '' ? $remoteMsg : 'Props listos; render en curso…';
+                    }
+                }
+                if ($remoteState === 'done') {
+                    $cached['state'] = 'running'; // el ingest local puede estar en curso
+                    if ($remoteMsg === '') {
+                        $cached['message'] = '6/6 Importando video a la campaña…';
+                    }
+                }
+                if ($remoteState === 'failed') {
+                    $cached['state'] = 'failed';
+                    $cached['error'] = $remoteMsg !== '' ? $remoteMsg : 'El pipeline remoto falló';
+                    $cached['message'] = $cached['error'];
+                }
+            }
+        }
+
         return $cached;
+    }
+
+    /**
+     * Consulta el progreso real del pipeline al bridge remoto.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function fetchRemoteStatus(string $jobId): ?array
+    {
+        try {
+            $key = 'remotion_ads:remote_status:'.$jobId;
+
+            return Cache::remember($key, 2, function () use ($jobId) {
+                $resp = Http::timeout(10)
+                    ->withHeaders(['X-Remotion-Token' => $this->remoteToken()])
+                    ->get($this->remoteBaseUrl().'/api/jobs/'.$jobId.'/status');
+                if (! $resp->ok()) {
+                    return null;
+                }
+                $data = $resp->json();
+
+                return is_array($data) ? $data : null;
+            });
+        } catch (\Throwable $e) {
+            Log::warning('Remotion: no se pudo consultar el status remoto', [
+                'job' => $jobId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    /**
+     * En mode=remote: empaqueta el job (zip), lo envía al bridge, espera el
+     * render y baja out/final.mp4 al job local para su ingest.
+     */
+    protected function renderRemoteJob(string $jobId, string $preset): string
+    {
+        $jobDir = $this->root().DIRECTORY_SEPARATOR.'jobs'.DIRECTORY_SEPARATOR.$jobId;
+        if (! is_dir($jobDir)) {
+            throw new \RuntimeException('Carpeta del job Remotion no existe (remote).');
+        }
+
+        $base = $this->remoteBaseUrl();
+        $token = $this->remoteToken();
+
+        $this->patchStatusCache($jobId, 'running', '1/6 Subiendo job al motor Remotion…', 1, 6);
+        $this->writeJobStatusFile($jobDir, 'running', '1/6 Subiendo job al motor Remotion…', 1, 6);
+
+        $zipPath = $this->buildJobZip($jobId, $jobDir);
+
+        try {
+            $handle = @fopen($zipPath, 'rb');
+            if (! is_resource($handle)) {
+                throw new \RuntimeException('No se pudo abrir el zip del job para el upload.');
+            }
+
+            $resp = Http::timeout(300)
+                ->withHeaders([
+                    'X-Remotion-Token' => $token,
+                    'Content-Type' => 'application/zip',
+                ])
+                ->withOptions(['body' => $handle])
+                ->send('POST', $base.'/api/render?job='.rawurlencode($jobId).'&preset='.rawurlencode($preset));
+            @fclose($handle);
+
+            if ($resp->status() !== 202) {
+                throw new \RuntimeException('El bridge rechazó el job: '.mb_substr((string) $resp->body(), 0, 600));
+            }
+
+            $this->patchStatusCache($jobId, 'running', '1/6 Render remoto en curso…', 1, 6);
+            $this->writeJobStatusFile($jobDir, 'running', '1/6 Render remoto en curso…', 1, 6);
+
+            $this->waitRemoteDone($jobId, $base, $token);
+
+            $outDir = $jobDir.DIRECTORY_SEPARATOR.'out';
+            if (! is_dir($outDir) && ! mkdir($outDir, 0775, true) && ! is_dir($outDir)) {
+                throw new \RuntimeException('No se pudo crear '.$outDir);
+            }
+            $mp4 = $outDir.DIRECTORY_SEPARATOR.'final.mp4';
+            $this->downloadRemoteMp4($jobId, $base, $token, $mp4);
+
+            return $mp4;
+        } finally {
+            if (is_file($zipPath)) {
+                @unlink($zipPath);
+            }
+        }
+    }
+
+    protected function buildJobZip(string $jobId, string $jobDir): string
+    {
+        if (! class_exists(\ZipArchive::class)) {
+            throw new \RuntimeException('Falta la extensión PHP zip para el transporte del job.');
+        }
+
+        $root = $this->root();
+        $transport = $root.DIRECTORY_SEPARATOR.'transport';
+        if (! is_dir($transport) && ! mkdir($transport, 0775, true) && ! is_dir($transport)) {
+            throw new \RuntimeException('No se pudo crear '.$transport);
+        }
+        $zipPath = $transport.DIRECTORY_SEPARATOR.'job-'.$jobId.'.zip';
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            throw new \RuntimeException('No se pudo crear el zip del job en '.$zipPath);
+        }
+
+        $add = function (string $abs, string $entry) use ($zip): void {
+            if (is_file($abs) && filesize($abs) > 0) {
+                $zip->addFile($abs, $entry);
+            }
+        };
+
+        $add($jobDir.DIRECTORY_SEPARATOR.'prompt.json', 'prompt.json');
+        foreach (['images', 'videos'] as $folder) {
+            $dir = $jobDir.DIRECTORY_SEPARATOR.$folder;
+            if (! is_dir($dir)) {
+                continue;
+            }
+            foreach (scandir($dir) ?: [] as $name) {
+                if ($name === '.' || $name === '..') {
+                    continue;
+                }
+                $add($dir.DIRECTORY_SEPARATOR.$name, $folder.'/'.$name);
+            }
+        }
+        foreach (['voice.mp3', 'voice.wav', 'voice.m4a'] as $voiceName) {
+            $add($jobDir.DIRECTORY_SEPARATOR.$voiceName, $voiceName);
+        }
+
+        $zip->close();
+        if (! is_file($zipPath) || filesize($zipPath) < 10) {
+            throw new \RuntimeException('El zip del job quedó vacío (sin medios exportables).');
+        }
+
+        return $zipPath;
+    }
+
+    protected function waitRemoteDone(string $jobId, string $base, string $token): void
+    {
+        $deadline = time() + $this->timeoutSeconds();
+        $lastMessage = '';
+
+        while (true) {
+            try {
+                $resp = Http::timeout(15)
+                    ->withHeaders(['X-Remotion-Token' => $token])
+                    ->get($base.'/api/jobs/'.$jobId.'/status');
+            } catch (\Throwable $e) {
+                if (time() >= $deadline) {
+                    throw new \RuntimeException('Timeout esperando el render remoto: '.$e->getMessage());
+                }
+                sleep(3);
+
+                continue;
+            }
+
+            $state = 'unknown';
+            if ($resp->ok()) {
+                $data = $resp->json();
+                if (is_array($data)) {
+                    $state = (string) ($data['state'] ?? 'unknown');
+                    $lastMessage = trim((string) ($data['message'] ?? ''));
+                }
+            }
+
+            if ($state === 'done') {
+                return;
+            }
+            if ($state === 'failed') {
+                throw new \RuntimeException($lastMessage !== '' ? $lastMessage : 'El pipeline remoto falló.');
+            }
+            if (time() >= $deadline) {
+                throw new \RuntimeException('Timeout esperando el render remoto (job '.$jobId.').');
+            }
+            sleep(3);
+        }
+    }
+
+    protected function downloadRemoteMp4(string $jobId, string $base, string $token, string $dest): void
+    {
+        $resp = Http::timeout(600)
+            ->withHeaders(['X-Remotion-Token' => $token])
+            ->withOptions(['stream' => true])
+            ->get($base.'/api/jobs/'.$jobId.'/out/final.mp4');
+
+        if (! $resp->ok()) {
+            throw new \RuntimeException('El bridge no entregó final.mp4: '.mb_substr((string) $resp->body(), 0, 400));
+        }
+
+        $body = $resp->toPsrResponse()->getBody();
+        $fh = @fopen($dest, 'wb');
+        if (! is_resource($fh)) {
+            throw new \RuntimeException('No se pudo escribir '.$dest);
+        }
+        try {
+            while (! $body->eof()) {
+                $chunk = $body->read(1048576);
+                if ($chunk === '' || $chunk === false) {
+                    if ($body->eof()) {
+                        break;
+                    }
+                    continue;
+                }
+                fwrite($fh, $chunk);
+            }
+        } finally {
+            fclose($fh);
+        }
+    }
+
+    protected function cleanupRemoteWorkspace(string $jobId): void
+    {
+        $jobDir = $this->root().DIRECTORY_SEPARATOR.'jobs'.DIRECTORY_SEPARATOR.$jobId;
+        if (! is_dir($jobDir)) {
+            return;
+        }
+        try {
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($jobDir, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($it as $item) {
+                $item->isDir() ? rmdir($item->getPathname()) : @unlink($item->getPathname());
+            }
+            @rmdir($jobDir);
+        } catch (\Throwable $e) {
+            Log::warning('Remotion: no se pudo limpiar el workspace del job', [
+                'job' => $jobId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     public function runAndIngest(
@@ -233,35 +532,42 @@ class RemotionAdsRenderService
         $this->writeJobStatusFile($jobDir, 'running', '0/6 Descargando imágenes y video del producto…', 0, 6);
         $this->prepareJobDirectory($store, $prompt, $jobDir, null);
 
-        $this->patchStatusCache($jobId, 'running', '1/6 Iniciando pipeline Python…', 1, 6);
-        $this->writeJobStatusFile($jobDir, 'running', '1/6 Iniciando pipeline Python…', 1, 6);
-
-        $python = $this->pythonBinary();
-        $script = $this->root().DIRECTORY_SEPARATOR.'python'.DIRECTORY_SEPARATOR.'run_pipeline.py';
-        // Process::env() reemplaza el entorno completo. En Windows hace falta
-        // SystemRoot/windir o asyncio falla con WinError 10106 al cargar Winsock.
-        $result = Process::timeout($this->timeoutSeconds())
-            ->path($this->root())
-            ->env($this->pythonProcessEnv())
-            ->run([
-                $python,
-                $script,
-                $jobDir,
-                '--preset='.$preset,
-            ]);
-
         $mp4 = $jobDir.DIRECTORY_SEPARATOR.'out'.DIRECTORY_SEPARATOR.'final.mp4';
-        if ((! $result->successful()) && (! is_file($mp4) || filesize($mp4) < 1024)) {
-            $err = trim($result->errorOutput() ?: $result->output());
-            // Evitar volcar warnings enormes de huggingface
-            $err = preg_replace('/\s+/', ' ', $err) ?? $err;
-            Log::error('Remotion pipeline failed', [
-                'job' => $jobId,
-                'error' => mb_substr($err, -1500),
-            ]);
-            $failMsg = mb_substr($err, -800) !== '' ? mb_substr($err, -800) : 'El pipeline Remotion falló.';
-            $this->writeJobStatusFile($jobDir, 'failed', $failMsg, null, 6);
-            throw new \RuntimeException($failMsg);
+
+        if ($this->isRemote()) {
+            // El pipeline (TTS + Whisper + MIIA + Remotion) corre en la máquina
+            // del bridge (túnel). Aquí solo preparamos, subimos y bajamos el MP4.
+            $mp4 = $this->renderRemoteJob($jobId, $preset);
+        } else {
+            $this->patchStatusCache($jobId, 'running', '1/6 Iniciando pipeline Python…', 1, 6);
+            $this->writeJobStatusFile($jobDir, 'running', '1/6 Iniciando pipeline Python…', 1, 6);
+
+            $python = $this->pythonBinary();
+            $script = $this->root().DIRECTORY_SEPARATOR.'python'.DIRECTORY_SEPARATOR.'run_pipeline.py';
+            // Process::env() reemplaza el entorno completo. En Windows hace falta
+            // SystemRoot/windir o asyncio falla con WinError 10106 al cargar Winsock.
+            $result = Process::timeout($this->timeoutSeconds())
+                ->path($this->root())
+                ->env($this->pythonProcessEnv())
+                ->run([
+                    $python,
+                    $script,
+                    $jobDir,
+                    '--preset='.$preset,
+                ]);
+
+            if ((! $result->successful()) && (! is_file($mp4) || filesize($mp4) < 1024)) {
+                $err = trim($result->errorOutput() ?: $result->output());
+                // Evitar volcar warnings enormes de huggingface
+                $err = preg_replace('/\s+/', ' ', $err) ?? $err;
+                Log::error('Remotion pipeline failed', [
+                    'job' => $jobId,
+                    'error' => mb_substr($err, -1500),
+                ]);
+                $failMsg = mb_substr($err, -800) !== '' ? mb_substr($err, -800) : 'El pipeline Remotion falló.';
+                $this->writeJobStatusFile($jobDir, 'failed', $failMsg, null, 6);
+                throw new \RuntimeException($failMsg);
+            }
         }
 
         if (! is_file($mp4) || filesize($mp4) < 1024) {
@@ -272,14 +578,21 @@ class RemotionAdsRenderService
         $this->patchStatusCache($jobId, 'running', '6/6 Importando video a la campaña…', 6, 6);
         $this->writeJobStatusFile($jobDir, 'running', '6/6 Importando video a la campaña…', 6, 6);
 
-        return $this->ingest->ingestFromLocalPath(
-            $store,
-            $campaign,
-            $mp4,
-            $prompt,
-            'remotion',
-            $jobId
-        );
+        try {
+            return $this->ingest->ingestFromLocalPath(
+                $store,
+                $campaign,
+                $mp4,
+                $prompt,
+                'remotion',
+                $jobId
+            );
+        } finally {
+            if ($this->isRemote()) {
+                // Liberar disco en el droplet: el job completo ya viajó y el MP4 se importó.
+                $this->cleanupRemoteWorkspace($jobId);
+            }
+        }
     }
 
     public function failJob(string $jobId, string $message): void

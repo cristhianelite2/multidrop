@@ -26,4 +26,3 @@ yarn-error.log
 # Sesiones/cookies locales y herramientas de dev (no van al servidor)
 /cloud
 /.opencode
-/tools/remotion-ads

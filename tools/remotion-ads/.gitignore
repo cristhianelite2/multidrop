@@ -1,0 +1,15 @@
+public/_job/
+node_modules/
+.venv/
+jobs/*/
+!jobs/.gitkeep
+out/
+dist/
+.DS_Store
+*.log
+.remotion/
+__pycache__/
+*.pyc
+bridge/token.txt
+bridge/server.log
+bridge/__pycache__/

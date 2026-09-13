@@ -1,0 +1,24 @@
+{
+  "name": "multidrop-remotion-ads",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ads verticales 9:16 para Multidrop (Remotion + Whisper + MIIA)",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "build": "remotion bundle src/index.ts",
+    "render": "remotion render src/index.ts ProductAd",
+    "upgrade": "remotion upgrade"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.286",
+    "@remotion/media-utils": "4.0.286",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.286"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "typescript": "5.6.3"
+  }
+}

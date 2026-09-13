@@ -178,12 +178,19 @@ return [
         ],
         /*
          * Remotion Ads Studio (tools/remotion-ads): Whisper + MIIA + render local.
+         * mode=local  -> el pipeline corre en la misma máquina que la app (dev/XAMPP).
+         * mode=remote -> la app envía el job a un bridge por HTTP (túnel Cloudflare) y
+         *                el render corre en la máquina donde vive tools/remotion-ads.
          */
         'remotion' => [
             'root' => env('REMOTION_ADS_ROOT', base_path('tools/remotion-ads')),
             'python' => env('REMOTION_ADS_PYTHON', 'python'),
             'timeout_seconds' => (int) env('REMOTION_ADS_TIMEOUT', 1800),
             'default_preset' => env('REMOTION_ADS_PRESET', 'product_presenter'),
+            'mode' => env('REMOTION_ADS_MODE', 'local'),
+            // Solo aplica con mode=remote: URL pública del bridge (túnel) y token compartido.
+            'remote_url' => env('REMOTION_ADS_URL', ''),
+            'remote_token' => env('REMOTION_ADS_TOKEN', ''),
             // En local/XAMPP: sync lanza `php artisan marketing:remotion-process` en background
             // (artisan serve es single-thread; afterResponse bloquearía el poll del UI).
             'sync' => filter_var(

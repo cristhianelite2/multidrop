@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin\Store\Marketing;
 use App\Domain\AI\ProductVideoPromptService;
 use App\Http\Controllers\Admin\Concerns\ResolvesCurrentStore;
 use App\Http\Controllers\Controller;
+use App\Models\Combo;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
 use App\Models\Product;
@@ -58,8 +59,21 @@ class PromptController extends Controller
         MarketingPrompt::create($data);
 
         if (! empty($data['campaign_id'])) {
+            if (! empty($data['product_id'])) {
+                MarketingCampaign::query()
+                    ->where('store_id', $store->id)
+                    ->where('id', $data['campaign_id'])
+                    ->first()
+                    ?->products()
+                    ->syncWithoutDetaching([(int) $data['product_id']]);
+            }
+
             return redirect()
-                ->route('admin.store.marketing.campaigns.edit', ['campaign' => $data['campaign_id'], 'tab' => 'prompts'])
+                ->route('admin.store.marketing.campaigns.edit', array_filter([
+                    'campaign' => $data['campaign_id'],
+                    'tab' => 'productos',
+                    'product' => ! empty($data['product_id']) ? (int) $data['product_id'] : null,
+                ]))
                 ->with('success', 'Prompt añadido a la campaña.');
         }
 
@@ -86,7 +100,11 @@ class PromptController extends Controller
 
         if ($prompt->campaign_id) {
             return redirect()
-                ->route('admin.store.marketing.campaigns.edit', ['campaign' => $prompt->campaign_id, 'tab' => 'prompts'])
+                ->route('admin.store.marketing.campaigns.edit', array_filter([
+                    'campaign' => $prompt->campaign_id,
+                    'tab' => 'productos',
+                    'product' => $prompt->product_id ? (int) $prompt->product_id : null,
+                ]))
                 ->with('success', 'Prompt actualizado.');
         }
 
@@ -122,11 +140,16 @@ class PromptController extends Controller
         $store = $this->currentStoreOrFail($storeContext);
         abort_unless((int) $prompt->store_id === (int) $store->id, 404);
         $campaignId = $prompt->campaign_id;
+        $productId = $prompt->product_id ? (int) $prompt->product_id : null;
         $prompt->delete();
 
         if ($campaignId) {
             return redirect()
-                ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaignId, 'tab' => 'prompts'])
+                ->route('admin.store.marketing.campaigns.edit', array_filter([
+                    'campaign' => $campaignId,
+                    'tab' => 'productos',
+                    'product' => $productId,
+                ]))
                 ->with('success', 'Prompt eliminado.');
         }
 
@@ -144,14 +167,26 @@ class PromptController extends Controller
             ->orderByDesc('id');
 
         if ($q !== '') {
-            $query->where(function ($builder) use ($q) {
+            $comboProductIds = Combo::query()
+                ->where('store_id', $store->id)
+                ->whereNotNull('product_id')
+                ->where(function ($b) use ($q) {
+                    $b->where('name', 'like', '%'.$q.'%')
+                        ->orWhere('slug', 'like', '%'.$q.'%');
+                })
+                ->pluck('product_id');
+
+            $query->where(function ($builder) use ($q, $comboProductIds) {
                 $builder->where('name', 'like', '%'.$q.'%')
                     ->orWhere('sku', 'like', '%'.$q.'%')
                     ->orWhere('slug', 'like', '%'.$q.'%');
+                if ($comboProductIds->isNotEmpty()) {
+                    $builder->orWhereIn('id', $comboProductIds);
+                }
             });
         }
 
-        $rows = $query->limit(250)->get(['id', 'name', 'slug', 'sku', 'image_url', 'status']);
+        $rows = $query->limit(250)->get(['id', 'name', 'slug', 'sku', 'image_url', 'status', 'creative_data']);
 
         return response()->json([
             'ok' => true,
@@ -162,6 +197,7 @@ class PromptController extends Controller
                 'sku' => $p->sku,
                 'status' => $p->status,
                 'image_url' => $p->image_url,
+                'is_combo' => (bool) data_get($p->creative_data, 'is_combo', false),
             ])->values(),
         ]);
     }
@@ -186,9 +222,10 @@ class PromptController extends Controller
             ->where('id', $data['product_id'])
             ->firstOrFail();
 
+        $storeLanguage = $store->configuredLocale() ?: 'es';
         $result = $generator->generate($store, $product, [
             'video_length' => (int) ($data['video_length'] ?? 21),
-            'language' => $data['language'] ?? 'es',
+            'language' => $storeLanguage,
             'target_platform' => $data['target_platform'] ?? 'Tiktok',
             'campaign_id' => $data['campaign_id'] ?? null,
         ]);
@@ -226,11 +263,18 @@ class PromptController extends Controller
                     'script_style' => $result['prompt']['script_style'] ?? null,
                 ]),
                 'audience' => $result['prompt']['audience'] ?? null,
-                'language' => $result['prompt']['language'] ?? 'es',
+                'language' => $result['prompt']['language'] ?? $storeLanguage,
                 'style' => $result['prompt']['style'] ?? 'DynamicProductTemplate',
                 'target_platform' => $result['prompt']['target_platform'] ?? 'Tiktok',
             ]);
             $promptId = $row->id;
+            if ($campaignId) {
+                MarketingCampaign::query()
+                    ->where('id', $campaignId)
+                    ->first()
+                    ?->products()
+                    ->syncWithoutDetaching([$product->id]);
+            }
         }
 
         return response()->json([

@@ -143,6 +143,58 @@ class AliExpressProductFetcher
     }
 
     /**
+     * Reduce capturas PDP AE quitando scripts de analytics/aplus.
+     * Conserva runParams, DCData, JSON-LD y bloques cortos.
+     */
+    public function compactCaptureHtml(string $html): string
+    {
+        $html = trim($html);
+        if ($html === '' || strlen($html) < 400000) {
+            return $html;
+        }
+
+        $keep = [
+            'window._d_c_.DCData',
+            'window.runParams',
+            'window.__INIT_DATA__',
+            'window._dida_config_',
+            'window._page_config_',
+            '__AER_DATA__',
+            '__NEXT_DATA__',
+            'application/ld+json',
+            'product-description',
+            'ItemDetailResp',
+            'imagePathList',
+            'skuModule',
+            'titleModule',
+            'priceModule',
+            'mtop.aliexpress',
+            'viewName',
+            'GLOBAL_DATA',
+        ];
+
+        $out = preg_replace_callback(
+            '/<script\b([^>]*)>(.*?)<\/script>/is',
+            static function (array $m) use ($keep): string {
+                $hay = $m[1]."\n".$m[2];
+                foreach ($keep as $needle) {
+                    if (stripos($hay, $needle) !== false) {
+                        return $m[0];
+                    }
+                }
+                if (strlen($m[2]) < 800) {
+                    return $m[0];
+                }
+
+                return '';
+            },
+            $html
+        );
+
+        return is_string($out) && $out !== '' ? $out : $html;
+    }
+
+    /**
      * Parsea HTML (y opcionalmente un snapshot JS) capturado en el navegador.
      *
      * @param  array<string, mixed>  $snapshot
@@ -155,6 +207,10 @@ class AliExpressProductFetcher
         $url = trim($url);
         if ($html === '' && $snapshot === []) {
             return ['success' => false, 'error' => 'No recibí HTML ni snapshot.'];
+        }
+
+        if ($html !== '') {
+            $html = $this->compactCaptureHtml($html);
         }
 
         $html = $this->injectSnapshot($html !== '' ? $html : '<html></html>', $snapshot);

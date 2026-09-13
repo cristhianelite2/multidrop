@@ -96,14 +96,18 @@ class ProductVideoPromptService
         if ($segments === []) {
             $segments = $this->fallbackSegments($parsed, $targetSeconds);
         }
+        $segments = $this->sanitizeSegmentsCopy($segments);
+        $parsed = $this->sanitizeParsedCopy($parsed);
+        $creative = $this->sanitizeCreativeCopy($creative);
 
         $script = $this->formatFullScript($creative, $segments, $parsed);
         $hook = trim((string) ($parsed['hook'] ?? ''));
         if ($hook === '' && $segments !== []) {
             $hook = trim((string) ($segments[0]['voiceover'] ?? ''));
         }
+        $hook = $this->sanitizeSpokenCopy($hook);
 
-        $name = trim((string) ($parsed['prompt_name'] ?? ''));
+        $name = $this->sanitizeSpokenCopy(trim((string) ($parsed['prompt_name'] ?? '')));
         if ($name === '') {
             $name = 'TikTok · '.mb_substr($product->localizedName(), 0, 60);
         }
@@ -265,6 +269,9 @@ REGLAS CRÍTICAS DE FORMATO:
 - recommended_format: "ugc" | "b_roll" | "mixed"
 - visual_style: "DynamicProductTemplate" | "CinematicTemplate"
 - script_style: "DontWorryWriter" | "StoryTimeWriter" | "ShoppableVideo"
+- GUION SIN EMOJIS: voiceover, hook, text_on_screen, summary, product_angle, CTA y captions.emphasis_words van en texto plano. Cero emojis, cero pictogramas, cero flechas unicode.
+- PROHIBIDO en el guion hablado y en overlays: "link en bio", "link in bio", "enlace en bio", hashtags (#Algo), handles (@user) y gestos de señalar hacia abajo como CTA.
+- El CTA debe ser verbal y de compra en plataforma (ej. "Cómpralo ahora en TikTok Shop"), no bio ni hashtag de marca.
 
 JSON EXACTO (respeta tipos):
 {
@@ -439,7 +446,7 @@ TXT;
             }
             $duration = (int) ($row['duration'] ?? 3);
             $duration = max(1, min(3, $duration));
-            $voice = trim((string) ($row['voiceover'] ?? ''));
+            $voice = $this->sanitizeSpokenCopy(trim((string) ($row['voiceover'] ?? '')));
             if ($voice === '') {
                 continue;
             }
@@ -452,10 +459,10 @@ TXT;
                 'duration' => $end - $start,
                 'type' => (string) ($row['type'] ?? 'segment'),
                 'voiceover' => $voice,
-                'talent' => $this->segmentFieldToText($row['talent'] ?? ''),
+                'talent' => $this->sanitizeSpokenCopy($this->segmentFieldToText($row['talent'] ?? '')),
                 'camera' => $this->segmentFieldToText($row['camera'] ?? ''),
-                'visual' => $this->segmentFieldToText($row['visual'] ?? ''),
-                'text_on_screen' => $this->segmentFieldToText($row['text_on_screen'] ?? ''),
+                'visual' => $this->sanitizeSpokenCopy($this->segmentFieldToText($row['visual'] ?? '')),
+                'text_on_screen' => $this->sanitizeSpokenCopy($this->segmentFieldToText($row['text_on_screen'] ?? '')),
                 'audio' => $this->segmentFieldToText($row['audio'] ?? ''),
                 'transition' => $this->segmentFieldToText($row['transition'] ?? ''),
                 'media_hint' => (string) ($row['media_hint'] ?? ''),
@@ -477,13 +484,13 @@ TXT;
     {
         $hook = trim((string) ($parsed['hook'] ?? 'Mira esto.'));
         $angle = trim((string) ($parsed['product_angle'] ?? 'La solución que buscabas.'));
-        $cta = 'Entra ahora y llévalo con envío a tu puerta.';
+        $cta = 'Cómpralo ahora en TikTok Shop, envío a tu puerta.';
 
         $raw = [
             ['type' => 'hook', 'voiceover' => $hook, 'talent' => 'Mira directo a cámara, ceja arriba, energía alta', 'camera' => 'Selfie POV handheld, ligero push-in', 'visual' => 'Rostro + producto en mano'],
             ['type' => 'problem', 'voiceover' => 'Si te pasa esto a diario, no estás solo.', 'talent' => 'Gestos de frustración auténticos', 'camera' => 'Plano medio, cámara en mano', 'visual' => 'Situación del problema'],
             ['type' => 'solution', 'voiceover' => $angle, 'talent' => 'Sonríe, muestra el producto', 'camera' => 'Insert macro del producto', 'visual' => 'Demo rápida en uso'],
-            ['type' => 'cta', 'voiceover' => $cta, 'talent' => 'Señala abajo con el dedo', 'camera' => 'Plano cerrado + texto overlay', 'visual' => 'Precio y botón comprar'],
+            ['type' => 'cta', 'voiceover' => $cta, 'talent' => 'Muestra el producto a cámara con sonrisa', 'camera' => 'Plano cerrado + texto overlay', 'visual' => 'Producto y botón comprar'],
         ];
 
         $segments = [];
@@ -512,6 +519,100 @@ TXT;
         }
 
         return $segments;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $segments
+     * @return list<array<string, mixed>>
+     */
+    protected function sanitizeSegmentsCopy(array $segments): array
+    {
+        foreach ($segments as $i => $seg) {
+            if (! is_array($seg)) {
+                continue;
+            }
+            foreach (['voiceover', 'text_on_screen', 'talent', 'visual'] as $key) {
+                if (isset($seg[$key])) {
+                    $segments[$i][$key] = $this->sanitizeSpokenCopy((string) $seg[$key]);
+                }
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @param  array<string, mixed>  $parsed
+     * @return array<string, mixed>
+     */
+    protected function sanitizeParsedCopy(array $parsed): array
+    {
+        foreach (['hook', 'summary', 'product_angle', 'prompt_name'] as $key) {
+            if (isset($parsed[$key]) && is_string($parsed[$key])) {
+                $parsed[$key] = $this->sanitizeSpokenCopy($parsed[$key]);
+            }
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * @param  array<string, mixed>  $creative
+     * @return array<string, mixed>
+     */
+    protected function sanitizeCreativeCopy(array $creative): array
+    {
+        if (isset($creative['brand']) && is_array($creative['brand'])) {
+            foreach (['cta', 'product_hero_shots'] as $key) {
+                if (isset($creative['brand'][$key]) && is_string($creative['brand'][$key])) {
+                    $creative['brand'][$key] = $this->sanitizeSpokenCopy((string) $creative['brand'][$key]);
+                }
+            }
+        }
+        if (isset($creative['captions']) && is_array($creative['captions'])) {
+            if (isset($creative['captions']['emphasis_words']) && is_array($creative['captions']['emphasis_words'])) {
+                $creative['captions']['emphasis_words'] = array_values(array_filter(array_map(
+                    fn ($w) => $this->sanitizeSpokenCopy((string) $w),
+                    $creative['captions']['emphasis_words']
+                )));
+            }
+            foreach (['style', 'position'] as $key) {
+                if (isset($creative['captions'][$key]) && is_string($creative['captions'][$key])) {
+                    $creative['captions'][$key] = $this->sanitizeSpokenCopy((string) $creative['captions'][$key]);
+                }
+            }
+        }
+
+        return $creative;
+    }
+
+    /**
+     * Quita emojis, hashtags y "link en bio" del guion hablado / overlays.
+     */
+    protected function sanitizeSpokenCopy(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $text = preg_replace('/[\x{1F000}-\x{1FFFF}]/u', '', $text) ?? $text;
+        $text = preg_replace('/[\x{2600}-\x{27BF}]/u', '', $text) ?? $text;
+        $text = str_replace(["\u{FE0F}", "\u{200D}", "\u{20E3}"], '', $text);
+
+        $text = preg_replace(
+            '/\b(?:link|enlace)\s+(?:en|in)\s+(?:la\s+)?bio\b(?:\s*[:.\-]?\s*)?/iu',
+            '',
+            $text
+        ) ?? $text;
+        $text = preg_replace('/\blink\s+in\s+bio\b(?:\s*[:.\-]?\s*)?/iu', '', $text) ?? $text;
+        $text = preg_replace('/#[\p{L}\p{N}_]+/u', '', $text) ?? $text;
+        $text = preg_replace('/(?<!\w)@[\p{L}\p{N}_.]+/u', '', $text) ?? $text;
+
+        $text = preg_replace('/[ \t]{2,}/', ' ', $text) ?? $text;
+        $text = preg_replace('/\s+([,.;:!?])/u', '$1', $text) ?? $text;
+
+        return trim($text);
     }
 
     /**

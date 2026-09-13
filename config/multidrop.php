@@ -12,6 +12,16 @@ return [
 
     'name' => 'Multidrop',
 
+    /*
+    |--------------------------------------------------------------------------
+    | API interna (Bearer token)
+    |--------------------------------------------------------------------------
+    | Token para consumir /api/v1. Se puede pisar por tienda/plataforma con
+    | PlatformSetting::put('api.public_token', $token, 'api', true).
+    */
+    'api_token' => env('MULTIDROP_API_TOKEN', ''),
+
+
     'storefront_mode' => env('MULTIDROP_STOREFRONT_MODE', 'path'), // path|subdomain|apex
 
     'default_market_code' => env('MULTIDROP_DEFAULT_MARKET', 'MX'),
@@ -165,6 +175,21 @@ return [
         ],
         'optimizer' => [
             'webhook' => env('MARKETING_OPTIMIZER_WEBHOOK', ''),
+        ],
+        /*
+         * Remotion Ads Studio (tools/remotion-ads): Whisper + MIIA + render local.
+         */
+        'remotion' => [
+            'root' => env('REMOTION_ADS_ROOT', base_path('tools/remotion-ads')),
+            'python' => env('REMOTION_ADS_PYTHON', 'python'),
+            'timeout_seconds' => (int) env('REMOTION_ADS_TIMEOUT', 1800),
+            'default_preset' => env('REMOTION_ADS_PRESET', 'product_presenter'),
+            // En local/XAMPP: sync lanza `php artisan marketing:remotion-process` en background
+            // (artisan serve es single-thread; afterResponse bloquearía el poll del UI).
+            'sync' => filter_var(
+                env('REMOTION_ADS_SYNC', env('APP_ENV', 'production') === 'local'),
+                FILTER_VALIDATE_BOOL
+            ),
         ],
         /*
          * Iframe de Seller Central para administrar publicaciones desde la campaña.

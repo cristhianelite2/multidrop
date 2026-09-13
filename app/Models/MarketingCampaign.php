@@ -56,6 +56,17 @@ class MarketingCampaign extends Model
         return $this->hasMany(MarketingVideo::class, 'campaign_id');
     }
 
+    public function products(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'marketing_campaign_product')
+            ->withTimestamps();
+    }
+
+    public function media(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CampaignProductMedia::class, 'marketing_campaign_id');
+    }
+
     /**
      * @return list<string>
      */

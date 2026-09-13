@@ -1228,6 +1228,42 @@
     }
   }
 
+  function compactAeHtmlClient(html) {
+    html = String(html || '');
+    if (html.length < 400000) return html;
+    var keep = [
+      'window._d_c_.DCData', 'window.runParams', 'window.__INIT_DATA__',
+      'window._dida_config_', 'window._page_config_', '__AER_DATA__', '__NEXT_DATA__',
+      'application/ld+json', 'product-description', 'ItemDetailResp', 'imagePathList',
+      'skuModule', 'titleModule', 'priceModule', 'mtop.aliexpress', 'viewName', 'GLOBAL_DATA'
+    ];
+    return html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, function (full, attrs, body) {
+      var hay = String(attrs || '') + '\n' + String(body || '');
+      for (var i = 0; i < keep.length; i++) {
+        if (hay.toLowerCase().indexOf(keep[i].toLowerCase()) !== -1) return full;
+      }
+      if (String(body || '').length < 800) return full;
+      return '';
+    });
+  }
+
+  function ajaxFailMessage(xhr, fallback) {
+    var j = xhr && xhr.responseJSON;
+    if (!j) return fallback || 'Error de red';
+    if (j.error) return j.error;
+    if (j.message) {
+      var first = null;
+      if (j.errors && typeof j.errors === 'object') {
+        Object.keys(j.errors).some(function (k) {
+          if (j.errors[k] && j.errors[k][0]) { first = j.errors[k][0]; return true; }
+          return false;
+        });
+      }
+      return first || j.message;
+    }
+    return fallback || 'Error de red';
+  }
+
   function runHuntHtml() {
     var raw = String($('#ph-html-input').val() || '').trim();
     var url = String($('#ph-html-url').val() || $('#cj-crawl-url').val() || '').trim();
@@ -1245,6 +1281,9 @@
           if (!payload.url && decoded.url) payload.url = decoded.url;
         }
       } catch (e) {}
+    }
+    if (payload.html) {
+      payload.html = compactAeHtmlClient(payload.html);
     }
     var $btn = $('#ph-html-btn');
     var $status = $('#cj-crawl-status');
@@ -1268,7 +1307,7 @@
       }
     }).fail(function (xhr) {
       $status.removeClass('text-ink-soft/60 text-teal').addClass('text-coral')
-        .text((xhr.responseJSON && xhr.responseJSON.error) || 'Error al parsear HTML');
+        .text(ajaxFailMessage(xhr, 'Error al parsear HTML'));
     }).always(function () {
       $btn.prop('disabled', false).text(original);
     });

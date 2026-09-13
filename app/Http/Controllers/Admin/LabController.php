@@ -342,16 +342,19 @@ class LabController extends Controller
         AliExpressProductFetcher $fetcher,
         CjProductMatcher $matcher
     ) {
-        $data = $request->validate([
+        // No validar max del HTML aquí: las fichas AE actuales superan 2.5MB por aplus/analytics.
+        // Compactamos primero y luego aplicamos un tope más alto.
+        $request->validate([
             'url' => ['nullable', 'string', 'max:2000'],
-            'html' => ['nullable', 'string', 'max:2500000'],
+            'html' => ['nullable', 'string'],
             'snapshot' => ['nullable', 'array'],
         ]);
         @set_time_limit(120);
 
-        $html = (string) ($data['html'] ?? '');
-        $snapshot = is_array($data['snapshot'] ?? null) ? $data['snapshot'] : [];
-        $url = trim((string) ($data['url'] ?? ''));
+        $html = (string) $request->input('html', '');
+        $snapshot = $request->input('snapshot');
+        $snapshot = is_array($snapshot) ? $snapshot : [];
+        $url = trim((string) $request->input('url', ''));
 
         $trimmed = ltrim($html);
         if ($trimmed !== '' && str_starts_with($trimmed, '{')) {
@@ -365,6 +368,24 @@ class LabController extends Controller
                     $url = (string) $decoded['url'];
                 }
             }
+        }
+
+        if ($html === '' && $snapshot === []) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Pega el HTML (o el JSON del plugin) de la ficha AliExpress.',
+            ], 422);
+        }
+
+        if ($html !== '') {
+            $html = $fetcher->compactCaptureHtml($html);
+        }
+
+        if (strlen($html) > 3000000) {
+            return response()->json([
+                'success' => false,
+                'error' => 'HTML demasiado grande ('.round(strlen($html) / 1000000, 1).' MB) tras compactar. Usa el botón del plugin o pega el JSON del plugin.',
+            ], 422);
         }
 
         $fetched = $fetcher->parseFromCapture($html, $url, $snapshot);
@@ -430,8 +451,11 @@ class LabController extends Controller
         if (! is_array($snapshot)) {
             $snapshot = [];
         }
-        if (strlen($html) > 2500000) {
-            $html = substr($html, 0, 2500000);
+        if ($html !== '') {
+            $html = $fetcher->compactCaptureHtml($html);
+        }
+        if (strlen($html) > 3000000) {
+            $html = substr($html, 0, 3000000);
         }
 
         $fetched = $fetcher->parseFromCapture($html, $url, $snapshot);
@@ -810,8 +834,11 @@ class LabController extends Controller
         }
 
         $html = (string) ($data['html'] ?? '');
-        if (strlen($html) > 2500000) {
-            $html = substr($html, 0, 2500000);
+        if ($html !== '') {
+            $html = $fetcher->compactCaptureHtml($html);
+        }
+        if (strlen($html) > 3000000) {
+            $html = substr($html, 0, 3000000);
         }
         $snapshot = $request->input('snapshot');
         if (! is_array($snapshot)) {

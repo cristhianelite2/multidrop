@@ -153,10 +153,14 @@ class ProductMediaDownloadService
         }
 
         try {
-            $response = Http::timeout(120)
+            $isVideo = (bool) preg_match('/\.(mp4|webm|mov|m4v)(\?|$)/i', $url)
+                || str_contains(strtolower($url), 'aliexpress-media')
+                || str_contains(strtolower($url), '/video');
+            $response = Http::timeout($isVideo ? 180 : 120)
                 ->withHeaders([
-                    'User-Agent' => 'Multidrop/1.0',
+                    'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
                     'Referer' => 'https://www.aliexpress.com/',
+                    'Origin' => 'https://www.aliexpress.com',
                     'Accept' => '*/*',
                 ])
                 ->get($url);
@@ -165,6 +169,10 @@ class ProductMediaDownloadService
             }
             $body = $response->body();
             if (! is_string($body) || $body === '') {
+                return null;
+            }
+            // HTML de error / página de login no es un video
+            if ($isVideo && strlen($body) < 2048) {
                 return null;
             }
 

@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AdminUserController;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\GeneralSettingsController;
+use App\Http\Controllers\Admin\ApiSettingsController;
 use App\Http\Controllers\Admin\LabController;
 use App\Http\Controllers\Admin\ProfileController;
 use App\Http\Controllers\Admin\RoleController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Admin\Store\Marketing\CampaignController as MarketingCa
 use App\Http\Controllers\Admin\Store\Marketing\CreatifyController as MarketingCreatifyController;
 use App\Http\Controllers\Admin\Store\Marketing\MarketingController;
 use App\Http\Controllers\Admin\Store\Marketing\PromptController as MarketingPromptController;
+use App\Http\Controllers\Admin\Store\Marketing\RemotionController as MarketingRemotionController;
 use App\Http\Controllers\Admin\Store\Marketing\VideoController as MarketingVideoController;
 use App\Http\Controllers\Admin\Store\NewsletterController;
 use App\Http\Controllers\Admin\Store\SocialProofController;
@@ -211,6 +213,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('campaigns/{campaign}/insights', [MarketingCampaignController::class, 'insights'])->name('campaigns.insights');
                     Route::post('campaigns/{campaign}/targets', [MarketingCampaignController::class, 'targets'])->name('campaigns.targets');
                     Route::post('campaigns/{campaign}/optimize', [MarketingCampaignController::class, 'optimize'])->name('campaigns.optimize');
+                    Route::post('campaigns/{campaign}/products', [MarketingCampaignController::class, 'attachProducts'])->name('campaigns.products.attach');
+                    Route::delete('campaigns/{campaign}/products/{product}', [MarketingCampaignController::class, 'detachProduct'])->name('campaigns.products.detach');
                     Route::get('campaigns/{campaign}/brief.json', [MarketingCampaignController::class, 'brief'])->name('campaigns.brief');
                     Route::get('prompts', [MarketingPromptController::class, 'index'])->name('prompts.index');
                     Route::get('prompts/create', [MarketingPromptController::class, 'create'])->name('prompts.create');
@@ -226,8 +230,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::put('videos/{video}', [MarketingVideoController::class, 'update'])->name('videos.update');
                     Route::delete('videos/{video}', [MarketingVideoController::class, 'destroy'])->name('videos.destroy');
                     Route::get('videos/{video}/download', [MarketingVideoController::class, 'download'])->name('videos.download');
+                    Route::get('videos/{video}/publication-json', [MarketingVideoController::class, 'publicationJson'])->name('videos.publication-json');
                     Route::post('creatify/generate', [MarketingCreatifyController::class, 'generate'])->name('creatify.generate');
                     Route::post('creatify/poll', [MarketingCreatifyController::class, 'poll'])->name('creatify.poll');
+                    Route::post('remotion/generate', [MarketingRemotionController::class, 'generate'])->name('remotion.generate');
+                    Route::post('remotion/poll', [MarketingRemotionController::class, 'poll'])->name('remotion.poll');
                 });
 
                 Route::get('general', [StoreGeneralController::class, 'edit'])->name('general.edit');
@@ -382,6 +389,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/settings/general/r2/refresh-stats', [GeneralSettingsController::class, 'refreshR2StoreStats'])->name('settings.general.r2.refresh-stats');
             Route::post('/settings/general/api/test', [GeneralSettingsController::class, 'testApi'])->name('settings.general.api.test');
             Route::get('/settings/general/ai/engines', [GeneralSettingsController::class, 'aiEngines'])->name('settings.general.ai.engines');
+            Route::get('/settings/api', [ApiSettingsController::class, 'edit'])->name('settings.api');
+            Route::put('/settings/api', [ApiSettingsController::class, 'update'])->name('settings.api.update');
+            Route::post('/settings/api/regenerate', [ApiSettingsController::class, 'regenerate'])->name('settings.api.regenerate');
+            Route::post('/settings/api/disable', [ApiSettingsController::class, 'disable'])->name('settings.api.disable');
+            Route::post('/settings/api/test', [ApiSettingsController::class, 'test'])->name('settings.api.test');
         });
 
         Route::middleware('permission:lab.discovery')->group(function () {

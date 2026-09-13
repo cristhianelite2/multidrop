@@ -12,6 +12,7 @@ class MarketingVideo extends Model
         'store_id',
         'campaign_id',
         'prompt_id',
+        'product_id',
         'source',
         'path',
         'original_name',
@@ -45,6 +46,11 @@ class MarketingVideo extends Model
     public function prompt(): BelongsTo
     {
         return $this->belongsTo(MarketingPrompt::class, 'prompt_id');
+    }
+
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
     }
 
     public function publicUrl(): string

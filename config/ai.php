@@ -107,6 +107,12 @@ return [
             'kind' => 'chat',
             'default_engine' => 'free',
         ],
+        'remotion_edit_plan' => [
+            'label' => 'Plan de cortes Remotion',
+            'hint' => 'Transiciones y clips a partir de Whisper + medios del producto',
+            'kind' => 'chat',
+            'default_engine' => 'free',
+        ],
         'store_seo' => [
             'label' => 'SEO de tienda',
             'hint' => 'Título, meta, slogan y about',

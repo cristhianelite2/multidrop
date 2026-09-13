@@ -1,8 +1,8 @@
 @extends('layouts.admin')
 
 @php
-    $allowedTabs = ['resumen', 'publicaciones', 'ads', 'prompts', 'resultados', 'optimizar'];
-    $tab = in_array($tab ?? '', $allowedTabs, true) ? $tab : 'resumen';
+    $allowedTabs = ['productos', 'publicaciones', 'campana'];
+    $tab = in_array($tab ?? '', $allowedTabs, true) ? $tab : 'productos';
     $statusLabel = ['draft' => 'Borrador', 'ready' => 'Listo', 'paused' => 'Pausada'][$campaign->status] ?? $campaign->status;
     $ctas = [
         'SHOP_NOW' => 'Comprar ahora',
@@ -11,9 +11,15 @@
         'ORDER_NOW' => 'Pedir ahora',
         'GET_OFFER' => 'Ver oferta',
     ];
-    $insights = is_array($campaign->insights) ? $campaign->insights : [];
-    $advice = is_array($campaign->advice) ? $campaign->advice : [];
     $sellercentralEmbedUrl = trim((string) ($sellercentralEmbedUrl ?? ''));
+    $catalogProducts = $catalogProducts ?? collect();
+    $catalogProductCount = $catalogProducts->count();
+    $promptsByProduct = $promptsByProduct ?? collect();
+    $videosByProduct = $videosByProduct ?? collect();
+    $unassignedPrompts = $promptsByProduct->get('0', collect());
+    $unassignedVideos = $videosByProduct->get('0', collect());
+    $focusProduct = $focusProduct ?? null;
+    $listUrl = route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'productos']);
 @endphp
 
 @section('title', $campaign->name.' — Marketing')
@@ -23,11 +29,77 @@
 @section('content')
     @include('admin.store.marketing._nav', ['tab' => 'campaigns'])
 
+    <style>
+        /* El <video> trae tamaño intrínseco (~1920px) y rompe el layout; forzar miniatura fija. */
+        button.md-open-video-modal:not(.md-product-list-thumb) {
+            width: 56px !important;
+            height: 100px !important;
+            max-width: 56px !important;
+            max-height: 100px !important;
+            min-width: 56px !important;
+            min-height: 100px !important;
+            padding: 0 !important;
+            flex-shrink: 0 !important;
+            display: block !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+        }
+        button.md-open-video-modal:not(.md-product-list-thumb) video {
+            width: 56px !important;
+            height: 100px !important;
+            max-width: 56px !important;
+            max-height: 100px !important;
+            object-fit: cover !important;
+            display: block !important;
+        }
+        #md-video-modal-player {
+            width: 169px !important;
+            height: 300px !important;
+            max-width: 169px !important;
+            max-height: 300px !important;
+            object-fit: contain !important;
+            display: block !important;
+            background: #000 !important;
+        }
+        #md-video-modal.flex {
+            display: flex !important;
+        }
+        #md-camp-add-modal.flex {
+            display: flex !important;
+        }
+        #md-ai-modal.flex {
+            display: flex !important;
+        }
+        a.md-product-list-thumb,
+        button.md-product-list-thumb {
+            width: 72px !important;
+            height: 112px !important;
+            display: block !important;
+            overflow: hidden !important;
+            border-radius: 0.5rem;
+            border: 1px solid var(--line, #e5e7eb);
+            background: #000;
+        }
+        a.md-product-list-thumb video,
+        button.md-product-list-thumb video {
+            width: 72px !important;
+            height: 112px !important;
+            object-fit: cover !important;
+            display: block !important;
+        }
+    </style>
+
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <p class="text-sm text-ink-soft/70">
             <a href="{{ route('admin.store.marketing.campaigns.index') }}" class="hover:text-teal">Campañas</a>
             <span class="text-ink-soft/40"> / </span>
-            {{ $campaign->name }}
+            @if($focusProduct)
+                <a href="{{ $listUrl }}" class="hover:text-teal">{{ $campaign->name }}</a>
+                <span class="text-ink-soft/40"> / </span>
+                {{ $focusProduct->localizedName() }}
+            @else
+                {{ $campaign->name }}
+            @endif
         </p>
         <div class="flex flex-wrap items-center gap-2">
             <span class="admin-badge {{ $campaign->status === 'ready' ? 'bg-emerald-100 text-emerald-800' : ($campaign->status === 'paused' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700') }}">{{ $statusLabel }}</span>
@@ -38,25 +110,17 @@
         </div>
     </div>
 
-    <div class="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    @unless($focusProduct)
+    <div class="mb-5 grid gap-3 sm:grid-cols-3">
         <div class="admin-card p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-soft/50">Videos / ads</div>
+            <div class="text-xs uppercase tracking-wide text-ink-soft/50">Productos</div>
+            <div class="mt-1 font-display text-2xl font-bold text-ink">{{ $campaign->products->count() }}</div>
+            <p class="mt-1 text-xs text-ink-soft/55">en esta campaña</p>
+        </div>
+        <div class="admin-card p-4">
+            <div class="text-xs uppercase tracking-wide text-ink-soft/50">Videos</div>
             <div class="mt-1 font-display text-2xl font-bold text-ink">{{ $campaign->videos->count() }}</div>
             <p class="mt-1 text-xs text-ink-soft/55">{{ $campaign->prompts->count() }} prompts</p>
-        </div>
-        <div class="admin-card p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-soft/50">Invertido</div>
-            <div class="mt-1 font-display text-2xl font-bold text-ink">
-                {{ ($kpis['spend'] ?? 0) > 0 ? number_format((float) $kpis['spend'], 2) : '—' }}
-            </div>
-            <p class="mt-1 text-xs text-ink-soft/55">{{ $campaign->currency }} reportados</p>
-        </div>
-        <div class="admin-card p-4">
-            <div class="text-xs uppercase tracking-wide text-ink-soft/50">ROAS</div>
-            <div class="mt-1 font-display text-2xl font-bold text-ink">
-                {{ ($kpis['spend'] ?? 0) > 0 ? number_format((float) $kpis['roas'], 2).'x' : '—' }}
-            </div>
-            <p class="mt-1 text-xs text-ink-soft/55">{{ (int) ($kpis['conversions'] ?? 0) }} ventas · CTR {{ number_format((float) ($kpis['ctr'] ?? 0), 2) }}%</p>
         </div>
         <div class="admin-card p-4">
             <div class="text-xs uppercase tracking-wide text-ink-soft/50">Presupuesto / día</div>
@@ -64,16 +128,14 @@
             <p class="mt-1 text-xs text-ink-soft/55">Tope HITL {{ number_format($budgetCap, 2) }} {{ $store->currency() }}</p>
         </div>
     </div>
+    @endunless
 
     <div class="admin-card overflow-hidden">
         <div class="flex flex-wrap gap-1 border-b border-line bg-mist/40 px-2 pt-2" data-campaign-tabs>
             @foreach([
-                'resumen' => 'Resumen',
+                'productos' => 'Productos',
                 'publicaciones' => 'Publicaciones',
-                'ads' => 'Videos',
-                'prompts' => 'Prompts',
-                'resultados' => 'Resultados',
-                'optimizar' => 'Optimizar',
+                'campana' => 'Campaña',
             ] as $key => $label)
                 <button type="button"
                         data-tab="{{ $key }}"
@@ -83,74 +145,117 @@
             @endforeach
         </div>
 
-        {{-- Resumen --}}
-        <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'resumen' ? '' : 'hidden' }}" data-tab-panel="resumen">
+        {{-- Productos --}}
+        <div class="p-4 sm:p-6 space-y-6 {{ $tab === 'productos' ? '' : 'hidden' }}" data-tab-panel="productos">
+            @if($focusProduct)
+                @php
+                    $pp = $promptsByProduct->get((string) $focusProduct->id, collect());
+                    $pv = $videosByProduct->get((string) $focusProduct->id, collect());
+                    $nestedIds = $pp->flatMap(fn ($pr) => $pr->videos->pluck('id'))->all();
+                    $pvLoose = $pv->reject(fn ($v) => in_array($v->id, $nestedIds, true));
+                @endphp
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <a href="{{ $listUrl }}" class="text-sm text-teal hover:underline">← Productos de la campaña</a>
+                </div>
+                @include('admin.store.marketing.campaigns._product_card', [
+                    'product' => $focusProduct,
+                    'campaign' => $campaign,
+                    'productPrompts' => $pp,
+                    'productVideos' => $pvLoose,
+                    'ctas' => $ctas,
+                    'maxMb' => $maxMb,
+                    'ffmpeg' => $ffmpeg,
+                ])
+            @else
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h3 class="font-semibold text-ink">Productos de la campaña</h3>
+                        <p class="mt-0.5 text-sm text-ink-soft/60">{{ $campaign->products->count() }} {{ $campaign->products->count() === 1 ? 'producto' : 'productos' }}</p>
+                    </div>
+                    <button type="button" class="admin-btn !px-3 !py-1.5 text-sm" data-md-camp-add-open>Agregar producto o combo</button>
+                </div>
+
+                <div class="space-y-4">
+                    @forelse($campaign->products as $product)
+                        @php
+                            $pp = $promptsByProduct->get((string) $product->id, collect());
+                            $pv = $videosByProduct->get((string) $product->id, collect());
+                            $allVideos = $pv->concat($pp->flatMap(fn ($pr) => $pr->videos))->unique('id')->values();
+                        @endphp
+                        @include('admin.store.marketing.campaigns._product_list_card', [
+                            'product' => $product,
+                            'campaign' => $campaign,
+                            'productPrompts' => $pp,
+                            'productVideos' => $allVideos,
+                        ])
+                    @empty
+                        <div class="rounded-xl border border-dashed border-line px-4 py-8 text-center">
+                            <p class="text-sm text-ink-soft/60">Aún no hay productos en esta campaña.</p>
+                            <button type="button" class="admin-btn mt-3 !px-3 !py-1.5 text-sm" data-md-camp-add-open>Agregar producto o combo</button>
+                        </div>
+                    @endforelse
+                </div>
+
+                @if($unassignedVideos->isNotEmpty())
+                    <div class="rounded-xl border border-dashed border-line overflow-hidden">
+                        <div class="border-b border-line bg-mist/30 px-4 py-3">
+                            <div class="font-semibold text-ink">Sin producto asignado</div>
+                            <div class="mt-0.5 text-xs text-ink-soft/55">{{ $unassignedVideos->count() }} {{ $unassignedVideos->count() === 1 ? 'video' : 'videos' }}</div>
+                        </div>
+                        <div class="p-4 flex gap-2 overflow-x-auto pb-1">
+                            @foreach($unassignedVideos as $v)
+                                <button type="button" class="md-product-list-thumb md-open-video-modal" data-url="{{ $v->publicUrl() }}" data-title="{{ $v->ad_headline ?: ($v->original_name ?: 'Video') }}">
+                                    <video src="{{ $v->publicUrl() }}" muted playsinline preload="metadata"></video>
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            @endif
+        </div>
+
+        {{-- Publicaciones --}}
+        <div class="p-4 sm:p-6 space-y-4 {{ $tab === 'publicaciones' ? '' : 'hidden' }}" data-tab-panel="publicaciones">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 class="font-semibold text-ink">Administrar publicaciones</h3>
+                    <p class="mt-1 text-sm text-ink-soft/70">
+                        Panel de Seller Central. Para cambiar la URL del embed, ve a
+                        <button type="button" class="text-teal hover:underline" data-tab-jump="campana">Campaña</button>.
+                    </p>
+                </div>
+            </div>
+            @if($sellercentralEmbedUrl !== '')
+                <div class="overflow-hidden rounded-xl border border-line bg-white">
+                    <iframe
+                        src="{{ $sellercentralEmbedUrl }}"
+                        title="Seller Central — publicaciones"
+                        style="width:100%;height:800px;border:0"
+                        allow="clipboard-write"
+                        loading="lazy"
+                        referrerpolicy="no-referrer-when-downgrade"
+                    ></iframe>
+                </div>
+            @else
+                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+                    Falta la URL del embed. Ve a Campaña, pégala y guarda.
+                </p>
+            @endif
+        </div>
+
+        {{-- Campaña --}}
+        <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'campana' ? '' : 'hidden' }}" data-tab-panel="campana">
             <form method="post" action="{{ route('admin.store.marketing.campaigns.update', $campaign) }}" class="space-y-4" data-no-fixed-actions id="md-campaign-main-form">
                 @csrf
                 @method('PUT')
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
-                        <input type="text" name="name" value="{{ old('name', $campaign->name) }}" class="admin-input" required maxlength="120">
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Plataformas</label>
-                        @php $plats = old('platforms', $campaign->platformList()); @endphp
-                        <label class="mr-4 text-sm"><input type="checkbox" name="platforms[]" value="meta" @checked(in_array('meta', $plats, true))> Meta</label>
-                        <label class="text-sm"><input type="checkbox" name="platforms[]" value="tiktok" @checked(in_array('tiktok', $plats, true))> TikTok</label>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Estado</label>
-                        <select name="status" class="admin-input">
-                            @foreach(['draft' => 'Borrador', 'ready' => 'Listo (payload)', 'paused' => 'Pausada'] as $val => $lab)
-                                <option value="{{ $val }}" @selected(old('status', $campaign->status) === $val)>{{ $lab }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Presupuesto diario</label>
-                        <input type="number" step="0.01" min="0" name="daily_budget" value="{{ old('daily_budget', $campaign->daily_budget) }}" class="admin-input" required>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Página de destino</label>
-                        <select name="landing_handle" class="admin-input">
-                            <option value="">—</option>
-                            @foreach($pages as $page)
-                                <option value="{{ $page['handle'] }}" @selected(old('landing_handle', $campaign->landing_handle) === $page['handle'])>
-                                    {{ $page['title'] }} ({{ $page['handle'] }})
-                                </option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">URL de landing (opcional, pisa el handle)</label>
-                        <input type="text" name="landing_url" value="{{ old('landing_url', $campaign->landing_url) }}" class="admin-input" maxlength="500" placeholder="https://…">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Notas</label>
-                        <textarea name="notes" class="admin-input" rows="3" maxlength="2000">{{ old('notes', $campaign->notes) }}</textarea>
-                    </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
+                    <input type="text" name="name" value="{{ old('name', $campaign->name) }}" class="admin-input" required maxlength="120">
                 </div>
                 <div>
                     <button class="admin-btn">Guardar campaña</button>
                 </div>
             </form>
-
-            <div class="border-t border-line pt-5 space-y-3">
-                <h3 class="font-semibold text-ink">Borrador Advantage+ / Smart+</h3>
-                <p class="text-sm text-ink-soft/70">Arma el payload con los videos de esta campaña. Queda <strong>PAUSED</strong>. No se publica ni se gasta en v1.</p>
-                <form method="post" action="{{ route('admin.store.marketing.campaigns.draft', $campaign) }}">
-                    @csrf
-                    <button class="admin-btn-secondary">Preparar borrador</button>
-                </form>
-                @if($campaign->draft_payload)
-                    <p class="text-xs text-ink-soft/55">Meta: {{ $campaign->meta_draft_id ?: '—' }} · TikTok: {{ $campaign->tiktok_draft_id ?: '—' }}</p>
-                    <details>
-                        <summary class="cursor-pointer text-sm text-teal">Ver payload JSON</summary>
-                        <pre class="mt-2 text-xs overflow-x-auto bg-mist/60 p-3 rounded-lg max-h-64">{{ json_encode($campaign->draft_payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>
-                    </details>
-                @endif
-            </div>
 
             <div class="border-t border-line pt-5 space-y-3" id="md-sellercentral-resumen">
                 <div class="flex flex-wrap items-start justify-between gap-3">
@@ -174,152 +279,60 @@
                 @endif
             </div>
         </div>
+    </div>
 
-        {{-- Publicaciones --}}
-        <div class="p-4 sm:p-6 space-y-4 {{ $tab === 'publicaciones' ? '' : 'hidden' }}" data-tab-panel="publicaciones">
-            <div class="flex flex-wrap items-start justify-between gap-3">
+    {{-- Modal agregar producto --}}
+    <div id="md-camp-add-modal" class="fixed inset-0 z-[190] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
                 <div>
-                    <h3 class="font-semibold text-ink">Administrar publicaciones</h3>
-                    <p class="mt-1 text-sm text-ink-soft/70">
-                        Panel de Seller Central. Para cambiar la URL del embed, ve a
-                        <button type="button" class="text-teal hover:underline" data-tab-jump="resumen">Resumen</button>.
-                    </p>
+                    <h3 class="font-semibold text-ink">Agregar producto o combo</h3>
+                    <p class="mt-0.5 text-xs text-ink-soft/55">Busca por nombre, SKU o elige de la lista. También puedes pegar SKUs o IDs.</p>
                 </div>
+                <button type="button" data-md-camp-add-close class="admin-btn-secondary !px-2.5 !py-1 text-xs">Cerrar</button>
             </div>
-            @if($sellercentralEmbedUrl !== '')
-                <div class="overflow-hidden rounded-xl border border-line bg-white">
-                    <iframe
-                        src="{{ $sellercentralEmbedUrl }}"
-                        title="Seller Central — publicaciones"
-                        style="width:100%;height:800px;border:0"
-                        allow="clipboard-write"
-                        loading="lazy"
-                        referrerpolicy="no-referrer-when-downgrade"
-                    ></iframe>
-                </div>
-            @else
-                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
-                    Falta la URL del embed. Ve a Resumen, pégala y guarda la campaña.
-                </p>
-            @endif
-        </div>
-
-        {{-- Anuncios --}}
-        <div class="p-4 sm:p-6 space-y-6 {{ $tab === 'ads' ? '' : 'hidden' }}" data-tab-panel="ads">
-            @unless($ffmpeg)
-                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
-                    ffmpeg no está en el PATH. Los videos se guardan, pero no se limpia la metadata. Define <code>FFMPEG_PATH</code> en <code>.env</code>.
-                </p>
-            @endunless
-
-            @forelse($campaign->videos as $v)
-                <div class="rounded-xl border border-line p-4 space-y-4">
-                    <div class="grid gap-4 lg:grid-cols-[16rem_1fr]">
-                        <div>
-                            <video src="{{ $v->publicUrl() }}" controls preload="metadata" class="w-full rounded-lg border border-line bg-black max-h-64"></video>
-                            <p class="mt-2 truncate text-xs text-ink-soft/55">{{ $v->original_name ?: basename($v->path) }}</p>
-                            <div class="mt-2 flex flex-wrap gap-1">
-                                <span class="admin-badge {{ $v->source === 'creatify' ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-700' }}">{{ $v->source === 'creatify' ? 'Creatify' : 'Subido' }}</span>
-                                <span class="admin-badge {{ $v->stripped_at ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700' }}">{{ $v->stripped_at ? 'sin huellas' : 'sin limpiar' }}</span>
-                            </div>
-                        </div>
-                        <form method="post" action="{{ route('admin.store.marketing.videos.update', $v) }}" class="space-y-3">
-                            @csrf
-                            @method('PUT')
-                            <div>
-                                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Titular del anuncio</label>
-                                <input type="text" name="ad_headline" value="{{ $v->ad_headline }}" class="admin-input" maxlength="120" placeholder="El hook que se lee en el feed">
-                            </div>
-                            <div>
-                                <label class="mb-1.5 block text-sm font-medium text-ink-soft">Texto principal</label>
-                                <textarea name="ad_primary_text" class="admin-input" rows="3" maxlength="500" placeholder="Cuerpo del anuncio">{{ $v->ad_primary_text }}</textarea>
-                            </div>
-                            <div>
-                                <label class="mb-1.5 block text-sm font-medium text-ink-soft">CTA</label>
-                                <select name="ad_cta" class="admin-input">
-                                    @foreach($ctas as $val => $lab)
-                                        <option value="{{ $val }}" @selected(($v->ad_cta ?: 'SHOP_NOW') === $val)>{{ $lab }}</option>
-                                    @endforeach
-                                </select>
-                            </div>
-                            @if($v->prompt)
-                                <p class="text-xs text-ink-soft/55">Prompt: {{ $v->prompt->name }}</p>
-                            @endif
-                            <div class="flex flex-wrap gap-2">
-                                <button class="admin-btn">Guardar copy</button>
-                                <a class="admin-btn-secondary" href="{{ route('admin.store.marketing.videos.download', $v) }}">Descargar</a>
-                            </div>
-                        </form>
-                    </div>
-                    <form method="post" action="{{ route('admin.store.marketing.videos.destroy', $v) }}" onsubmit="return confirm('¿Eliminar este anuncio?')" class="pt-1">
-                        @csrf @method('DELETE')
-                        <input type="hidden" name="from" value="campaign">
-                        <button class="text-xs text-rose hover:underline">Eliminar video</button>
-                    </form>
-                </div>
-            @empty
-                <p class="text-sm text-ink-soft/70">Esta campaña aún no tiene anuncios. Sube un video o genera uno con Creatify.</p>
-            @endforelse
-
-            <div class="grid gap-5 lg:grid-cols-2 border-t border-line pt-6">
-                <div class="space-y-3">
-                    <h3 class="font-semibold text-ink">Subir video</h3>
-                    <form method="post" action="{{ route('admin.store.marketing.videos.store') }}" enctype="multipart/form-data" class="space-y-3">
-                        @csrf
-                        <input type="hidden" name="campaign_id" value="{{ $campaign->id }}">
-                        <input type="hidden" name="from" value="campaign">
-                        <div>
-                            <label class="mb-1.5 block text-sm font-medium text-ink-soft">Prompt (opcional)</label>
-                            <select name="prompt_id" class="admin-input">
-                                <option value="">—</option>
-                                @foreach($campaign->prompts as $p)
-                                    <option value="{{ $p->id }}">{{ $p->name }}</option>
-                                @endforeach
-                            </select>
-                        </div>
-                        <div>
-                            <label class="mb-1.5 block text-sm font-medium text-ink-soft">Archivo (mp4 / webm / mov, máx {{ $maxMb }} MB)</label>
-                            <input type="file" name="file" accept="video/mp4,video/webm,video/quicktime" class="admin-input" required>
-                        </div>
-                        <button class="admin-btn">Subir y limpiar</button>
-                    </form>
-                </div>
-                <div class="space-y-3" id="md-creatify-box">
-                    <h3 class="font-semibold text-ink">Generar con Creatify</h3>
-                    <p class="text-sm text-ink-soft/70">Usa el landing de esta campaña + un prompt. El MP4 entra al mismo pipeline.</p>
-                    <span class="admin-badge {{ $creatify['ok'] ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800' }}">{{ $creatify['message'] }}</span>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Prompt</label>
-                        <select id="md-cf-prompt" class="admin-input">
-                            <option value="">—</option>
-                            @foreach($campaign->prompts as $p)
-                                <option value="{{ $p->id }}">{{ $p->name }}</option>
-                            @endforeach
-                            @foreach($libraryPrompts->where('campaign_id', null) as $p)
-                                <option value="{{ $p->id }}">Biblioteca · {{ $p->name }}</option>
-                            @endforeach
+            <form method="post" action="{{ route('admin.store.marketing.campaigns.products.attach', $campaign) }}" class="p-4 space-y-3" id="md-camp-add-form">
+                @csrf
+                <div class="grid gap-3 lg:grid-cols-2">
+                    <div class="space-y-2">
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-camp-add-search">Buscar</label>
+                        <input type="search" id="md-camp-add-search" class="admin-input" placeholder="Nombre, SKU o slug…" autocomplete="off">
+                        <select id="md-camp-add-list" class="admin-input" size="8" multiple aria-label="Lista de productos">
+                            <option value="" disabled>— Cargando catálogo… —</option>
                         </select>
+                        <p class="text-xs text-ink-soft/55" id="md-camp-add-hint">Ctrl/Cmd + clic para varios. Los ya agregados no aparecen.</p>
                     </div>
-                    <button type="button" class="admin-btn-secondary" id="md-cf-go" @disabled(! $creatify['ok'])>Generar video</button>
-                    <p class="text-sm text-ink-soft/70" id="md-cf-msg"></p>
+                    <div class="space-y-2">
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-camp-sku-list">Lista (SKU o ID)</label>
+                        <textarea name="sku_list" id="md-camp-sku-list" class="admin-input font-mono text-xs" rows="8" placeholder="Uno por línea, o separados por coma"></textarea>
+                    </div>
                 </div>
-            </div>
+                <div id="md-camp-add-hidden"></div>
+                <div class="flex flex-wrap justify-end gap-2 pt-1">
+                    <button type="button" class="admin-btn-secondary" data-md-camp-add-close>Cancelar</button>
+                    <button class="admin-btn">Agregar a la campaña</button>
+                </div>
+            </form>
         </div>
+    </div>
 
-        {{-- Prompts --}}
-        @php
-            $catalogProducts = $catalogProducts ?? collect();
-            $catalogProductCount = $catalogProducts->count();
-        @endphp
-        <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'prompts' ? '' : 'hidden' }}" data-tab-panel="prompts">
-            <p class="text-sm text-ink-soft/70">Los prompts alimentan Creatify. Genera uno con IA analizando un producto (imágenes, videos, reseñas) en segmentos de 3 segundos.</p>
+    </div>
 
-            <div class="rounded-xl border-2 border-teal/40 bg-teal/5 p-4 sm:p-5 space-y-4 shadow-sm" id="md-ai-prompt-box" data-md-prompt-miia="v1">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                    <h3 class="font-semibold text-lg text-ink">Generar prompt con MIIA</h3>
-                    <span class="text-xs text-ink-soft/55">Segmentos máx. 3s · TikTok / Creatify</span>
+    @if($focusProduct)
+    {{-- Modal MIIA --}}
+    <div id="md-ai-modal" class="fixed inset-0 z-[195] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3 shrink-0">
+                <div>
+                    <h3 class="font-semibold text-ink">Generar prompt con MIIA</h3>
+                    <p class="mt-0.5 text-xs text-ink-soft/55">Segmentos máx. 3s · TikTok / Creatify</p>
                 </div>
-                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <button type="button" data-md-ai-close class="admin-btn-secondary !px-2.5 !py-1 text-xs">Cerrar</button>
+            </div>
+            <div class="overflow-y-auto p-4 sm:p-5 space-y-4" id="md-ai-prompt-box" data-md-prompt-miia="v1">
+                <p class="text-sm text-ink-soft/70">Los prompts alimentan Remotion (local: Whisper + MIIA + subtítulos karaoke). Genera uno con IA analizando un producto en segmentos de 3 segundos.</p>
+                <input type="hidden" id="md-ai-language" value="{{ $store->configuredLocale() }}">
+                <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <div class="sm:col-span-2 space-y-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-ai-product-search">Producto</label>
                         <input type="search" id="md-ai-product-search" class="admin-input" placeholder="Buscar por nombre, SKU o slug…" autocomplete="off">
@@ -348,10 +361,6 @@
                             <option value="45">45 s (~15 segmentos)</option>
                         </select>
                     </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Idioma</label>
-                        <input type="text" id="md-ai-language" value="es" class="admin-input" maxlength="16">
-                    </div>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     <button type="button" class="admin-btn" id="md-ai-generate">Analizar producto y generar</button>
@@ -359,7 +368,7 @@
                     <button type="button" class="admin-btn-secondary hidden" id="md-ai-creatify" @disabled(! $creatify['ok'])>Guardar y enviar a Creatify</button>
                 </div>
                 <p class="text-sm text-ink-soft/70" id="md-ai-msg"></p>
-                <div id="md-ai-analysis" class="hidden rounded-lg border border-line bg-white/60 p-3 text-sm space-y-2 max-h-64 overflow-y-auto"></div>
+                <div id="md-ai-analysis" class="hidden rounded-lg border border-line bg-mist/40 p-3 text-sm space-y-2 max-h-64 overflow-y-auto"></div>
                 <div id="md-ai-segments-wrap" class="hidden overflow-x-auto">
                     <table class="w-full text-sm min-w-[900px]">
                         <thead>
@@ -376,236 +385,40 @@
                     </table>
                 </div>
             </div>
-
-            @forelse($campaign->prompts as $p)
-                <div class="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-line p-4">
-                    <div class="min-w-0">
-                        <div class="font-semibold text-ink">{{ $p->name }}</div>
-                        <p class="mt-1 text-sm text-ink-soft/70">{{ $p->hook ?: \Illuminate\Support\Str::limit($p->script, 120) }}</p>
-                        <p class="mt-1 text-xs text-ink-soft/50">
-                            {{ $p->target_platform }} · {{ $p->language }}
-                            @if($p->product)
-                                · {{ \Illuminate\Support\Str::limit($p->product->name, 40) }}
-                            @elseif($p->product_id)
-                                · Producto #{{ $p->product_id }}
-                            @endif
-                            @if(is_array($p->segments) && count($p->segments))
-                                · {{ count($p->segments) }} segmentos
-                            @endif
-                        </p>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        @if($p->product_id || $p->product || $p->hasLinkedProducts())
-                            <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.download-zip', $p) }}" title="Imágenes, videos y prompt.txt">
-                                Descargar ZIP
-                            </a>
-                        @endif
-                        <a class="admin-btn-secondary !px-3 !py-1.5 text-xs" href="{{ route('admin.store.marketing.prompts.edit', $p) }}">Editar</a>
-                        <form method="post" action="{{ route('admin.store.marketing.prompts.destroy', $p) }}" onsubmit="return confirm('¿Eliminar este prompt?')">
-                            @csrf @method('DELETE')
-                            <button class="admin-btn-danger !px-3 !py-1.5 text-xs">Eliminar</button>
-                        </form>
-                    </div>
-                </div>
-            @empty
-                <p class="text-sm text-ink-soft/60">Ningún prompt en esta campaña. Si ya tienes el video, no hace falta.</p>
-            @endforelse
-
-            <form method="post" action="{{ route('admin.store.marketing.prompts.store') }}" class="space-y-3 rounded-xl border border-dashed border-line p-4" id="md-prompt-form">
-                @csrf
-                <input type="hidden" name="campaign_id" value="{{ $campaign->id }}">
-                <input type="hidden" name="product_id" id="md-prompt-product-id" value="">
-                <input type="hidden" name="segments" id="md-prompt-segments" value="">
-                <input type="hidden" name="analysis" id="md-prompt-analysis" value="">
-                <h3 class="font-semibold text-ink">Añadir prompt manualmente</h3>
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre</label>
-                        <input type="text" name="name" id="md-prompt-name" class="admin-input" required maxlength="120" placeholder="Hook problema + CTA">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Hook</label>
-                        <input type="text" name="hook" id="md-prompt-hook" class="admin-input" maxlength="240">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Script</label>
-                        <textarea name="script" id="md-prompt-script" class="admin-input font-mono text-xs" rows="18" required maxlength="14000"></textarea>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Audiencia</label>
-                        <input type="text" name="audience" id="md-prompt-audience" class="admin-input" maxlength="240">
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Plataforma</label>
-                        <select name="target_platform" class="admin-input">
-                            <option value="Tiktok">TikTok</option>
-                            <option value="Meta">Meta</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Idioma</label>
-                        <input type="text" name="language" value="es" class="admin-input" required maxlength="16">
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Estilo Creatify</label>
-                        <input type="text" name="style" id="md-prompt-style" value="DynamicProductTemplate" class="admin-input" maxlength="80">
-                    </div>
-                </div>
-                <button class="admin-btn">Añadir a esta campaña</button>
-            </form>
         </div>
+    </div>
+    @endif
 
-        {{-- Resultados --}}
-        <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'resultados' ? '' : 'hidden' }}" data-tab-panel="resultados">
-            <p class="text-sm text-ink-soft/70">
-                Pega aquí las cifras de Ads Manager / TikTok Ads. En v1 no hay gasto automático: esto alimenta el consejo de targets y presupuesto.
-            </p>
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <div class="rounded-lg bg-mist/60 p-3">
-                    <div class="text-xs text-ink-soft/50">Impresiones</div>
-                    <div class="font-semibold">{{ number_format((int) ($kpis['impressions'] ?? 0)) }}</div>
-                </div>
-                <div class="rounded-lg bg-mist/60 p-3">
-                    <div class="text-xs text-ink-soft/50">Clics</div>
-                    <div class="font-semibold">{{ number_format((int) ($kpis['clicks'] ?? 0)) }}</div>
-                </div>
-                <div class="rounded-lg bg-mist/60 p-3">
-                    <div class="text-xs text-ink-soft/50">CTR</div>
-                    <div class="font-semibold">{{ number_format((float) ($kpis['ctr'] ?? 0), 2) }}%</div>
-                </div>
-                <div class="rounded-lg bg-mist/60 p-3">
-                    <div class="text-xs text-ink-soft/50">CPA</div>
-                    <div class="font-semibold">{{ ($kpis['conversions'] ?? 0) > 0 ? number_format((float) $kpis['cpa'], 2) : '—' }}</div>
-                </div>
-                <div class="rounded-lg bg-mist/60 p-3">
-                    <div class="text-xs text-ink-soft/50">Ingresos</div>
-                    <div class="font-semibold">{{ number_format((float) ($kpis['revenue'] ?? 0), 2) }} {{ $campaign->currency }}</div>
-                </div>
+    {{-- Modal preview video: debe vivir en content (antes del JS) --}}
+    <div id="md-video-modal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="relative flex w-full max-w-[220px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
+                <div id="md-video-modal-title" class="truncate text-sm font-semibold text-ink">Video</div>
+                <button type="button" data-md-video-close class="admin-btn-secondary !px-2.5 !py-1 text-xs">Cerrar</button>
             </div>
-            <form method="post" action="{{ route('admin.store.marketing.campaigns.insights', $campaign) }}" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                @csrf
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Invertido</label>
-                    <input type="number" step="0.01" min="0" name="spend" class="admin-input" value="{{ old('spend', $insights['spend'] ?? $kpis['spend'] ?? 0) }}">
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Impresiones</label>
-                    <input type="number" min="0" name="impressions" class="admin-input" value="{{ old('impressions', $insights['impressions'] ?? $kpis['impressions'] ?? 0) }}">
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Clics</label>
-                    <input type="number" min="0" name="clicks" class="admin-input" value="{{ old('clicks', $insights['clicks'] ?? $kpis['clicks'] ?? 0) }}">
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Conversiones</label>
-                    <input type="number" min="0" name="conversions" class="admin-input" value="{{ old('conversions', $insights['conversions'] ?? $kpis['conversions'] ?? 0) }}">
-                </div>
-                <div>
-                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">Ingresos</label>
-                    <input type="number" step="0.01" min="0" name="revenue" class="admin-input" value="{{ old('revenue', $insights['revenue'] ?? $kpis['revenue'] ?? 0) }}">
-                </div>
-                <div class="flex items-end">
-                    <button class="admin-btn">Guardar resultados</button>
-                </div>
-            </form>
-            @if(! empty($insights['updated_at']))
-                <p class="text-xs text-ink-soft/50">Última carga: {{ $insights['updated_at'] }}</p>
-            @endif
+            <div class="bg-ink p-3 flex justify-center">
+                <video id="md-video-modal-player" controls playsinline preload="metadata" class="rounded-lg bg-black" style="width:169px;height:300px;max-width:169px;max-height:300px;object-fit:contain;display:block"></video>
+            </div>
         </div>
+    </div>
 
-        {{-- Optimizar --}}
-        <div class="p-4 sm:p-6 space-y-6 {{ $tab === 'optimizar' ? '' : 'hidden' }}" data-tab-panel="optimizar">
-            <p class="text-sm text-ink-soft/70">
-                Pasa el brief de esta campaña a Madgicx, n8n o tu propio cerebro de media buying.
-                Ellos definen target, objetivo y presupuesto para vender más. El tope HITL no se supera.
-            </p>
-            <span class="admin-badge {{ $webhook ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700' }}">
-                {{ $webhook ? 'Herramienta externa conectada' : 'Consejo local (sin webhook)' }}
-            </span>
-            @unless($webhook)
-                <p class="text-xs text-ink-soft/55">
-                    Para conectar una herramienta, pon <code>MARKETING_OPTIMIZER_WEBHOOK</code> en <code>.env</code>.
-                    Recibe el brief JSON y debe devolver <code>{"advice":{"summary":"…","budget_daily":10,"targets":{},"moves":[]}}</code>.
-                </p>
-            @endunless
-
-            <form method="post" action="{{ route('admin.store.marketing.campaigns.targets', $campaign) }}" class="space-y-3 rounded-xl border border-line p-4">
-                @csrf
-                <h3 class="font-semibold text-ink">Target actual</h3>
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Objetivo</label>
-                        <select name="objective" class="admin-input">
-                            @foreach(['sales' => 'Ventas', 'traffic' => 'Tráfico', 'leads' => 'Leads'] as $val => $lab)
-                                <option value="{{ $val }}" @selected(($targets['objective'] ?? 'sales') === $val)>{{ $lab }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Países (ISO, separados)</label>
-                        <input type="text" name="countries" class="admin-input" value="{{ old('countries', implode(', ', $targets['countries'] ?? [])) }}" placeholder="ES, MX, CO">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Audiencia</label>
-                        <input type="text" name="audience" class="admin-input" maxlength="400" value="{{ old('audience', $targets['audience'] ?? '') }}">
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Edad mín.</label>
-                        <input type="number" name="age_min" min="13" max="65" class="admin-input" value="{{ old('age_min', $targets['age_min'] ?? 18) }}">
-                    </div>
-                    <div>
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Edad máx.</label>
-                        <input type="number" name="age_max" min="18" max="65" class="admin-input" value="{{ old('age_max', $targets['age_max'] ?? 45) }}">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Intereses</label>
-                        <input type="text" name="interests" class="admin-input" maxlength="400" value="{{ old('interests', $targets['interests'] ?? '') }}">
-                    </div>
+    {{-- Modal JSON de publicación --}}
+    <div id="md-publication-modal" class="fixed inset-0 z-[210] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+                <div>
+                    <h3 class="font-semibold text-ink">JSON de publicación</h3>
+                    <p class="mt-0.5 text-xs text-ink-soft/55">Copia o descarga el JSON para importarlo en Seller Central. Respeta los límites de cada red.</p>
                 </div>
-                <button class="admin-btn-secondary">Guardar target</button>
-            </form>
-
-            @if($advice)
-                <div class="rounded-xl border border-teal/30 bg-teal/5 p-4 space-y-2">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <h3 class="font-semibold text-ink">Último consejo</h3>
-                        <span class="admin-badge bg-slate-100 text-slate-700">{{ ($advice['source'] ?? '') === 'webhook' ? 'herramienta' : 'local' }}</span>
-                    </div>
-                    <p class="text-sm text-ink">{{ $advice['summary'] ?? '' }}</p>
-                    @if(! empty($advice['budget_daily']))
-                        <p class="text-sm text-ink-soft/70">Presupuesto sugerido: <strong>{{ number_format((float) $advice['budget_daily'], 2) }} {{ $campaign->currency }}</strong> / día</p>
-                    @endif
-                    @if(! empty($advice['moves']) && is_array($advice['moves']))
-                        <ul class="list-disc pl-5 text-sm text-ink-soft/80 space-y-1">
-                            @foreach($advice['moves'] as $move)
-                                <li>{{ $move }}</li>
-                            @endforeach
-                        </ul>
-                    @endif
-                    @if($campaign->advice_at)
-                        <p class="text-xs text-ink-soft/50">{{ $campaign->advice_at->diffForHumans() }}</p>
-                    @endif
-                </div>
-            @endif
-
-            <div class="flex flex-wrap gap-2">
-                <form method="post" action="{{ route('admin.store.marketing.campaigns.optimize', $campaign) }}">
-                    @csrf
-                    <button class="admin-btn-secondary">Pedir consejo</button>
-                </form>
-                <form method="post" action="{{ route('admin.store.marketing.campaigns.optimize', $campaign) }}">
-                    @csrf
-                    <input type="hidden" name="apply" value="1">
-                    <button class="admin-btn">Pedir y aplicar</button>
-                </form>
-                <a class="admin-btn-secondary" href="{{ route('admin.store.marketing.campaigns.brief', $campaign) }}">Descargar brief JSON</a>
-                <button type="button" class="admin-btn-secondary" id="md-copy-brief">Copiar brief</button>
+                <button type="button" data-md-publication-close class="admin-btn-secondary !px-2.5 !py-1 text-xs">Cerrar</button>
             </div>
-            <p class="text-xs text-ink-soft/50" id="md-copy-brief-msg"></p>
-            <details>
-                <summary class="cursor-pointer text-sm text-teal">Ver brief que se envía a la herramienta</summary>
-                <pre id="md-brief-json" class="mt-2 text-xs overflow-x-auto bg-mist/60 p-3 rounded-lg max-h-80">{{ json_encode($brief, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) }}</pre>
-            </details>
+            <div class="overflow-y-auto p-4 sm:p-5">
+                <textarea id="md-publication-json" readonly class="admin-input w-full font-mono text-xs" rows="20"></textarea>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2 border-t border-line px-4 py-3">
+                <button type="button" class="admin-btn-secondary !px-3 !py-1.5 text-sm" data-md-publication-copy>Copiar</button>
+                <button type="button" class="admin-btn !px-3 !py-1.5 text-sm" data-md-publication-download>Descargar</button>
+            </div>
         </div>
     </div>
 @endsection
@@ -615,45 +428,185 @@
 (function ($) {
   var initial = @json($tab);
   function activate(tab) {
-    if (!$('[data-campaign-tabs] [data-tab="'+tab+'"]').length) tab = 'resumen';
+    if (!$('[data-campaign-tabs] [data-tab="'+tab+'"]').length) tab = 'productos';
     $('[data-campaign-tabs] [data-tab]').removeClass('border-teal text-teal').addClass('border-transparent text-ink-soft/65');
     $('[data-campaign-tabs] [data-tab="'+tab+'"]').addClass('border-teal text-teal').removeClass('border-transparent text-ink-soft/65');
     $('[data-tab-panel]').addClass('hidden');
     $('[data-tab-panel="'+tab+'"]').removeClass('hidden');
     var url = new URL(window.location.href);
     url.searchParams.set('tab', tab);
+    if (tab !== 'productos') url.searchParams.delete('product');
     history.replaceState({}, '', url.toString());
   }
+  var listUrl = @json($listUrl);
+  var focusProductId = @json($focusProduct?->id);
+  var focusProductName = @json($focusProduct ? $focusProduct->localizedName() : '');
   $('[data-campaign-tabs] [data-tab]').on('click', function () {
-    activate($(this).data('tab'));
+    var tab = $(this).data('tab');
+    if (tab === 'productos' && focusProductId) {
+      window.location.href = listUrl;
+      return;
+    }
+    activate(tab);
   });
   $(document).on('click', '[data-tab-jump]', function () {
     activate($(this).data('tab-jump'));
   });
   activate(initial);
 
-  var copyBtn = document.getElementById('md-copy-brief');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', function () {
-      var pre = document.getElementById('md-brief-json');
-      var msg = document.getElementById('md-copy-brief-msg');
-      var text = pre ? pre.textContent : '';
-      function done(ok) { if (msg) msg.textContent = ok ? 'Brief copiado. Pégalo en tu herramienta.' : 'No se pudo copiar.'; }
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
-      } else {
-        done(false);
-      }
-    });
+  function copyTextToClipboard(text, btn) {
+    function flash(ok) {
+      if (!btn) return;
+      var prev = btn.textContent;
+      btn.textContent = ok ? 'Copiado' : 'Error';
+      setTimeout(function () { btn.textContent = prev; }, 1800);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { flash(true); }).catch(function () { flash(false); });
+      return;
+    }
+    var tmp = document.createElement('textarea');
+    tmp.value = text;
+    tmp.setAttribute('readonly', '');
+    tmp.style.position = 'absolute';
+    tmp.style.left = '-9999px';
+    document.body.appendChild(tmp);
+    tmp.select();
+    try { flash(document.execCommand('copy')); } catch (e) { flash(false); }
+    document.body.removeChild(tmp);
   }
+  $(document).on('click', '.md-copy-video-url', function () {
+    var url = this.getAttribute('data-url') || '';
+    if (!url) return;
+    copyTextToClipboard(url, this);
+  });
+
+  function closeMdVideoModal() {
+    var modal = document.getElementById('md-video-modal');
+    var player = document.getElementById('md-video-modal-player');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    modal.setAttribute('aria-hidden', 'true');
+    if (player) {
+      try { player.pause(); } catch (e) {}
+      player.removeAttribute('src');
+      player.load();
+    }
+  }
+  function openMdVideoModal(url, title) {
+    var modal = document.getElementById('md-video-modal');
+    var player = document.getElementById('md-video-modal-player');
+    var titleEl = document.getElementById('md-video-modal-title');
+    if (!modal || !player || !url) {
+      console.warn('md-video-modal no disponible', { modal: !!modal, player: !!player, url: url });
+      return;
+    }
+    if (titleEl) titleEl.textContent = title || 'Video';
+    player.setAttribute('style', 'width:169px;height:300px;max-width:169px;max-height:300px;object-fit:contain;display:block;background:#000');
+    player.src = url;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
+    var playPromise = player.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(function () {});
+    }
+  }
+  $(document).on('click', '.md-open-video-modal', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    openMdVideoModal(this.getAttribute('data-url') || '', this.getAttribute('data-title') || 'Video');
+  });
+  $(document).on('click', '[data-md-video-close]', function (e) {
+    e.preventDefault();
+    closeMdVideoModal();
+  });
+  $(document).on('keydown', function (e) {
+    if (e.key === 'Escape') closeMdVideoModal();
+  });
+  $(document).on('click', '#md-video-modal', function (e) {
+    if (e.target === this) closeMdVideoModal();
+  });
+
+  function openPublicationModal() {
+    var modal = document.getElementById('md-publication-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+  function closePublicationModal() {
+    var modal = document.getElementById('md-publication-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  $(document).on('click', '.md-publication-json', function () {
+    var btn = this;
+    var url = btn.getAttribute('data-url');
+    if (!url) return;
+    var prev = btn.textContent;
+    btn.textContent = 'Generando…';
+    btn.disabled = true;
+    fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        var area = document.getElementById('md-publication-json');
+        if (area) area.value = JSON.stringify(j, null, 2);
+        openPublicationModal();
+      })
+      .catch(function () {
+        if (window.alert) window.alert('No se pudo generar el JSON de publicación.');
+      })
+      .then(function () {
+        btn.textContent = prev;
+        btn.disabled = false;
+      });
+  });
+  $(document).on('click', '[data-md-publication-close]', function (e) {
+    e.preventDefault();
+    closePublicationModal();
+  });
+  $(document).on('click', '[data-md-publication-copy]', function () {
+    var area = document.getElementById('md-publication-json');
+    if (area && area.value) copyTextToClipboard(area.value, this);
+  });
+  $(document).on('click', '[data-md-publication-download]', function () {
+    var area = document.getElementById('md-publication-json');
+    if (!area || !area.value) return;
+    var blob = new Blob([area.value], { type: 'application/json;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'publication-' + campaignId + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  });
+  $(document).on('click', '#md-publication-modal', function (e) {
+    if (e.target === this) closePublicationModal();
+  });
+  $(document).on('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var pubModal = document.getElementById('md-publication-modal');
+    if (pubModal && !pubModal.classList.contains('hidden')) {
+      closePublicationModal();
+    }
+  });
 
   var campaignId = @json($campaign->id);
   var csrf = document.querySelector('meta[name="csrf-token"]');
   var token = csrf ? csrf.getAttribute('content') : '';
+  var attachedProductIds = @json($campaign->products->pluck('id')->map(fn ($id) => (int) $id)->values());
 
-  function adsUrl() {
+  function productosUrl() {
     var url = new URL(window.location.href);
-    url.searchParams.set('tab', 'ads');
+    url.searchParams.set('tab', 'productos');
     return url.toString();
   }
   function pollCreatify(jobId, promptId, onMsg, onDone) {
@@ -665,7 +618,7 @@
       if (!res.ok) { if (onDone) onDone(res.message || 'Error'); return; }
       if (res.status === 'done') {
         if (onMsg) onMsg('Video listo. Recargando…');
-        window.location.href = adsUrl();
+        window.location.href = productosUrl();
         return;
       }
       if (onMsg) onMsg('Generando… ' + (res.progress || 0) + '% (' + (res.status || 'pending') + ')');
@@ -684,20 +637,90 @@
     }).catch(function () { if (onDone) onDone('Error de red'); });
   }
 
-  var go = document.getElementById('md-cf-go');
-  var cfMsg = document.getElementById('md-cf-msg');
-  if (go) {
-    go.addEventListener('click', function () {
-      var promptId = document.getElementById('md-cf-prompt').value;
-      if (!promptId) { if (cfMsg) cfMsg.textContent = 'Elige un prompt.'; return; }
-      go.disabled = true;
-      if (cfMsg) cfMsg.textContent = 'Enviando a Creatify…';
-      startCreatify(promptId, function (t) { if (cfMsg) cfMsg.textContent = t; }, function (err) {
-        if (cfMsg) cfMsg.textContent = err;
-        go.disabled = false;
-      });
+  function remotionMsgEl(promptId) {
+    return document.querySelector('.md-remotion-msg[data-prompt-id="' + promptId + '"]');
+  }
+  function remotionProgressLabel(res) {
+    var msg = (res && res.message) ? String(res.message) : 'Procesando…';
+    var step = res && res.step != null ? parseInt(res.step, 10) : NaN;
+    var steps = res && res.steps != null ? parseInt(res.steps, 10) : NaN;
+    if (!isNaN(step) && !isNaN(steps) && steps > 0 && !/^\d+\s*\/\s*\d+/.test(msg)) {
+      return 'Paso ' + step + '/' + steps + ' — ' + msg;
+    }
+    return msg;
+  }
+  function pollRemotion(jobId, promptId, btn) {
+    fetch(@json(route('admin.store.marketing.remotion.poll')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ job_id: jobId })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      var el = remotionMsgEl(promptId);
+      if (res.failed || res.status === 'failed') {
+        if (el) el.textContent = res.message || 'Falló Remotion';
+        if (btn) btn.disabled = false;
+        return;
+      }
+      if (res.done || res.status === 'done') {
+        if (el) el.textContent = 'Video listo. Recargando…';
+        window.location.href = productosUrl();
+        return;
+      }
+      if (res.status === 'queued') {
+        if (el) el.textContent = remotionProgressLabel(res) || 'En cola — si no avanza en 30s, ejecuta php artisan queue:work.';
+      } else if (el) {
+        el.textContent = remotionProgressLabel(res);
+      }
+      setTimeout(function () { pollRemotion(jobId, promptId, btn); }, 2000);
+    }).catch(function () {
+      var el = remotionMsgEl(promptId);
+      if (el) el.textContent = 'Error de red al consultar Remotion';
+      if (btn) btn.disabled = false;
     });
   }
+  $(document).on('click', '.md-remotion-go', function () {
+    var btn = this;
+    var promptId = btn.getAttribute('data-prompt-id');
+    if (!promptId) return;
+    var el = remotionMsgEl(promptId);
+    var presetEl = document.querySelector('.md-remotion-preset[data-prompt-id="' + promptId + '"]');
+    var voiceEl = document.querySelector('.md-remotion-voice[data-prompt-id="' + promptId + '"]');
+    var fd = new FormData();
+    fd.append('campaign_id', campaignId);
+    fd.append('prompt_id', promptId);
+    fd.append('preset', presetEl ? presetEl.value : 'product_presenter');
+    if (voiceEl && voiceEl.files && voiceEl.files[0]) {
+      fd.append('voice', voiceEl.files[0]);
+    }
+    btn.disabled = true;
+    if (el) el.textContent = '0/6 Enviando job…';
+    fetch(@json(route('admin.store.marketing.remotion.generate')), {
+      method: 'POST',
+      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: fd
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (pack) {
+      if (!pack.j.ok) {
+        if (el) el.textContent = pack.j.message || 'No se pudo iniciar Remotion';
+        btn.disabled = false;
+        return;
+      }
+      if (pack.j.status === 'done') {
+        if (el) el.textContent = 'Video listo. Recargando…';
+        window.location.href = productosUrl();
+        return;
+      }
+      if (pack.j.status === 'failed') {
+        if (el) el.textContent = pack.j.message || 'Falló Remotion';
+        btn.disabled = false;
+        return;
+      }
+      if (el) el.textContent = pack.j.message || '0/6 Arrancando pipeline…';
+      pollRemotion(pack.j.job_id, promptId, btn);
+    }).catch(function () {
+      if (el) el.textContent = 'Error de red';
+      btn.disabled = false;
+    });
+  });
 
   var aiState = { productId: null, segments: [], analysis: {}, prompt: null, savedPromptId: null };
   var aiGen = document.getElementById('md-ai-generate');
@@ -728,7 +751,8 @@
       opt.value = String(p.id);
       var status = p.status && p.status !== 'live' ? ' (' + p.status + ')' : '';
       var sku = p.sku ? ' · ' + p.sku : '';
-      opt.textContent = '#' + p.id + ' · ' + (p.name || 'Producto') + sku + status;
+      var combo = p.is_combo ? ' · combo' : '';
+      opt.textContent = '#' + p.id + ' · ' + (p.name || 'Producto') + sku + combo + status;
       aiProductSelect.appendChild(opt);
     });
     if (aiProductHint) {
@@ -744,7 +768,7 @@
       return;
     }
     var filtered = catalogProductsAll.filter(function (p) {
-      var hay = ((p.name || '') + ' ' + (p.sku || '') + ' ' + (p.slug || '') + ' ' + p.id).toLowerCase();
+      var hay = ((p.name || '') + ' ' + (p.sku || '') + ' ' + (p.slug || '') + ' ' + p.id + (p.is_combo ? ' combo' : '')).toLowerCase();
       return hay.indexOf(q) !== -1;
     });
     renderProductOptions(filtered);
@@ -761,6 +785,8 @@
         if (!res.ok) throw new Error(res.message || 'No se pudo cargar el catálogo');
         catalogProductsAll = res.products || [];
         renderProductOptions(catalogProductsAll);
+        renderCampAddList();
+        if (focusProductId) selectAiProduct(focusProductId, focusProductName, false);
       })
       .catch(function (err) {
         if (aiProductHint) aiProductHint.textContent = err.message || 'Error al cargar productos';
@@ -786,6 +812,149 @@
   if (document.querySelector('[data-md-prompt-miia]')) {
     loadCatalogProducts();
   }
+
+  function openAiModal() {
+    var modal = document.getElementById('md-ai-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+  function closeAiModal() {
+    var modal = document.getElementById('md-ai-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  function selectAiProduct(productId, productName, scroll) {
+    if (!aiProductSelect || !productId) return;
+    var id = String(productId);
+    aiProductSelect.value = id;
+    if (aiProductSelect.value !== id) {
+      var opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = productName ? productName : ('#' + id);
+      aiProductSelect.appendChild(opt);
+      aiProductSelect.value = id;
+    }
+    if (scroll === false) return;
+    openAiModal();
+  }
+  $(document).on('click', '[data-md-ai-open]', function (e) {
+    e.preventDefault();
+    var pid = this.getAttribute('data-use-in-prompt');
+    if (pid) selectAiProduct(pid, this.getAttribute('data-product-name') || '');
+    else openAiModal();
+  });
+  $(document).on('click', '[data-md-ai-close]', function (e) {
+    e.preventDefault();
+    closeAiModal();
+  });
+  $(document).on('click', '#md-ai-modal', function (e) {
+    if (e.target === this) closeAiModal();
+  });
+
+  var campAddSearch = document.getElementById('md-camp-add-search');
+  var campAddList = document.getElementById('md-camp-add-list');
+  var campAddForm = document.getElementById('md-camp-add-form');
+  var campAddHint = document.getElementById('md-camp-add-hint');
+  var campAddHidden = document.getElementById('md-camp-add-hidden');
+
+  function renderCampAddList() {
+    if (!campAddList) return;
+    var q = campAddSearch ? (campAddSearch.value || '').toLowerCase().trim() : '';
+    var attached = {};
+    (attachedProductIds || []).forEach(function (id) { attached[String(id)] = true; });
+    var list = (catalogProductsAll || []).filter(function (p) {
+      if (attached[String(p.id)]) return false;
+      if (!q) return true;
+      var hay = ((p.name || '') + ' ' + (p.sku || '') + ' ' + (p.slug || '') + ' ' + p.id + (p.is_combo ? ' combo' : '')).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+    campAddList.innerHTML = '';
+    if (!list.length) {
+      var empty = document.createElement('option');
+      empty.disabled = true;
+      empty.textContent = catalogProductsAll.length ? '— Sin coincidencias —' : '— Cargando catálogo… —';
+      campAddList.appendChild(empty);
+      return;
+    }
+    list.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = String(p.id);
+      var sku = p.sku ? ' · ' + p.sku : '';
+      var combo = p.is_combo ? ' · combo' : '';
+      opt.textContent = '#' + p.id + ' · ' + (p.name || 'Producto') + sku + combo;
+      campAddList.appendChild(opt);
+    });
+    if (campAddHint) {
+      campAddHint.textContent = list.length + ' resultado(s). Ctrl/Cmd + clic para varios.';
+    }
+  }
+  if (campAddSearch) {
+    var addTimer;
+    campAddSearch.addEventListener('input', function () {
+      clearTimeout(addTimer);
+      addTimer = setTimeout(renderCampAddList, 180);
+    });
+  }
+  if (campAddForm) {
+    campAddForm.addEventListener('submit', function () {
+      if (!campAddHidden || !campAddList) return;
+      campAddHidden.innerHTML = '';
+      Array.prototype.forEach.call(campAddList.selectedOptions, function (opt) {
+        if (!opt.value) return;
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'product_ids[]';
+        input.value = opt.value;
+        campAddHidden.appendChild(input);
+      });
+    });
+  }
+
+  function openCampAddModal() {
+    var modal = document.getElementById('md-camp-add-modal');
+    if (!modal) return;
+    renderCampAddList();
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
+    if (campAddSearch) {
+      setTimeout(function () { campAddSearch.focus(); }, 50);
+    }
+  }
+  function closeCampAddModal() {
+    var modal = document.getElementById('md-camp-add-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  $(document).on('click', '[data-md-camp-add-open]', function (e) {
+    e.preventDefault();
+    openCampAddModal();
+  });
+  $(document).on('click', '[data-md-camp-add-close]', function (e) {
+    e.preventDefault();
+    closeCampAddModal();
+  });
+  $(document).on('click', '#md-camp-add-modal', function (e) {
+    if (e.target === this) closeCampAddModal();
+  });
+  $(document).on('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var addModal = document.getElementById('md-camp-add-modal');
+    if (addModal && !addModal.classList.contains('hidden')) {
+      closeCampAddModal();
+      return;
+    }
+    var aiModal = document.getElementById('md-ai-modal');
+    if (aiModal && !aiModal.classList.contains('hidden')) {
+      closeAiModal();
+    }
+  });
 
   function fillPromptForm(data) {
     var map = {
@@ -863,7 +1032,7 @@
       body: JSON.stringify({
         product_id: parseInt(productId, 10),
         video_length: lengthEl ? parseInt(lengthEl.value, 10) : 21,
-        language: langEl ? langEl.value : 'es',
+        language: langEl ? langEl.value : @json($store->configuredLocale()),
         target_platform: 'Tiktok',
         save: !!save,
         campaign_id: campaignId

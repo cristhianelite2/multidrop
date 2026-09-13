@@ -3,6 +3,7 @@
 namespace App\Services\Marketing;
 
 use App\Models\MarketingCampaign;
+use App\Models\Product;
 use App\Models\Store;
 use App\Services\Storefront\DesignThemeService;
 use Illuminate\Support\Facades\DB;
@@ -166,7 +167,7 @@ class CampaignService
 
     public function duplicate(Store $store, MarketingCampaign $campaign): MarketingCampaign
     {
-        $campaign->load(['prompts', 'videos']);
+        $campaign->load(['prompts', 'videos', 'products']);
 
         return DB::transaction(function () use ($store, $campaign) {
             $copy = $campaign->replicate([
@@ -206,8 +207,70 @@ class CampaignService
                 $this->videos->copyToCampaign($store, $copy, $video, $linked);
             }
 
+            $productIds = $campaign->products->pluck('id')->all();
+            if ($productIds !== []) {
+                $copy->products()->sync($productIds);
+            }
+
             return $copy->refresh();
         });
+    }
+
+    /**
+     * @param  list<int|string>  $productIds
+     * @return list<int>
+     */
+    public function attachProducts(Store $store, MarketingCampaign $campaign, array $productIds, string $skuList = ''): array
+    {
+        $ids = [];
+        foreach ($productIds as $id) {
+            if (is_numeric($id) && (int) $id > 0) {
+                $ids[] = (int) $id;
+            }
+        }
+        $skuList = trim($skuList);
+        if ($skuList !== '') {
+            $tokens = preg_split('/[\s,;]+/', $skuList) ?: [];
+            $tokens = array_values(array_filter(array_map('trim', $tokens), fn ($t) => $t !== ''));
+            if ($tokens !== []) {
+                $numeric = [];
+                $skus = [];
+                foreach ($tokens as $token) {
+                    if (ctype_digit($token)) {
+                        $numeric[] = (int) $token;
+                    } else {
+                        $skus[] = $token;
+                    }
+                }
+                $found = Product::query()
+                    ->where('store_id', $store->id)
+                    ->where(function ($q) use ($numeric, $skus) {
+                        if ($numeric !== []) {
+                            $q->orWhereIn('id', $numeric);
+                        }
+                        if ($skus !== []) {
+                            $q->orWhereIn('sku', $skus);
+                        }
+                    })
+                    ->pluck('id')
+                    ->all();
+                $ids = array_merge($ids, $found);
+            }
+        }
+        $ids = array_values(array_unique($ids));
+        if ($ids === []) {
+            return [];
+        }
+        $valid = Product::query()
+            ->where('store_id', $store->id)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->all();
+        if ($valid !== []) {
+            $campaign->products()->syncWithoutDetaching($valid);
+        }
+
+        return $valid;
     }
 
     protected function copyName(Store $store, string $name): string

@@ -19,20 +19,30 @@ class CampaignController extends Controller
 {
     use ResolvesCurrentStore;
 
-    public function index(StoreContext $storeContext, CampaignService $campaigns, CampaignOptimizerService $optimizer)
+    public function index(StoreContext $storeContext, CampaignService $campaigns)
     {
         $store = $this->currentStoreOrFail($storeContext);
         $rows = MarketingCampaign::query()
             ->where('store_id', $store->id)
-            ->with(['videos' => fn ($q) => $q->orderByDesc('id')])
-            ->withCount(['videos', 'prompts'])
+            ->with(['products' => fn ($q) => $q->orderBy('products.name')->select('products.id', 'products.name', 'products.sku', 'products.image_url', 'products.creative_data')])
+            ->withCount(['videos', 'products'])
             ->orderByDesc('id')
-            ->get()
-            ->map(function (MarketingCampaign $c) use ($optimizer) {
-                $c->kpis = $optimizer->kpis(is_array($c->insights) ? $c->insights : []);
+            ->get();
 
-                return $c;
-            });
+        $videoCounts = [];
+        if ($rows->isNotEmpty()) {
+            $raw = \App\Models\MarketingVideo::query()
+                ->whereIn('campaign_id', $rows->pluck('id'))
+                ->selectRaw('campaign_id, product_id, COUNT(*) as c')
+                ->groupBy('campaign_id', 'product_id')
+                ->get();
+            foreach ($raw as $row) {
+                $videoCounts[(int) $row->campaign_id][(int) ($row->product_id ?: 0)] = (int) $row->c;
+            }
+        }
+        foreach ($rows as $c) {
+            $c->product_video_counts = $videoCounts[$c->id] ?? [];
+        }
 
         return view('admin.store.marketing.campaigns.index', [
             'store' => $store,
@@ -69,7 +79,7 @@ class CampaignController extends Controller
         $campaign = MarketingCampaign::create($norm);
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', $campaign)
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'productos'])
             ->with('success', $clamped
                 ? 'Campaña creada. El presupuesto se recortó al tope diario ('.$campaigns->maxDailySpend().' '.$store->currency().').'
                 : 'Campaña creada.');
@@ -78,63 +88,64 @@ class CampaignController extends Controller
     public function edit(
         StoreContext $storeContext,
         CampaignService $campaigns,
-        CampaignOptimizerService $optimizer,
         VideoIngestService $ingest,
         CreatifyClient $creatify,
         MarketingCampaign $campaign
     ) {
         $store = $this->currentStoreOrFail($storeContext);
         $this->assertStore($store->id, $campaign->store_id);
-        $campaign->load(['videos.prompt', 'prompts.product']);
+        $campaign->load(['products', 'videos.prompt', 'prompts.product', 'prompts.videos']);
+
+        $promptsByProduct = $campaign->prompts->groupBy(fn (MarketingPrompt $p) => (string) ((int) ($p->product_id ?: 0)));
+        $videosByProduct = $campaign->videos->groupBy(function ($v) {
+            $pid = (int) ($v->product_id ?: 0);
+            if ($pid < 1) {
+                $pid = (int) ($v->prompt?->product_id ?: 0);
+            }
+
+            return (string) $pid;
+        });
 
         return view('admin.store.marketing.campaigns.show', [
             'store' => $store,
             'campaign' => $campaign,
             'pages' => $campaigns->pageOptions($store),
             'budgetCap' => $campaigns->maxDailySpend(),
-            'kpis' => $optimizer->kpis(is_array($campaign->insights) ? $campaign->insights : []),
-            'targets' => $optimizer->normalizeTargets(is_array($campaign->targets) ? $campaign->targets : []),
-            'brief' => $optimizer->brief($store, $campaign),
-            'webhook' => $optimizer->webhookConfigured(),
             'creatify' => $creatify->connectionStatus(),
             'ffmpeg' => $ingest->ffmpegAvailable(),
             'maxMb' => (int) config('multidrop.marketing.max_video_mb', 80),
-            'libraryPrompts' => MarketingPrompt::query()->where('store_id', $store->id)->orderBy('name')->get(['id', 'name', 'campaign_id']),
             'catalogProducts' => Product::query()
                 ->where('store_id', $store->id)
                 ->orderByDesc('is_featured')
                 ->orderByDesc('id')
                 ->limit(250)
-                ->get(['id', 'name', 'slug', 'image_url', 'status', 'sku']),
+                ->get(['id', 'name', 'slug', 'image_url', 'status', 'sku', 'creative_data']),
             'sellercentralEmbedUrl' => $this->sellercentralEmbedUrl($store),
-            'tab' => (string) request('tab', 'resumen'),
+            'tab' => $this->resolveTab((string) request('tab', 'productos')),
+            'promptsByProduct' => $promptsByProduct,
+            'videosByProduct' => $videosByProduct,
+            'focusProduct' => $this->focusProduct($campaign),
         ]);
     }
 
-    public function update(Request $request, StoreContext $storeContext, CampaignService $campaigns, MarketingCampaign $campaign)
+    public function update(Request $request, StoreContext $storeContext, MarketingCampaign $campaign)
     {
         $store = $this->currentStoreOrFail($storeContext);
         $this->assertStore($store->id, $campaign->store_id);
-        $data = $this->validated($request);
-        $norm = $campaigns->normalize($store, $data);
-        $clamped = $norm['budget_clamped'];
-        unset($norm['budget_clamped'], $norm['budget_cap']);
-        if ($campaign->status === 'ready' && ($norm['status'] ?? '') === 'draft') {
-            $norm['draft_payload'] = null;
-            $norm['meta_draft_id'] = null;
-            $norm['tiktok_draft_id'] = null;
-        }
-        $campaign->fill($norm)->save();
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'sellercentral_embed_url' => ['nullable', 'string', 'max:500'],
+        ]);
+        $name = mb_substr(trim((string) $data['name']), 0, 120) ?: 'Campaña';
+        $campaign->fill(['name' => $name])->save();
 
         if ($request->exists('sellercentral_embed_url')) {
             $this->saveSellercentralEmbedUrl($store, (string) $request->input('sellercentral_embed_url', ''));
         }
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'resumen'])
-            ->with('success', $clamped
-                ? 'Guardado. Presupuesto recortado al tope diario ('.$campaigns->maxDailySpend().').'
-                : 'Campaña guardada.');
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'campana'])
+            ->with('success', 'Campaña guardada.');
     }
 
     public function insights(Request $request, StoreContext $storeContext, CampaignOptimizerService $optimizer, MarketingCampaign $campaign)
@@ -152,7 +163,7 @@ class CampaignController extends Controller
         $campaign->save();
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'resultados'])
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'productos'])
             ->with('success', 'Resultados actualizados.');
     }
 
@@ -176,7 +187,7 @@ class CampaignController extends Controller
         $campaign->save();
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'optimizar'])
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'campana'])
             ->with('success', 'Target guardado.');
     }
 
@@ -187,7 +198,7 @@ class CampaignController extends Controller
         $optimizer->advise($store, $campaign, $request->boolean('apply'));
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'optimizar'])
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'campana'])
             ->with('success', $request->boolean('apply')
                 ? 'Consejo aplicado (presupuesto/target, con tope HITL).'
                 : 'Consejo generado. Revisa y aplica si te convence.');
@@ -222,8 +233,8 @@ class CampaignController extends Controller
         $copy = $campaigns->duplicate($store, $campaign);
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', $copy)
-            ->with('success', 'Campaña duplicada: '.$copy->name.'. Los resultados de gasto no se copiaron.');
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $copy, 'tab' => 'productos'])
+            ->with('success', 'Campaña duplicada: '.$copy->name.'.');
     }
 
     public function draft(StoreContext $storeContext, CampaignService $campaigns, MarketingCampaign $campaign)
@@ -233,8 +244,43 @@ class CampaignController extends Controller
         $campaigns->prepareDraft($store, $campaign);
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'resumen'])
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'campana'])
             ->with('success', 'Borrador Advantage+/Smart+ listo (PAUSED, sin gastar).');
+    }
+
+    public function attachProducts(Request $request, StoreContext $storeContext, CampaignService $campaigns, MarketingCampaign $campaign)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        $this->assertStore($store->id, $campaign->store_id);
+        $data = $request->validate([
+            'product_ids' => ['nullable', 'array'],
+            'product_ids.*' => ['integer'],
+            'sku_list' => ['nullable', 'string', 'max:4000'],
+        ]);
+        $attached = $campaigns->attachProducts(
+            $store,
+            $campaign,
+            $data['product_ids'] ?? [],
+            (string) ($data['sku_list'] ?? '')
+        );
+
+        return redirect()
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'productos'])
+            ->with('success', $attached === []
+                ? 'No se encontró ningún producto para agregar. Busca por nombre, SKU o ID.'
+                : count($attached).' producto(s) agregados a la campaña.');
+    }
+
+    public function detachProduct(StoreContext $storeContext, MarketingCampaign $campaign, Product $product)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        $this->assertStore($store->id, $campaign->store_id);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+        $campaign->products()->detach($product->id);
+
+        return redirect()
+            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaign, 'tab' => 'productos'])
+            ->with('success', 'Producto quitado de la campaña. Los videos y prompts se conservan.');
     }
 
     /**
@@ -258,6 +304,34 @@ class CampaignController extends Controller
     protected function assertStore(int $current, int $owner): void
     {
         abort_unless($current === $owner, 404);
+    }
+
+    protected function resolveTab(string $tab): string
+    {
+        $aliases = [
+            'resumen' => 'productos',
+            'ads' => 'productos',
+            'prompts' => 'productos',
+            'resultados' => 'productos',
+            'optimizar' => 'campana',
+            'campaña' => 'campana',
+        ];
+        $tab = $aliases[$tab] ?? $tab;
+        if (! in_array($tab, ['productos', 'publicaciones', 'campana'], true)) {
+            return 'productos';
+        }
+
+        return $tab;
+    }
+
+    protected function focusProduct(MarketingCampaign $campaign): ?Product
+    {
+        $id = (int) request('product', 0);
+        if ($id < 1) {
+            return null;
+        }
+
+        return $campaign->products->first(fn ($p) => (int) $p->id === $id);
     }
 
     protected function sellercentralEmbedUrl(Store $store): string

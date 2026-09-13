@@ -93,7 +93,7 @@
                         </td>
                         <td class="px-4 py-3 text-xs">
                             @if($v->campaign)
-                                <a class="hover:text-teal" href="{{ route('admin.store.marketing.campaigns.edit', ['campaign' => $v->campaign, 'tab' => 'ads']) }}">{{ $v->campaign->name }}</a>
+                                <a class="hover:text-teal" href="{{ route('admin.store.marketing.campaigns.edit', ['campaign' => $v->campaign, 'tab' => 'productos']) }}">{{ $v->campaign->name }}</a>
                             @else
                                 —
                             @endif

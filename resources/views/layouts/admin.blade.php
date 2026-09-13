@@ -117,7 +117,8 @@
                             <a href="{{ route('admin.sandbox.orders.index') }}" class="admin-nav-link {{ $navActive('admin.sandbox.orders.*') ? 'admin-nav-link-active' : '' }}" title="Sandbox CJ"><span class="admin-nav-ico"><i class="fa-solid fa-flask"></i></span><span class="admin-nav-txt">Sandbox CJ</span></a>
                         @endcanperm
                         @canperm('settings.general')
-                            <a href="{{ route('admin.settings.general') }}" class="admin-nav-link {{ $navActive('admin.settings.*') ? 'admin-nav-link-active' : '' }}" title="General"><span class="admin-nav-ico"><i class="fa-solid fa-gear"></i></span><span class="admin-nav-txt">General</span></a>
+                            <a href="{{ route('admin.settings.general') }}" class="admin-nav-link {{ $navActive('admin.settings.general') ? 'admin-nav-link-active' : '' }}" title="General"><span class="admin-nav-ico"><i class="fa-solid fa-gear"></i></span><span class="admin-nav-txt">General</span></a>
+                            <a href="{{ route('admin.settings.api') }}" class="admin-nav-link {{ $navActive('admin.settings.api') ? 'admin-nav-link-active' : '' }}" title="API"><span class="admin-nav-ico"><i class="fa-solid fa-plug"></i></span><span class="admin-nav-txt">API</span></a>
                         @endcanperm
                         @canperm('users.view')
                             <a href="{{ route('admin.users.index') }}" class="admin-nav-link {{ $navActive('admin.users.*') ? 'admin-nav-link-active' : '' }}" title="Admins"><span class="admin-nav-ico"><i class="fa-solid fa-user-shield"></i></span><span class="admin-nav-txt">Admins</span></a>
@@ -217,6 +218,7 @@
             @endcanperm
             @canperm('settings.general')
                 <a href="{{ route('admin.settings.general') }}" class="admin-nav-link">General</a>
+                <a href="{{ route('admin.settings.api') }}" class="admin-nav-link">API</a>
             @endcanperm
         </div>
 

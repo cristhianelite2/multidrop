@@ -13,6 +13,9 @@ use Illuminate\Support\Str;
 
 class VideoIngestService
 {
+    public function __construct(
+        protected VideoAdCopyService $adCopy,
+    ) {}
     public function maxBytes(): int
     {
         return max(1, (int) config('multidrop.marketing.max_video_mb', 80)) * 1024 * 1024;
@@ -41,7 +44,8 @@ class VideoIngestService
         Store $store,
         MarketingCampaign $campaign,
         UploadedFile $file,
-        ?MarketingPrompt $prompt = null
+        ?MarketingPrompt $prompt = null,
+        ?int $productId = null
     ): MarketingVideo {
         $dir = 'marketing/'.$store->id;
         Storage::disk('public')->makeDirectory($dir);
@@ -53,7 +57,7 @@ class VideoIngestService
         $stored = $file->storeAs($dir, $basename, 'public');
         $rel = is_string($stored) && $stored !== '' ? $stored : $dir.'/'.$basename;
 
-        return $this->persistCleaned($store, $campaign, $rel, $this->neutralName($file->getClientOriginalName()), 'upload', $prompt, null);
+        return $this->persistCleaned($store, $campaign, $rel, $this->neutralName($file->getClientOriginalName()), 'upload', $prompt, null, $productId);
     }
 
     public function ingestFromUrl(
@@ -77,6 +81,29 @@ class VideoIngestService
         return $this->persistCleaned($store, $campaign, $rel, $this->neutralName(null), 'creatify', $prompt, $jobId);
     }
 
+    public function ingestFromLocalPath(
+        Store $store,
+        MarketingCampaign $campaign,
+        string $absolutePath,
+        ?MarketingPrompt $prompt = null,
+        string $source = 'remotion',
+        ?string $jobId = null
+    ): MarketingVideo {
+        if (! is_file($absolutePath) || filesize($absolutePath) < 64) {
+            throw new \RuntimeException('Archivo de video local inválido.');
+        }
+        $dir = 'marketing/'.$store->id;
+        Storage::disk('public')->makeDirectory($dir);
+        $basename = Str::uuid()->toString().'.mp4';
+        $rel = $dir.'/'.$basename;
+        $abs = Storage::disk('public')->path($rel);
+        if (! @copy($absolutePath, $abs)) {
+            throw new \RuntimeException('No se pudo copiar el MP4 al storage público.');
+        }
+
+        return $this->persistCleaned($store, $campaign, $rel, $this->neutralName(basename($absolutePath)), $source, $prompt, $jobId);
+    }
+
     protected function persistCleaned(
         Store $store,
         MarketingCampaign $campaign,
@@ -84,7 +111,8 @@ class VideoIngestService
         string $originalName,
         string $source,
         ?MarketingPrompt $prompt,
-        ?string $jobId
+        ?string $jobId,
+        ?int $productId = null
     ): MarketingVideo {
         $abs = Storage::disk('public')->path($rel);
         $strippedAt = null;
@@ -96,13 +124,23 @@ class VideoIngestService
             }
         }
 
+        $adFields = $prompt ? $this->adCopy->fromPrompt($prompt) : [
+            'ad_headline' => null,
+            'ad_primary_text' => null,
+            'ad_cta' => null,
+        ];
+
         return MarketingVideo::create([
             'store_id' => $store->id,
             'campaign_id' => $campaign->id,
             'prompt_id' => $prompt?->id,
+            'product_id' => $productId ?: $prompt?->product_id,
             'source' => $source,
             'path' => $rel,
             'original_name' => mb_substr($originalName, 0, 180),
+            'ad_headline' => $adFields['ad_headline'] ?: null,
+            'ad_primary_text' => $adFields['ad_primary_text'] ?: null,
+            'ad_cta' => $adFields['ad_cta'] ?: 'SHOP_NOW',
             'duration' => null,
             'page_handles' => [],
             'stripped_at' => $strippedAt,
@@ -220,6 +258,7 @@ class VideoIngestService
             'store_id' => $store->id,
             'campaign_id' => $campaign->id,
             'prompt_id' => $prompt?->id,
+            'product_id' => $source->product_id ?: $prompt?->product_id,
             'source' => $source->source,
             'path' => $rel,
             'original_name' => $source->original_name,

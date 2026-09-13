@@ -7,7 +7,9 @@ use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
 use App\Models\MarketingVideo;
+use App\Models\Product;
 use App\Services\Admin\StoreContext;
+use App\Services\Marketing\PublicationJsonService;
 use App\Services\Marketing\VideoIngestService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -32,9 +34,28 @@ class VideoController extends Controller
         $data = $request->validate([
             'campaign_id' => ['required', 'integer'],
             'prompt_id' => ['nullable', 'integer'],
-            'file' => ['required', 'file', 'mimetypes:video/mp4,video/webm,video/quicktime', 'max:'.$maxKb],
+            'product_id' => ['nullable', 'integer'],
+            'file' => ['nullable', 'file', 'mimetypes:video/mp4,video/webm,video/quicktime', 'max:'.$maxKb],
+            'files' => ['nullable', 'array', 'min:1', 'max:20'],
+            'files.*' => ['file', 'mimetypes:video/mp4,video/webm,video/quicktime', 'max:'.$maxKb],
             'from' => ['nullable', 'in:campaign'],
         ]);
+
+        $uploads = [];
+        if ($request->hasFile('files')) {
+            foreach ((array) $request->file('files') as $f) {
+                if ($f) {
+                    $uploads[] = $f;
+                }
+            }
+        } elseif ($request->hasFile('file')) {
+            $uploads[] = $request->file('file');
+        }
+
+        if ($uploads === []) {
+            return back()->withErrors(['files' => 'Selecciona al menos un video.'])->withInput();
+        }
+
         $campaign = MarketingCampaign::query()
             ->where('store_id', $store->id)
             ->where('id', $data['campaign_id'])
@@ -46,12 +67,41 @@ class VideoController extends Controller
                 ->where('id', $data['prompt_id'])
                 ->first();
         }
-        $video = $ingest->ingestUpload($store, $campaign, $request->file('file'), $prompt);
-        $msg = $video->stripped_at
-            ? 'Video guardado. Se quitó la metadata (encoder, software, comentarios).'
-            : 'Video guardado. ffmpeg no está disponible: no se pudo limpiar la metadata.';
+        $productId = null;
+        if (! empty($data['product_id'])) {
+            $exists = Product::query()
+                ->where('store_id', $store->id)
+                ->where('id', $data['product_id'])
+                ->exists();
+            if ($exists) {
+                $productId = (int) $data['product_id'];
+                $campaign->products()->syncWithoutDetaching([$productId]);
+            }
+        }
 
-        return $this->afterVideo($data['from'] ?? 'campaign', (int) $campaign->id, $msg);
+        $saved = 0;
+        $stripped = 0;
+        foreach ($uploads as $file) {
+            $video = $ingest->ingestUpload($store, $campaign, $file, $prompt, $productId);
+            $saved++;
+            if ($video->stripped_at) {
+                $stripped++;
+            }
+        }
+
+        if ($saved === 1) {
+            $msg = $stripped === 1
+                ? 'Video guardado. Se quitó la metadata (encoder, software, comentarios).'
+                : 'Video guardado. ffmpeg no está disponible: no se pudo limpiar la metadata.';
+        } else {
+            $msg = $stripped === $saved
+                ? $saved.' videos guardados. Se limpió la metadata de todos.'
+                : ($stripped > 0
+                    ? $saved.' videos guardados. Metadata limpia en '.$stripped.'; el resto sin limpiar (ffmpeg).'
+                    : $saved.' videos guardados. ffmpeg no está disponible: no se pudo limpiar la metadata.');
+        }
+
+        return $this->afterVideo($data['from'] ?? 'campaign', (int) $campaign->id, $msg, 'productos', $productId);
     }
 
     public function update(Request $request, StoreContext $storeContext, MarketingVideo $video): RedirectResponse
@@ -65,7 +115,9 @@ class VideoController extends Controller
         ]);
         $video->fill($data)->save();
 
-        return $this->afterVideo('campaign', (int) $video->campaign_id, 'Copy del anuncio guardado.');
+        $productId = (int) $request->input('redirect_product', $video->product_id ?: 0);
+
+        return $this->afterVideo('campaign', (int) $video->campaign_id, 'Copy del anuncio guardado.', 'productos', $productId ?: null);
     }
 
     public function destroy(Request $request, StoreContext $storeContext, VideoIngestService $ingest, MarketingVideo $video): RedirectResponse
@@ -74,9 +126,14 @@ class VideoController extends Controller
         abort_unless((int) $video->store_id === (int) $store->id, 404);
         $campaignId = (int) $video->campaign_id;
         $from = $request->input('from', 'campaign');
+        $tab = $request->input('redirect_tab', 'productos');
+        if (! in_array($tab, ['productos', 'publicaciones', 'campana', 'resumen', 'ads', 'prompts'], true)) {
+            $tab = 'productos';
+        }
+        $productId = (int) $request->input('redirect_product', $video->product_id ?: 0);
         $ingest->delete($video);
 
-        return $this->afterVideo((string) $from, $campaignId, 'Video eliminado.');
+        return $this->afterVideo((string) $from, $campaignId, 'Video eliminado.', $tab, $productId ?: null);
     }
 
     public function download(StoreContext $storeContext, VideoIngestService $ingest, MarketingVideo $video): StreamedResponse
@@ -89,14 +146,36 @@ class VideoController extends Controller
         return Storage::disk('public')->download($video->path, $name);
     }
 
-    protected function afterVideo(string $from, int $campaignId, string $msg): RedirectResponse
+    public function publicationJson(
+        StoreContext $storeContext,
+        PublicationJsonService $publications,
+        MarketingVideo $video
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $video->store_id === (int) $store->id, 404);
+
+        $json = $publications->forVideo($store, $video);
+
+        return response()->json(
+            $json,
+            200,
+            ['Content-Disposition' => 'attachment; filename="publication-'.$video->id.'.json"'],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT
+        );
+    }
+
+    protected function afterVideo(string $from, int $campaignId, string $msg, string $tab = 'productos', ?int $productId = null): RedirectResponse
     {
         if ($campaignId < 1) {
             return redirect()->route('admin.store.marketing.campaigns.index')->with('success', $msg);
         }
+        $params = ['campaign' => $campaignId, 'tab' => $tab];
+        if ($productId && $productId > 0) {
+            $params['product'] = $productId;
+        }
 
         return redirect()
-            ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaignId, 'tab' => 'ads'])
+            ->route('admin.store.marketing.campaigns.edit', $params)
             ->with('success', $msg);
     }
 }

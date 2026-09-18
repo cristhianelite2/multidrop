@@ -207,6 +207,16 @@ return [
                 'SELLERCENTRAL_EMBED_URL',
                 'https://sellercentral.ceballosleon.com/embed/OTCTUN3Hh0rBRPMQvARtlt2t65IfgbNui67GzMf55spY0X5Y'
             ),
+            /*
+             * API externa de Seller Central (no iframe): /api/v1/key/*.
+             * Autenticación: Authorization: Bearer <api_key del proyecto>.
+             * Por tienda se puede pisar en settings.marketing.sellercentral_base_url.
+             */
+            'base_url' => env('SELLERCENTRAL_BASE_URL', 'https://sellercentral.ceballosleon.com'),
+            // Máximo de publicaciones por plan generado por MIIA.
+            'max_posts_per_plan' => (int) env('SELLERCENTRAL_MAX_POSTS_PER_PLAN', 100),
+            'max_days' => (int) env('SELLERCENTRAL_MAX_DAYS', 60),
+            'max_per_day' => (int) env('SELLERCENTRAL_MAX_PER_DAY', 10),
         ],
     ],
 

@@ -8,6 +8,10 @@
                class="-mb-px border-b-2 px-4 py-3 text-sm font-medium {{ $tab === 'campaigns' ? 'border-teal text-teal' : 'border-transparent text-ink-soft/65 hover:text-ink' }}">
                 Campañas
             </a>
+            <a href="{{ route('admin.store.marketing.sellercentral.index') }}"
+               class="-mb-px border-b-2 px-4 py-3 text-sm font-medium {{ $tab === 'sellercentral' ? 'border-teal text-teal' : 'border-transparent text-ink-soft/65 hover:text-ink' }}">
+                Publicaciones
+            </a>
         </nav>
         <a href="{{ route('admin.store.hub') }}" class="mb-2.5 text-xs text-ink-soft/55 hover:text-ink">← Tienda</a>
     </div>

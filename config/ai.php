@@ -131,6 +131,12 @@ return [
             'kind' => 'chat',
             'default_engine' => 'free',
         ],
+        'seller_publication' => [
+            'label' => 'Publicaciones Seller Central',
+            'hint' => 'Copies por red y por producto para programar',
+            'kind' => 'chat',
+            'default_engine' => 'free',
+        ],
     ],
 
     /*

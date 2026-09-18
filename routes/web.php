@@ -22,6 +22,7 @@ use App\Http\Controllers\Admin\Store\Marketing\CreatifyController as MarketingCr
 use App\Http\Controllers\Admin\Store\Marketing\MarketingController;
 use App\Http\Controllers\Admin\Store\Marketing\PromptController as MarketingPromptController;
 use App\Http\Controllers\Admin\Store\Marketing\RemotionController as MarketingRemotionController;
+use App\Http\Controllers\Admin\Store\Marketing\SellerCentralController;
 use App\Http\Controllers\Admin\Store\Marketing\VideoController as MarketingVideoController;
 use App\Http\Controllers\Admin\Store\NewsletterController;
 use App\Http\Controllers\Admin\Store\SocialProofController;
@@ -235,6 +236,17 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('creatify/poll', [MarketingCreatifyController::class, 'poll'])->name('creatify.poll');
                     Route::post('remotion/generate', [MarketingRemotionController::class, 'generate'])->name('remotion.generate');
                     Route::post('remotion/poll', [MarketingRemotionController::class, 'poll'])->name('remotion.poll');
+                    Route::get('sellercentral', [SellerCentralController::class, 'index'])->name('sellercentral.index');
+                    Route::post('sellercentral/test', [SellerCentralController::class, 'test'])->name('sellercentral.test');
+                    Route::post('sellercentral/settings', [SellerCentralController::class, 'saveSettings'])->name('sellercentral.settings');
+                    Route::post('sellercentral/generate', [SellerCentralController::class, 'generate'])->name('sellercentral.generate');
+                    Route::post('sellercentral/sync', [SellerCentralController::class, 'sync'])->name('sellercentral.sync');
+                    Route::post('sellercentral/plans/{plan}/send', [SellerCentralController::class, 'sendPlan'])->whereNumber('plan')->name('sellercentral.plans.send');
+                    Route::post('sellercentral/plans/{plan}/delete', [SellerCentralController::class, 'destroyPlan'])->whereNumber('plan')->name('sellercentral.plans.delete');
+                    Route::post('sellercentral/posts/{publication}/approve', [SellerCentralController::class, 'approve'])->whereNumber('publication')->name('sellercentral.posts.approve');
+                    Route::post('sellercentral/posts/{publication}/update', [SellerCentralController::class, 'updatePublication'])->whereNumber('publication')->name('sellercentral.posts.update');
+                    Route::post('sellercentral/posts/{publication}/cancel', [SellerCentralController::class, 'cancel'])->whereNumber('publication')->name('sellercentral.posts.cancel');
+                    Route::post('sellercentral/posts/{publication}/delete', [SellerCentralController::class, 'destroyPublication'])->whereNumber('publication')->name('sellercentral.posts.delete');
                 });
 
                 Route::get('general', [StoreGeneralController::class, 'edit'])->name('general.edit');

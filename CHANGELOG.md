@@ -2,6 +2,14 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-09-18
+
+### Marketing · Seller Central
+- Nueva sección **Publicaciones** (`/admin/store/marketing/sellercentral`): conecta cada tienda a un proyecto de Seller Central con API key.
+- Generación de planes con MIIA: indícale días y publicaciones/día; crea borradores desde productos (copy + media) para validar antes de programar.
+- Programar individual o en lote vía API (`/api/v1/key/posts`), cancelar, editar, sincronizar calendario y eliminar.
+- Tablas `store_publication_plans` y `store_publications`.
+
 ## 2026-09-02
 
 ### Admin productos

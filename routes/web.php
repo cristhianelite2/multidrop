@@ -243,6 +243,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('sellercentral/sync', [SellerCentralController::class, 'sync'])->name('sellercentral.sync');
                     Route::post('sellercentral/plans/{plan}/send', [SellerCentralController::class, 'sendPlan'])->whereNumber('plan')->name('sellercentral.plans.send');
                     Route::post('sellercentral/plans/{plan}/delete', [SellerCentralController::class, 'destroyPlan'])->whereNumber('plan')->name('sellercentral.plans.delete');
+                    Route::post('sellercentral/posts/bulk', [SellerCentralController::class, 'bulkPublications'])->name('sellercentral.posts.bulk');
                     Route::post('sellercentral/posts/{publication}/approve', [SellerCentralController::class, 'approve'])->whereNumber('publication')->name('sellercentral.posts.approve');
                     Route::post('sellercentral/posts/{publication}/update', [SellerCentralController::class, 'updatePublication'])->whereNumber('publication')->name('sellercentral.posts.update');
                     Route::post('sellercentral/posts/{publication}/cancel', [SellerCentralController::class, 'cancel'])->whereNumber('publication')->name('sellercentral.posts.cancel');
@@ -406,6 +407,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::post('/settings/api/regenerate', [ApiSettingsController::class, 'regenerate'])->name('settings.api.regenerate');
             Route::post('/settings/api/disable', [ApiSettingsController::class, 'disable'])->name('settings.api.disable');
             Route::post('/settings/api/test', [ApiSettingsController::class, 'test'])->name('settings.api.test');
+            Route::get('/settings/api/export/collection', [ApiSettingsController::class, 'exportCollection'])->name('settings.api.export.collection');
+            Route::get('/settings/api/export/environment', [ApiSettingsController::class, 'exportEnvironment'])->name('settings.api.export.environment');
         });
 
         Route::middleware('permission:lab.discovery')->group(function () {

@@ -9,10 +9,12 @@ use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
 use App\Models\Product;
 use App\Models\Store;
+use App\Models\StorePublicationPlan;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignOptimizerService;
 use App\Services\Marketing\CampaignService;
 use App\Services\Marketing\VideoIngestService;
+use App\Services\SellerCentral\SellerCentralApi;
 use Illuminate\Http\Request;
 
 class CampaignController extends Controller
@@ -90,6 +92,7 @@ class CampaignController extends Controller
         CampaignService $campaigns,
         VideoIngestService $ingest,
         CreatifyClient $creatify,
+        SellerCentralApi $sellerCentral,
         MarketingCampaign $campaign
     ) {
         $store = $this->currentStoreOrFail($storeContext);
@@ -119,12 +122,25 @@ class CampaignController extends Controller
                 ->orderByDesc('is_featured')
                 ->orderByDesc('id')
                 ->limit(250)
-                ->get(['id', 'name', 'slug', 'image_url', 'status', 'sku', 'creative_data']),
+                ->get(['id', 'name', 'slug', 'image_url', 'status', 'sku', 'creative_data', 'price', 'currency', 'purchase_price', 'compare_at_price']),
             'sellercentralEmbedUrl' => $this->sellercentralEmbedUrl($store),
             'tab' => $this->resolveTab((string) request('tab', 'productos')),
             'promptsByProduct' => $promptsByProduct,
             'videosByProduct' => $videosByProduct,
             'focusProduct' => $this->focusProduct($campaign),
+            'scConnection' => $this->sellercentralConnection($store, $sellerCentral),
+            'publicationPlans' => StorePublicationPlan::query()
+                ->where('store_id', $store->id)
+                ->with(['publications.product'])
+                ->orderByDesc('id')
+                ->limit(30)
+                ->get(),
+            'planProducts' => Product::query()
+                ->where('store_id', $store->id)
+                ->orderByDesc('is_featured')
+                ->orderByDesc('updated_at')
+                ->limit(250)
+                ->get(['id', 'name', 'slug', 'status', 'image_url']),
         ]);
     }
 
@@ -317,11 +333,53 @@ class CampaignController extends Controller
             'campaña' => 'campana',
         ];
         $tab = $aliases[$tab] ?? $tab;
-        if (! in_array($tab, ['productos', 'publicaciones', 'campana'], true)) {
+        if (! in_array($tab, ['productos', 'publicaciones', 'generacion', 'campana'], true)) {
             return 'productos';
         }
 
         return $tab;
+    }
+
+    protected function sellercentralConnection(Store $store, SellerCentralApi $api): array
+    {
+        if (! $api->hasConnection($store)) {
+            return [
+                'ok' => false,
+                'error' => 'Sin API key del proyecto.',
+                'project_name' => null,
+                'enabled_networks' => [],
+                'connected_networks' => [],
+            ];
+        }
+
+        try {
+            $info = $api->connect($store);
+            $enabled = is_array(data_get($info, 'project.enabled_networks'))
+                ? array_values(array_filter(array_map('strval', data_get($info, 'project.enabled_networks', []))))
+                : [];
+            $connected = [];
+            foreach (data_get($info, 'networks', []) as $network => $row) {
+                if (is_array($row) && ! empty($row['connected'])) {
+                    $connected[] = (string) $network;
+                }
+            }
+
+            return [
+                'ok' => true,
+                'error' => null,
+                'project_name' => data_get($info, 'project.name'),
+                'enabled_networks' => $enabled,
+                'connected_networks' => $connected,
+            ];
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'error' => $e->getMessage(),
+                'project_name' => null,
+                'enabled_networks' => [],
+                'connected_networks' => [],
+            ];
+        }
     }
 
     protected function focusProduct(MarketingCampaign $campaign): ?Product

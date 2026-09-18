@@ -111,6 +111,42 @@
             </details>
         </div>
 
+        {{-- Export GetMan / Postman --}}
+        <div class="admin-card p-5 sm:p-6 space-y-4">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h2 class="font-display text-lg font-bold text-ink">Exportar para GetMan / Postman</h2>
+                    <p class="mt-1 text-sm text-ink-soft/70">
+                        Descarga la colección en formato <strong>Postman Collection v2.1</strong> para importarla en
+                        <a href="{{ $getman_help_url }}" target="_blank" rel="noopener" class="text-teal hover:underline">GetMan</a>
+                        u otras plataformas compatibles.
+                    </p>
+                </div>
+            </div>
+
+            <ol class="list-decimal space-y-1 pl-5 text-sm text-ink-soft/80">
+                <li>Descarga la colección (y opcionalmente el entorno).</li>
+                <li>En GetMan: workspace → <em>Importar colección</em> → sube el JSON.</li>
+                <li>Pega tu Bearer token en la variable <code class="rounded bg-mist/60 px-1 py-0.5 font-mono text-[0.85em]">api_token</code>.</li>
+            </ol>
+
+            <div class="flex flex-wrap gap-2">
+                <a href="{{ route('admin.settings.api.export.collection') }}" class="admin-btn !py-2 text-sm">Descargar colección JSON</a>
+                <a href="{{ route('admin.settings.api.export.environment') }}" class="admin-btn-secondary !py-2 text-sm">Descargar entorno</a>
+                @if($masked_token)
+                    <a href="{{ route('admin.settings.api.export.collection', ['include_token' => 1]) }}" class="admin-btn-secondary !py-2 text-sm" title="Incluye el token vigente en el archivo">Colección + token</a>
+                    <a href="{{ route('admin.settings.api.export.environment', ['include_token' => 1]) }}" class="admin-btn-secondary !py-2 text-sm" title="Incluye el token vigente en el entorno">Entorno + token</a>
+                @endif
+            </div>
+
+            <p class="text-xs text-ink-soft/55">
+                Sin token: el JSON trae <code class="font-mono">@{{api_token}}</code> vacío (recomendado para compartir).
+                Con token: útil para uso local; no compartas ese archivo.
+                Guía de importación:
+                <a href="{{ $getman_help_url }}" target="_blank" rel="noopener" class="text-teal hover:underline">mock.ceballosleon.com/help/import</a>
+            </p>
+        </div>
+
         {{-- Endpoints --}}
         <div class="admin-card p-5 sm:p-6 space-y-4">
             <h2 class="font-display text-lg font-bold text-ink">Endpoints</h2>

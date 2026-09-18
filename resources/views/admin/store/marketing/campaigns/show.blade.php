@@ -1,7 +1,7 @@
 @extends('layouts.admin')
 
 @php
-    $allowedTabs = ['productos', 'publicaciones', 'campana'];
+    $allowedTabs = ['productos', 'publicaciones', 'generacion', 'campana'];
     $tab = in_array($tab ?? '', $allowedTabs, true) ? $tab : 'productos';
     $statusLabel = ['draft' => 'Borrador', 'ready' => 'Listo', 'paused' => 'Pausada'][$campaign->status] ?? $campaign->status;
     $ctas = [
@@ -14,6 +14,23 @@
     $sellercentralEmbedUrl = trim((string) ($sellercentralEmbedUrl ?? ''));
     $catalogProducts = $catalogProducts ?? collect();
     $catalogProductCount = $catalogProducts->count();
+    $storeCurrency = $store->currency();
+    $catalogProductsJson = $catalogProducts->map(function ($p) use ($storeCurrency) {
+        $quote = $p->quoteIn($storeCurrency);
+
+        return [
+            'id' => $p->id,
+            'name' => $p->localizedName(),
+            'slug' => $p->slug,
+            'sku' => $p->sku,
+            'status' => $p->status,
+            'image_url' => $p->image_url,
+            'is_combo' => (bool) data_get($p->creative_data, 'is_combo', false),
+            'price' => (float) ($quote['price'] ?? 0),
+            'price_label' => $p->formattedPriceIn($storeCurrency),
+            'currency' => $quote['currency'] ?? $storeCurrency,
+        ];
+    })->values();
     $promptsByProduct = $promptsByProduct ?? collect();
     $videosByProduct = $videosByProduct ?? collect();
     $unassignedPrompts = $promptsByProduct->get('0', collect());
@@ -31,6 +48,7 @@
 
     <style>
         /* El <video> trae tamaño intrínseco (~1920px) y rompe el layout; forzar miniatura fija. */
+        [data-md-fold-collapsed] .md-fold-chevron { transform: rotate(-90deg); }
         button.md-open-video-modal:not(.md-product-list-thumb) {
             width: 56px !important;
             height: 100px !important;
@@ -135,6 +153,7 @@
             @foreach([
                 'productos' => 'Productos',
                 'publicaciones' => 'Publicaciones',
+                'generacion' => 'Generación de publicaciones',
                 'campana' => 'Campaña',
             ] as $key => $label)
                 <button type="button"
@@ -243,6 +262,17 @@
             @endif
         </div>
 
+        {{-- Generación de publicaciones --}}
+        <div class="p-4 sm:p-6 {{ $tab === 'generacion' ? '' : 'hidden' }}" data-tab-panel="generacion">
+            @include('admin.store.marketing.campaigns._generacion', [
+                'campaign' => $campaign,
+                'scConnection' => $scConnection ?? ['ok' => false],
+                'publicationPlans' => $publicationPlans ?? collect(),
+                'planProducts' => $planProducts ?? collect(),
+                'focusProduct' => $focusProduct ?? null,
+            ])
+        </div>
+
         {{-- Campaña --}}
         <div class="p-4 sm:p-6 space-y-5 {{ $tab === 'campana' ? '' : 'hidden' }}" data-tab-panel="campana">
             <form method="post" action="{{ route('admin.store.marketing.campaigns.update', $campaign) }}" class="space-y-4" data-no-fixed-actions id="md-campaign-main-form">
@@ -297,14 +327,15 @@
                     <div class="space-y-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-camp-add-search">Buscar</label>
                         <input type="search" id="md-camp-add-search" class="admin-input" placeholder="Nombre, SKU o slug…" autocomplete="off">
-                        <select id="md-camp-add-list" class="admin-input" size="8" multiple aria-label="Lista de productos">
-                            <option value="" disabled>— Cargando catálogo… —</option>
-                        </select>
-                        <p class="text-xs text-ink-soft/55" id="md-camp-add-hint">Ctrl/Cmd + clic para varios. Los ya agregados no aparecen.</p>
+                        <div id="md-camp-add-list" class="max-h-72 overflow-y-auto rounded-lg border border-line divide-y divide-line bg-white" role="listbox" aria-multiselectable="true" aria-label="Lista de productos">
+                            <p class="px-3 py-4 text-sm text-ink-soft/55">Cargando catálogo…</p>
+                        </div>
+                        <p class="text-xs text-ink-soft/55" id="md-camp-add-hint">Clic para seleccionar varios. Los ya agregados no aparecen.</p>
                     </div>
                     <div class="space-y-2">
                         <label class="mb-1.5 block text-sm font-medium text-ink-soft" for="md-camp-sku-list">Lista (SKU o ID)</label>
                         <textarea name="sku_list" id="md-camp-sku-list" class="admin-input font-mono text-xs" rows="8" placeholder="Uno por línea, o separados por coma"></textarea>
+                        <div id="md-camp-add-selected" class="hidden rounded-lg border border-line bg-mist/30 px-3 py-2 text-xs text-ink-soft/70"></div>
                     </div>
                 </div>
                 <div id="md-camp-add-hidden"></div>
@@ -435,7 +466,11 @@
     $('[data-tab-panel="'+tab+'"]').removeClass('hidden');
     var url = new URL(window.location.href);
     url.searchParams.set('tab', tab);
-    if (tab !== 'productos') url.searchParams.delete('product');
+    if (focusProductId && (tab === 'productos' || tab === 'generacion')) {
+      url.searchParams.set('product', String(focusProductId));
+    } else if (tab !== 'productos' && tab !== 'generacion') {
+      url.searchParams.delete('product');
+    }
     history.replaceState({}, '', url.toString());
   }
   var listUrl = @json($listUrl);
@@ -730,7 +765,7 @@
   var aiProductSelect = document.getElementById('md-ai-product');
   var aiProductSearch = document.getElementById('md-ai-product-search');
   var aiProductHint = document.getElementById('md-ai-product-hint');
-  var catalogProductsAll = [];
+  var catalogProductsAll = @json($catalogProductsJson);
 
   function renderProductOptions(products) {
     if (!aiProductSelect) return;
@@ -775,7 +810,7 @@
   }
 
   function loadCatalogProducts() {
-    if (!aiProductSelect) return;
+    if (!aiProductSelect && !campAddList) return;
     var url = @json(route('admin.store.marketing.prompts.catalog-products'));
     var q = aiProductSearch ? aiProductSearch.value.trim() : '';
     if (q) url += (url.indexOf('?') >= 0 ? '&' : '?') + 'q=' + encodeURIComponent(q);
@@ -790,9 +825,10 @@
       })
       .catch(function (err) {
         if (aiProductHint) aiProductHint.textContent = err.message || 'Error al cargar productos';
-        if (aiProductSelect.options.length <= 1) {
+        if (aiProductSelect && aiProductSelect.options.length <= 1) {
           aiProductSelect.innerHTML = '<option value="">— Error al cargar productos —</option>';
         }
+        renderCampAddList();
       });
   }
 
@@ -808,9 +844,6 @@
         }
       }, 300);
     });
-  }
-  if (document.querySelector('[data-md-prompt-miia]')) {
-    loadCatalogProducts();
   }
 
   function openAiModal() {
@@ -860,6 +893,30 @@
   var campAddForm = document.getElementById('md-camp-add-form');
   var campAddHint = document.getElementById('md-camp-add-hint');
   var campAddHidden = document.getElementById('md-camp-add-hidden');
+  var campAddSelected = document.getElementById('md-camp-add-selected');
+  var campAddPicked = {};
+
+  function escHtml(s) {
+    return String(s || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function updateCampAddSelectedSummary() {
+    if (!campAddSelected) return;
+    var ids = Object.keys(campAddPicked);
+    if (!ids.length) {
+      campAddSelected.classList.add('hidden');
+      campAddSelected.textContent = '';
+      return;
+    }
+    campAddSelected.classList.remove('hidden');
+    campAddSelected.textContent = ids.length === 1
+      ? '1 producto seleccionado'
+      : ids.length + ' productos seleccionados';
+  }
 
   function renderCampAddList() {
     if (!campAddList) return;
@@ -874,23 +931,57 @@
     });
     campAddList.innerHTML = '';
     if (!list.length) {
-      var empty = document.createElement('option');
-      empty.disabled = true;
-      empty.textContent = catalogProductsAll.length ? '— Sin coincidencias —' : '— Cargando catálogo… —';
+      var empty = document.createElement('p');
+      empty.className = 'px-3 py-4 text-sm text-ink-soft/55';
+      if (!catalogProductsAll.length) {
+        empty.textContent = 'No hay productos disponibles.';
+      } else if (q) {
+        empty.textContent = 'Sin coincidencias.';
+      } else {
+        empty.textContent = 'Todos los productos ya están en la campaña.';
+      }
       campAddList.appendChild(empty);
+      updateCampAddSelectedSummary();
       return;
     }
     list.forEach(function (p) {
-      var opt = document.createElement('option');
-      opt.value = String(p.id);
-      var sku = p.sku ? ' · ' + p.sku : '';
-      var combo = p.is_combo ? ' · combo' : '';
-      opt.textContent = '#' + p.id + ' · ' + (p.name || 'Producto') + sku + combo;
-      campAddList.appendChild(opt);
+      var id = String(p.id);
+      var selected = !!campAddPicked[id];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+      btn.dataset.productId = id;
+      btn.className = 'flex w-full items-center gap-3 px-2.5 py-2 text-left transition hover:bg-mist/50 ' + (selected ? 'bg-teal/10' : '');
+      var imgHtml = p.image_url
+        ? '<img src="' + escHtml(p.image_url) + '" alt="" class="h-12 w-12 shrink-0 rounded-md border border-line object-cover bg-mist">'
+        : '<span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line bg-mist text-[10px] text-ink-soft/45">N/A</span>';
+      var meta = [];
+      if (p.sku) meta.push(escHtml(p.sku));
+      if (p.is_combo) meta.push('combo');
+      var priceLabel = p.price_label || (p.price ? (Number(p.price).toFixed(2) + (p.currency ? ' ' + p.currency : '')) : '—');
+      btn.innerHTML =
+        imgHtml +
+        '<span class="min-w-0 flex-1">' +
+          '<span class="block truncate text-sm font-medium text-ink">' + escHtml(p.name || ('#' + id)) + '</span>' +
+          '<span class="mt-0.5 block truncate text-[11px] text-ink-soft/55">#' + escHtml(id) + (meta.length ? ' · ' + meta.join(' · ') : '') + '</span>' +
+        '</span>' +
+        '<span class="shrink-0 text-right text-sm font-semibold text-ink tabular-nums">' + escHtml(priceLabel) + '</span>';
+      btn.addEventListener('click', function () {
+        if (campAddPicked[id]) {
+          delete campAddPicked[id];
+        } else {
+          campAddPicked[id] = true;
+        }
+        renderCampAddList();
+      });
+      campAddList.appendChild(btn);
     });
     if (campAddHint) {
-      campAddHint.textContent = list.length + ' resultado(s). Ctrl/Cmd + clic para varios.';
+      var n = Object.keys(campAddPicked).length;
+      campAddHint.textContent = list.length + ' resultado(s)' + (n ? ' · ' + n + ' seleccionado(s)' : '') + '. Clic para marcar.';
     }
+    updateCampAddSelectedSummary();
   }
   if (campAddSearch) {
     var addTimer;
@@ -901,14 +992,13 @@
   }
   if (campAddForm) {
     campAddForm.addEventListener('submit', function () {
-      if (!campAddHidden || !campAddList) return;
+      if (!campAddHidden) return;
       campAddHidden.innerHTML = '';
-      Array.prototype.forEach.call(campAddList.selectedOptions, function (opt) {
-        if (!opt.value) return;
+      Object.keys(campAddPicked).forEach(function (id) {
         var input = document.createElement('input');
         input.type = 'hidden';
         input.name = 'product_ids[]';
-        input.value = opt.value;
+        input.value = id;
         campAddHidden.appendChild(input);
       });
     });
@@ -917,6 +1007,7 @@
   function openCampAddModal() {
     var modal = document.getElementById('md-camp-add-modal');
     if (!modal) return;
+    campAddPicked = {};
     renderCampAddList();
     modal.classList.remove('hidden');
     modal.classList.add('flex');
@@ -934,6 +1025,9 @@
   }
   $(document).on('click', '[data-md-camp-add-open]', function (e) {
     e.preventDefault();
+    if (!catalogProductsAll.length) {
+      loadCatalogProducts();
+    }
     openCampAddModal();
   });
   $(document).on('click', '[data-md-camp-add-close]', function (e) {
@@ -955,6 +1049,16 @@
       closeAiModal();
     }
   });
+
+  if (catalogProductsAll.length) {
+    renderCampAddList();
+    if (aiProductSelect) {
+      renderProductOptions(catalogProductsAll);
+      if (focusProductId) selectAiProduct(focusProductId, focusProductName, false);
+    }
+  } else if (campAddList || aiProductSelect) {
+    loadCatalogProducts();
+  }
 
   function fillPromptForm(data) {
     var map = {
@@ -1080,6 +1184,228 @@
   if (aiGen) aiGen.addEventListener('click', function () { callAiGenerate(false, false); });
   if (aiSave) aiSave.addEventListener('click', function () { callAiGenerate(true, false); });
   if (aiCf) aiCf.addEventListener('click', function () { callAiGenerate(true, true); });
+
+  // Colapsar Remotion / Subir video
+  $(document).on('click', '[data-md-fold-toggle]', function () {
+    var $fold = $(this).closest('[data-md-fold]');
+    var $body = $fold.find('> [data-md-fold-body]');
+    var collapsed = $fold.attr('data-md-fold-collapsed') !== undefined;
+    if (collapsed) {
+      $fold.removeAttr('data-md-fold-collapsed');
+      $body.prop('hidden', false);
+      this.setAttribute('aria-expanded', 'true');
+    } else {
+      $fold.attr('data-md-fold-collapsed', '');
+      $body.prop('hidden', true);
+      this.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // Seller Central: editar / programar plan / estado generar
+  function scBtn(el, on) {
+    if (!el) return;
+    el.disabled = on;
+    el.classList.toggle('opacity-60', on);
+  }
+  $(document).on('click', '[data-sc-toggle-edit]', function () {
+    var id = this.getAttribute('data-sc-toggle-edit');
+    $('[data-sc-edit-row="' + id + '"]').toggleClass('hidden');
+  });
+
+  $(document).on('click', '[data-sc-toggle-content]', function () {
+    var btn = this;
+    var wrap = btn.closest('[data-sc-content-wrap]');
+    if (!wrap) return;
+    var preview = wrap.querySelector('[data-sc-content-preview]');
+    var full = wrap.querySelector('[data-sc-content-full]');
+    var icon = btn.querySelector('[data-sc-content-icon]');
+    if (!preview || !full) return;
+    var open = btn.getAttribute('aria-expanded') === 'true';
+    if (open) {
+      preview.classList.remove('hidden');
+      full.classList.add('hidden');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.setAttribute('title', 'Ver texto completo');
+      btn.setAttribute('aria-label', 'Ver texto completo');
+      if (icon) {
+        icon.className = 'fa-solid fa-ellipsis text-[11px]';
+        icon.setAttribute('data-sc-content-icon', '');
+      }
+    } else {
+      preview.classList.add('hidden');
+      full.classList.remove('hidden');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.setAttribute('title', 'Ocultar texto');
+      btn.setAttribute('aria-label', 'Ocultar texto');
+      if (icon) {
+        icon.className = 'fa-solid fa-chevron-up text-[10px]';
+        icon.setAttribute('data-sc-content-icon', '');
+      }
+    }
+  });
+
+  function scPlanRoot(el) {
+    return el.closest('[data-sc-plan-list]');
+  }
+  function scUpdateSelection(root) {
+    if (!root) return;
+    var checked = root.querySelectorAll('[data-sc-check]:checked');
+    var visibleChecks = Array.prototype.filter.call(root.querySelectorAll('[data-sc-check]'), function (c) {
+      var row = c.closest('[data-sc-pub-row]');
+      return row && !row.classList.contains('hidden');
+    });
+    var countEl = root.querySelector('[data-sc-selected-count]');
+    var runBtn = root.querySelector('[data-sc-bulk-run]');
+    var n = checked.length;
+    if (countEl) countEl.textContent = n + (n === 1 ? ' seleccionada' : ' seleccionadas');
+    if (runBtn) runBtn.disabled = n === 0;
+    var all = root.querySelector('[data-sc-check-all]');
+    if (all) {
+      all.checked = visibleChecks.length > 0 && visibleChecks.every(function (c) { return c.checked; });
+      all.indeterminate = n > 0 && !all.checked;
+    }
+  }
+  function scApplyFilters(root) {
+    if (!root) return;
+    var q = ((root.querySelector('[data-sc-filter-q]') || {}).value || '').toLowerCase().trim();
+    var status = (root.querySelector('[data-sc-filter-status]') || {}).value || '';
+    var network = (root.querySelector('[data-sc-filter-network]') || {}).value || '';
+    var rows = root.querySelectorAll('[data-sc-pub-row]');
+    var visible = 0;
+    rows.forEach(function (row) {
+      var ok = true;
+      if (status && row.getAttribute('data-sc-status') !== status) ok = false;
+      if (ok && network && row.getAttribute('data-sc-network') !== network) ok = false;
+      if (ok && q) {
+        var blob = row.getAttribute('data-sc-search') || '';
+        if (blob.indexOf(q) === -1) ok = false;
+      }
+      row.classList.toggle('hidden', !ok);
+      var edit = root.querySelector('[data-sc-edit-row="' + row.getAttribute('data-sc-pub-row') + '"]');
+      if (edit && !ok) edit.classList.add('hidden');
+      if (!ok) {
+        var cb = row.querySelector('[data-sc-check]');
+        if (cb) cb.checked = false;
+      }
+      if (ok) visible++;
+    });
+    var countEl = root.querySelector('[data-sc-visible-count]');
+    if (countEl) countEl.textContent = String(visible);
+    var empty = root.querySelector('[data-sc-empty-filter]');
+    if (empty) empty.classList.toggle('hidden', visible > 0);
+    var table = root.querySelector('table');
+    if (table) table.classList.toggle('hidden', visible === 0);
+    scUpdateSelection(root);
+  }
+  $(document).on('input change', '[data-sc-filter-q], [data-sc-filter-status], [data-sc-filter-network]', function () {
+    scApplyFilters(scPlanRoot(this));
+  });
+  $(document).on('click', '[data-sc-filter-reset]', function () {
+    var root = scPlanRoot(this);
+    if (!root) return;
+    var q = root.querySelector('[data-sc-filter-q]');
+    var st = root.querySelector('[data-sc-filter-status]');
+    var nw = root.querySelector('[data-sc-filter-network]');
+    if (q) q.value = '';
+    if (st) st.value = '';
+    if (nw) nw.value = '';
+    scApplyFilters(root);
+  });
+  $(document).on('change', '[data-sc-check-all]', function () {
+    var root = scPlanRoot(this);
+    if (!root) return;
+    var on = this.checked;
+    root.querySelectorAll('[data-sc-pub-row]').forEach(function (row) {
+      if (row.classList.contains('hidden')) return;
+      var cb = row.querySelector('[data-sc-check]');
+      if (cb) cb.checked = on;
+    });
+    scUpdateSelection(root);
+  });
+  $(document).on('change', '[data-sc-check]', function () {
+    scUpdateSelection(scPlanRoot(this));
+  });
+  $(document).on('change', '[data-sc-bulk-action]', function () {
+    scUpdateSelection(scPlanRoot(this));
+  });
+  $(document).on('submit', '[data-sc-bulk-form]', function (e) {
+    var form = this;
+    var root = scPlanRoot(form);
+    var action = (form.querySelector('[data-sc-bulk-action]') || {}).value || '';
+    var idsBox = form.querySelector('[data-sc-bulk-ids]');
+    var checked = root ? root.querySelectorAll('[data-sc-check]:checked') : [];
+    if (!action || !checked.length) {
+      e.preventDefault();
+      return;
+    }
+    var labels = { approve: 'programar', delete: 'eliminar', cancel: 'cancelar' };
+    if (!confirm('¿' + (labels[action] || action) + ' ' + checked.length + ' publicación(es)?')) {
+      e.preventDefault();
+      return;
+    }
+    if (idsBox) {
+      idsBox.innerHTML = '';
+      checked.forEach(function (cb) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'ids[]';
+        input.value = cb.value;
+        idsBox.appendChild(input);
+      });
+    }
+  });
+  document.querySelectorAll('[data-sc-plan-list]').forEach(function (root) {
+    scUpdateSelection(root);
+  });
+
+  $(document).on('click', '[data-sc-send-plan]', function () {
+    var b = this;
+    if (b.disabled) return;
+    var pending = parseInt(b.getAttribute('data-pending') || '0', 10);
+    var msg = pending === 1
+      ? '¿Programar esta publicación en Seller Central?'
+      : '¿Programar ' + pending + ' publicaciones en Seller Central?';
+    if (!confirm(msg)) return;
+    scBtn(b, true);
+    fetch(b.getAttribute('data-url'), {
+      method: 'POST',
+      headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content') }
+    })
+      .then(function () { window.location.reload(); })
+      .catch(function () {
+        scBtn(b, false);
+        if (window.AdminToast) window.AdminToast.error('No se pudo enviar el plan.');
+      });
+  });
+  var planForm = document.querySelector('[data-sc-plan-form]');
+  if (planForm) {
+    planForm.addEventListener('submit', function () {
+      var card = planForm.closest('[data-sc-generate-card]') || planForm.parentElement;
+      var gen = planForm.querySelector('[data-sc-generate-btn]');
+      var label = planForm.querySelector('[data-sc-generate-label]');
+      var loading = card ? card.querySelector('[data-sc-generate-loading]') : null;
+      var days = parseInt((planForm.querySelector('[name="days"]') || {}).value || '0', 10);
+      var perDay = parseInt((planForm.querySelector('[name="per_day"]') || {}).value || '0', 10);
+      var channels = planForm.querySelectorAll('[name="channels[]"]:checked').length;
+      var total = Math.max(0, days) * Math.max(0, perDay);
+      var msg = loading ? loading.querySelector('[data-sc-generate-loading-msg]') : null;
+
+      scBtn(gen, true);
+      if (label) {
+        label.innerHTML = '<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i> Generando…';
+      }
+      if (msg) {
+        msg.textContent = total > 0
+          ? ('Redactando ~' + total + ' publicación(es)' + (channels ? ' en ' + channels + ' canal(es)' : '') + '. Puede tardar varios minutos.')
+          : 'Generando publicaciones. Esto puede tardar varios minutos.';
+      }
+      if (loading) {
+        loading.classList.remove('hidden');
+        loading.setAttribute('aria-busy', 'true');
+      }
+      if (card) card.classList.add('pointer-events-none');
+    });
+  }
 })(jQuery);
 </script>
 @endpush

@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\PlatformSetting;
+use App\Services\Api\MultidropApiCollectionExporter;
 use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Http\Request;
 use Illuminate\Http\Request as HttpRequest;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ApiSettingsController extends Controller
 {
@@ -25,7 +27,50 @@ class ApiSettingsController extends Controller
             'test_url' => route('admin.settings.api.test'),
             'new_token' => session('new_api_token'),
             'endpoints' => $this->endpoints(),
+            'getman_help_url' => 'https://mock.ceballosleon.com/help/import',
         ]);
+    }
+
+    public function exportCollection(Request $request, MultidropApiCollectionExporter $exporter): StreamedResponse
+    {
+        $includeToken = $request->boolean('include_token');
+        $token = $includeToken ? $this->effectiveToken() : '';
+        $payload = $exporter->collection(url('/api/v1'), $token);
+
+        return $this->downloadJson('multidrop-api-v1.postman_collection.json', $payload);
+    }
+
+    public function exportEnvironment(Request $request, MultidropApiCollectionExporter $exporter): StreamedResponse
+    {
+        $includeToken = $request->boolean('include_token');
+        $token = $includeToken ? $this->effectiveToken() : '';
+        $payload = $exporter->environment(url('/api/v1'), $token, 'Multidrop');
+
+        return $this->downloadJson('multidrop-api.postman_environment.json', $payload);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function downloadJson(string $filename, array $payload): StreamedResponse
+    {
+        $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        return response()->streamDownload(function () use ($json) {
+            echo $json;
+        }, $filename, [
+            'Content-Type' => 'application/json; charset=UTF-8',
+        ]);
+    }
+
+    protected function effectiveToken(): string
+    {
+        $dbToken = trim((string) PlatformSetting::getValue('api.public_token', ''));
+        if ($dbToken !== '') {
+            return $dbToken;
+        }
+
+        return trim((string) config('multidrop.api_token', ''));
     }
 
     protected function endpoints(): array

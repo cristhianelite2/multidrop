@@ -34,20 +34,6 @@ class SellerCentralController extends Controller
         $connection = $this->connection($store);
         $state = $this->api->connectionState($store);
 
-        $plans = StorePublicationPlan::query()
-            ->where('store_id', $store->id)
-            ->with(['publications.product'])
-            ->orderByDesc('id')
-            ->limit(30)
-            ->get();
-
-        $products = Product::query()
-            ->where('store_id', $store->id)
-            ->orderByDesc('is_featured')
-            ->orderByDesc('updated_at')
-            ->limit(250)
-            ->get(['id', 'name', 'slug', 'status', 'image_url']);
-
         $calendar = [];
         if ($connection['ok']) {
             $calendar = $this->remoteCalendar($store);
@@ -57,8 +43,6 @@ class SellerCentralController extends Controller
             'store' => $store,
             'connection' => $connection,
             'state' => $state,
-            'plans' => $plans,
-            'products' => $products,
             'calendar' => $calendar,
             'embedUrl' => $this->embedUrl($store),
             'connectionErrors' => $connection['ok'] ? [] : [$connection['error']],
@@ -73,8 +57,18 @@ class SellerCentralController extends Controller
             'base_url' => ['nullable', 'url', 'max:500'],
         ]);
 
-        if (! empty($data['api_key']) || $request->exists('base_url')) {
-            $this->saveCredentials($store, (string) ($data['base_url'] ?? ''), (string) ($data['api_key'] ?? ''));
+        // Solo actualizar credenciales si el usuario envió algo nuevo.
+        // api_key vacío = conservar la guardada (no borrarla).
+        $newKey = trim((string) ($data['api_key'] ?? ''));
+        $newBase = array_key_exists('base_url', $data) ? trim((string) ($data['base_url'] ?? '')) : null;
+        if ($newKey !== '' || $newBase !== null) {
+            $this->saveCredentials(
+                $store,
+                $newBase ?? (string) data_get($store->settings, 'marketing.sellercentral_base_url', ''),
+                $newKey,
+                updateApiKey: $newKey !== ''
+            );
+            $store->refresh();
         }
 
         if (! $this->api->hasConnection($store)) {
@@ -107,7 +101,12 @@ class SellerCentralController extends Controller
             'embed_url' => ['nullable', 'url', 'max:500'],
         ]);
 
-        $this->saveCredentials($store, (string) ($data['base_url'] ?? ''), (string) ($data['api_key'] ?? ''));
+        $this->saveCredentials(
+            $store,
+            (string) ($data['base_url'] ?? ''),
+            (string) ($data['api_key'] ?? ''),
+            updateApiKey: trim((string) ($data['api_key'] ?? '')) !== ''
+        );
         $this->saveEmbedUrl($store, (string) ($data['embed_url'] ?? ''));
 
         return redirect()->route('admin.store.marketing.sellercentral.index')
@@ -127,6 +126,9 @@ class SellerCentralController extends Controller
             'products.*' => ['integer', 'exists:products,id'],
             'start_date' => ['nullable', 'date_format:Y-m-d'],
             'format' => ['nullable', 'in:image,text'],
+            'theme' => ['nullable', 'string', 'in:'.implode(',', array_keys(PublicationPlannerService::THEMES))],
+            'theme_notes' => ['nullable', 'string', 'max:400'],
+            'redirect_campaign_id' => ['nullable', 'integer', 'exists:marketing_campaigns,id'],
         ]);
 
         if (! empty($data['products'])) {
@@ -146,6 +148,8 @@ class SellerCentralController extends Controller
                 'product_ids' => array_map('intval', (array) ($data['products'] ?? [])),
                 'start_date' => (string) ($data['start_date'] ?? ''),
                 'format' => (string) ($data['format'] ?? 'image'),
+                'theme' => (string) ($data['theme'] ?? 'mix'),
+                'theme_notes' => (string) ($data['theme_notes'] ?? ''),
             ]);
         } catch (SellerCentralException $e) {
             return back()->with('error', $e->getMessage());
@@ -185,6 +189,19 @@ class SellerCentralController extends Controller
         $flash = 'Plan generado: '.$total.' publicación(es). Revísalas y aprobalas para programarlas.';
         if ($result['errors'] !== []) {
             $flash .= ' · '.count($result['errors']).' día(s) usaron copy de respaldo.';
+        }
+
+        $campaignId = (int) ($data['redirect_campaign_id'] ?? 0);
+        if ($campaignId > 0) {
+            $ownsCampaign = \App\Models\MarketingCampaign::query()
+                ->where('store_id', $store->id)
+                ->where('id', $campaignId)
+                ->exists();
+            if ($ownsCampaign) {
+                return redirect()
+                    ->route('admin.store.marketing.campaigns.edit', ['campaign' => $campaignId, 'tab' => 'generacion'])
+                    ->with('success', $flash);
+            }
         }
 
         return redirect()->route('admin.store.marketing.sellercentral.index')->with('success', $flash);
@@ -337,6 +354,81 @@ class SellerCentralController extends Controller
         $publication->delete();
 
         return back()->with('success', 'Publicación eliminada.');
+    }
+
+    public function bulkPublications(Request $request, StoreContext $storeContext): RedirectResponse
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        $data = $request->validate([
+            'action' => ['required', 'in:approve,delete,cancel'],
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        $pubs = StorePublication::query()
+            ->where('store_id', $store->id)
+            ->whereIn('id', array_map('intval', $data['ids']))
+            ->get();
+
+        if ($pubs->isEmpty()) {
+            return back()->with('error', 'No se encontraron publicaciones seleccionadas.');
+        }
+
+        $ok = 0;
+        $fail = 0;
+        $action = (string) $data['action'];
+
+        foreach ($pubs as $publication) {
+            try {
+                if ($action === 'approve') {
+                    if (! in_array($publication->status, [StorePublication::STATUS_DRAFT, StorePublication::STATUS_ERROR], true)) {
+                        continue;
+                    }
+                    if ($this->pushToSellerCentral($store, $publication)) {
+                        $ok++;
+                    } else {
+                        $fail++;
+                    }
+                } elseif ($action === 'cancel') {
+                    if ($publication->status !== StorePublication::STATUS_SCHEDULED) {
+                        continue;
+                    }
+                    if ($publication->sellercentral_post_id && $this->api->hasConnection($store)) {
+                        $this->api->cancelPost($store, $publication->sellercentral_post_id);
+                    }
+                    $publication->update([
+                        'status' => StorePublication::STATUS_CANCELLED,
+                        'scheduled_at' => null,
+                        'error_message' => null,
+                    ]);
+                    $ok++;
+                } else {
+                    if ($publication->sellercentral_post_id && $this->api->hasConnection($store)) {
+                        try {
+                            $this->api->deletePost($store, $publication->sellercentral_post_id);
+                        } catch (SellerCentralException) {
+                            // continuar local
+                        }
+                    }
+                    $publication->delete();
+                    $ok++;
+                }
+            } catch (\Throwable) {
+                $fail++;
+            }
+        }
+
+        $labels = [
+            'approve' => 'programada(s)',
+            'delete' => 'eliminada(s)',
+            'cancel' => 'cancelada(s)',
+        ];
+        $msg = $ok.' publicación(es) '.$labels[$action];
+        if ($fail > 0) {
+            $msg .= ' · '.$fail.' con error';
+        }
+
+        return back()->with($fail > 0 && $ok === 0 ? 'error' : 'success', $msg);
     }
 
     public function destroyPlan(Request $request, StoreContext $storeContext, StorePublicationPlan $plan): RedirectResponse
@@ -550,7 +642,7 @@ class SellerCentralController extends Controller
         Cache::forget($this->connectionCacheKey($store).'.calendar');
     }
 
-    protected function saveCredentials(Store $store, string $baseUrl, string $apiKey): void
+    protected function saveCredentials(Store $store, string $baseUrl, string $apiKey, bool $updateApiKey = true): void
     {
         $settings = is_array($store->settings) ? $store->settings : [];
         $marketing = is_array($settings['marketing'] ?? null) ? $settings['marketing'] : [];
@@ -562,11 +654,12 @@ class SellerCentralController extends Controller
             unset($marketing['sellercentral_base_url']);
         }
 
-        $apiKey = trim($apiKey);
-        if ($apiKey !== '') {
-            $marketing['sellercentral_api_key'] = $apiKey;
-        } else {
-            unset($marketing['sellercentral_api_key']);
+        // Vacío = conservar la llave actual (el formulario lo indica así).
+        if ($updateApiKey) {
+            $apiKey = trim($apiKey);
+            if ($apiKey !== '') {
+                $marketing['sellercentral_api_key'] = $apiKey;
+            }
         }
 
         $settings['marketing'] = $marketing;

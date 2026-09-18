@@ -186,19 +186,30 @@ class PromptController extends Controller
             });
         }
 
-        $rows = $query->limit(250)->get(['id', 'name', 'slug', 'sku', 'image_url', 'status', 'creative_data']);
+        $rows = $query->limit(250)->get([
+            'id', 'name', 'slug', 'sku', 'image_url', 'status', 'creative_data',
+            'price', 'currency', 'purchase_price', 'compare_at_price',
+        ]);
+        $currency = $store->currency();
 
         return response()->json([
             'ok' => true,
-            'products' => $rows->map(fn (Product $p) => [
-                'id' => $p->id,
-                'name' => $p->localizedName(),
-                'slug' => $p->slug,
-                'sku' => $p->sku,
-                'status' => $p->status,
-                'image_url' => $p->image_url,
-                'is_combo' => (bool) data_get($p->creative_data, 'is_combo', false),
-            ])->values(),
+            'products' => $rows->map(function (Product $p) use ($currency) {
+                $quote = $p->quoteIn($currency);
+
+                return [
+                    'id' => $p->id,
+                    'name' => $p->localizedName(),
+                    'slug' => $p->slug,
+                    'sku' => $p->sku,
+                    'status' => $p->status,
+                    'image_url' => $p->image_url,
+                    'is_combo' => (bool) data_get($p->creative_data, 'is_combo', false),
+                    'price' => (float) ($quote['price'] ?? 0),
+                    'price_label' => $p->formattedPriceIn($currency),
+                    'currency' => $quote['currency'] ?? $currency,
+                ];
+            })->values(),
         ]);
     }
 

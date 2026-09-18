@@ -9,6 +9,13 @@ Todos los cambios relevantes de Multidrop se documentan aquí.
 - Generación de planes con MIIA: indícale días y publicaciones/día; crea borradores desde productos (copy + media) para validar antes de programar.
 - Programar individual o en lote vía API (`/api/v1/key/posts`), cancelar, editar, sincronizar calendario y eliminar.
 - Tablas `store_publication_plans` y `store_publications`.
+- Generación movida a campaña → pestaña **Generación de publicaciones** (temas, canales, loading al generar).
+- Tabla de borradores compacta: icono de red, estado corto, texto truncado con botón para expandir, acciones por icono, filtros/búsqueda y acciones masivas.
+- Fix: «Probar conexión» ya no borra la API key guardada si el campo va vacío.
+
+### Marketing · Campañas / API
+- Exportador de colección API Multidrop y ajustes en settings API (`@{{api_token}}`).
+- Mejoras en cards de producto y prompts de campaña.
 
 ## 2026-09-02
 

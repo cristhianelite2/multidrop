@@ -36,6 +36,49 @@ class PublicationPlannerService
         'gmail' => 'Gmail',
     ];
 
+    /** Canales marcados por defecto en el formulario (sin Twitter, LinkedIn ni Gmail). */
+    public const DEFAULT_CHANNELS = ['facebook', 'instagram', 'tiktok', 'youtube'];
+
+    /**
+     * Ángulos editoriales para variar el tipo de publicación.
+     *
+     * @var array<string, array{label: string, brief: string}>
+     */
+    public const THEMES = [
+        'mix' => [
+            'label' => 'Mix automático (rota ángulos)',
+            'brief' => 'Rota ángulos entre problema/solución, beneficio cotidiano, prueba social, tip de uso, storytelling y urgencia suave.',
+        ],
+        'problema_solucion' => [
+            'label' => 'Problema → solución',
+            'brief' => 'Abre con un dolor concreto y cotidiano; presenta el producto como la solución clara, con beneficio tangible y CTA.',
+        ],
+        'beneficio_diario' => [
+            'label' => 'Beneficio del día a día',
+            'brief' => 'Muestra cómo el producto mejora una rutina real (mañana, trabajo, viaje, hogar). Escena concreta, no lista de specs.',
+        ],
+        'prueba_social' => [
+            'label' => 'Prueba social / confianza',
+            'brief' => 'Enfócate en confianza, calidad percibida y por qué la gente lo elige. Sin inventar reviews ni cifras.',
+        ],
+        'tutorial_tip' => [
+            'label' => 'Tip / cómo usarlo',
+            'brief' => 'Comparte un tip práctico de uso o setup en 3 pasos cortos. Útil, accionable y con CTA al final.',
+        ],
+        'storytelling' => [
+            'label' => 'Mini historia',
+            'brief' => 'Cuenta una mini escena (antes/después o momento clave) donde el producto encaja de forma natural.',
+        ],
+        'urgencia_suave' => [
+            'label' => 'Urgencia / oferta suave',
+            'brief' => 'Motiva a actuar hoy con urgencia suave (disponibilidad, momento ideal). Sin mentiras ni “última pieza” inventada.',
+        ],
+        'lifestyle' => [
+            'label' => 'Lifestyle / vibra',
+            'brief' => 'Tone aspiracional o cozy: vibra, estética y sensación de uso. Menos features, más sensación.',
+        ],
+    ];
+
     public function __construct(
         protected AiTaskRouter $ai,
         protected ProductMarketingMediaService $media,
@@ -45,7 +88,7 @@ class PublicationPlannerService
     /**
      * Construye el calendario de publicaciones y genera el copy con MIIA (una llamada por día).
      *
-     * @param  array{days: int, per_day: int, channels: list<string>, product_ids: array<int, int>, start_date: string, format: string}  $config
+     * @param  array{days: int, per_day: int, channels: list<string>, product_ids: array<int, int>, start_date: string, format: string, theme?: string, theme_notes?: string}  $config
      * @return array{slots: list<array<mixed>>, errors: list<string>}
      */
     public function buildPlan(Store $store, array $config): array
@@ -59,7 +102,7 @@ class PublicationPlannerService
             SellerCentralApi::NETWORKS
         ));
         if ($channels === []) {
-            $channels = ['instagram', 'facebook', 'tiktok'];
+            $channels = self::DEFAULT_CHANNELS;
         }
 
         $productIds = array_values(array_unique(array_map('intval', (array) ($config['product_ids'] ?? []))));
@@ -78,20 +121,39 @@ class PublicationPlannerService
         }
 
         $format = in_array((string) ($config['format'] ?? 'image'), ['image', 'text'], true) ? $config['format'] : 'image';
-        $slots = $this->slots($store, $start, $days, $perDay, $channels, $products, $format);
-        $errors = $this->generateCopy($store, $slots);
+        $theme = $this->normalizeTheme((string) ($config['theme'] ?? 'mix'));
+        $themeNotes = $this->clip(trim((string) ($config['theme_notes'] ?? '')), 400);
+        $slots = $this->slots($store, $start, $days, $perDay, $channels, $products, $format, $theme, $themeNotes);
+        $errors = $this->generateCopy($store, $slots, $theme, $themeNotes);
 
         return ['slots' => $slots, 'errors' => $errors];
+    }
+
+    protected function normalizeTheme(string $theme): string
+    {
+        $theme = trim($theme);
+
+        return isset(self::THEMES[$theme]) ? $theme : 'mix';
     }
 
     /**
      * @param  list<array<mixed>>  $slots
      * @return list<array<mixed>>
      */
-    protected function slots(Store $store, Carbon $start, int $days, int $perDay, array $channels, array $products, string $format): array
-    {
+    protected function slots(
+        Store $store,
+        Carbon $start,
+        int $days,
+        int $perDay,
+        array $channels,
+        array $products,
+        string $format,
+        string $theme,
+        string $themeNotes
+    ): array {
         $slots = [];
         $count = count($products);
+        $themeKeys = array_keys(array_diff_key(self::THEMES, ['mix' => true]));
 
         for ($d = 0; $d < $days; $d++) {
             $date = $start->copy()->addDays($d);
@@ -101,6 +163,9 @@ class PublicationPlannerService
                 $network = $channels[$idx % count($channels)];
                 $hour = self::SLOT_HOURS[$s % count(self::SLOT_HOURS)];
                 $scheduled = Carbon::createFromFormat('Y-m-d H:i', $date->format('Y-m-d').sprintf(' %02d:00', $hour), self::TZ);
+                $slotTheme = $theme === 'mix'
+                    ? $themeKeys[$idx % count($themeKeys)]
+                    : $theme;
 
                 $slot = [
                     'day_offset' => $d,
@@ -114,6 +179,10 @@ class PublicationPlannerService
                     'product_price' => $product['price'] ?? '',
                     'product_url' => $product['url'] ?? '',
                     'format' => $format,
+                    'theme' => $slotTheme,
+                    'theme_label' => self::THEMES[$slotTheme]['label'] ?? $slotTheme,
+                    'theme_brief' => self::THEMES[$slotTheme]['brief'] ?? '',
+                    'theme_notes' => $themeNotes,
                     'topic' => '',
                     'content' => '',
                     'media_urls' => $this->mediaFor($product, $format),
@@ -134,7 +203,7 @@ class PublicationPlannerService
      * @param  list<array<mixed>>  $slots
      * @return list<string>
      */
-    protected function generateCopy(Store $store, array &$slots): array
+    protected function generateCopy(Store $store, array &$slots, string $theme, string $themeNotes): array
     {
         $errors = [];
         $byDay = [];
@@ -147,10 +216,21 @@ class PublicationPlannerService
 
         foreach ($byDay as $day => $indexes) {
             $date = ($slots[$indexes[0]]['date'] ?? '');
-            $context = $this->dayContext($store, $day, $date, $locale, $currency, collect($indexes)->map(fn ($i) => $slots[$i])->all());
+            $context = $this->dayContext(
+                $store,
+                $day,
+                $date,
+                $locale,
+                $currency,
+                collect($indexes)->map(fn ($i) => $slots[$i])->all(),
+                $theme,
+                $themeNotes
+            );
             $result = $this->ai->chat('seller_publication', [
                 ['role' => 'system', 'content' => $this->systemPrompt($locale)],
                 ['role' => 'user', 'content' => $context],
+            ], [
+                'temperature' => 0.75,
             ]);
 
             if (! ($result['success'] ?? false)) {
@@ -170,7 +250,11 @@ class PublicationPlannerService
                     continue;
                 }
                 $slots[$slotIndex]['network'] = (string) ($post['canal'] ?? $post['network'] ?? $slots[$slotIndex]['network']);
-                $slots[$slotIndex]['topic'] = $this->clip((string) ($post['topic'] ?? ''), 255);
+                $topic = $this->clip((string) ($post['topic'] ?? ''), 255);
+                if ($topic === '') {
+                    $topic = (string) ($slots[$slotIndex]['theme_label'] ?? '');
+                }
+                $slots[$slotIndex]['topic'] = $topic;
                 $slots[$slotIndex]['content'] = $this->withRules($slots[$slotIndex]['network'], (string) ($post['content'] ?? ''));
             }
         }
@@ -178,6 +262,9 @@ class PublicationPlannerService
         foreach ($slots as &$slot) {
             if (trim((string) $slot['content']) === '') {
                 $slot['content'] = $this->fallbackContent($slot);
+            }
+            if (trim((string) ($slot['topic'] ?? '')) === '') {
+                $slot['topic'] = (string) ($slot['theme_label'] ?? 'Publicación de producto');
             }
         }
         unset($slot);
@@ -188,13 +275,27 @@ class PublicationPlannerService
     /**
      * @param  list<array<mixed>>  $daySlots
      */
-    protected function dayContext(Store $store, int $day, string $date, string $locale, string $currency, array $daySlots): string
-    {
+    protected function dayContext(
+        Store $store,
+        int $day,
+        string $date,
+        string $locale,
+        string $currency,
+        array $daySlots,
+        string $theme,
+        string $themeNotes
+    ): string {
         $lines = [];
         $lines[] = "Tienda: {$store->name} · Idioma: {$locale} · Moneda: {$currency} · Fecha del día: {$date}";
-        $lines[] = 'Programa estas publicaciones para HOY, una por cada slot (respeta el orden y el canal):';
+        $themeMeta = self::THEMES[$theme] ?? self::THEMES['mix'];
+        $lines[] = 'Tema editorial del plan: '.$themeMeta['label'].' — '.$themeMeta['brief'];
+        if ($themeNotes !== '') {
+            $lines[] = 'Notas del operador (respétalas): '.$themeNotes;
+        }
+        $lines[] = 'Genera UNA publicación real de red social por slot (no un titular pobre ni un anuncio genérico). Orden y canal obligatorios:';
         foreach ($daySlots as $slot) {
             $head = "Slot {$slot['slot_index']} · Canal: {$slot['network']}";
+            $head .= ' · Ángulo: '.($slot['theme_label'] ?? '').' — '.($slot['theme_brief'] ?? '');
             if (isset($slot['product_name']) && $slot['product_name'] !== '') {
                 $head .= " · Producto: {$slot['product_name']}";
             }
@@ -209,7 +310,7 @@ class PublicationPlannerService
                 $lines[] = '  Descripción: '.$slot['product_description'];
             }
         }
-        $lines[] = 'Cada contenido debe girar en torno al producto indicado (beneficios, uso, precio si viene en el contexto, CTA con enlace si hay URL). Varía ángulos y redacción entre slots del mismo día; no inventes precios ni datos.';
+        $lines[] = 'Requisitos de copy: gancho fuerte en la 1ª línea; 2–4 líneas de desarrollo con beneficio concreto o escena; CTA claro (y URL si existe). Varía redacción entre slots. topic = nombre corto del ángulo (no vacío). No inventes precios, reviews ni datos.';
 
         return implode("\n", $lines);
     }
@@ -219,16 +320,23 @@ class PublicationPlannerService
         $localeLabel = $this->localeLabel($locale);
 
         return <<<PROMPT
-Eres un estratega de redes sociales. Generas publicaciones de venta en {$localeLabel} para productos de tienda.
+Eres copywriter senior de e-commerce y community manager. Escribes publicaciones listas para publicar en {$localeLabel}.
 
-- Regla de oro: contenido breve, con gancho, beneficios concretos y una sola llamada a la acción.
-- Respeta los límites de caracteres por canal: Twitter/X ~280, Instagram 2000, TikTok 2000, Facebook 2000, LinkedIn 1500, YouTube 5000, Gmail 3000.
-- Usa 2-4 hashtags solo en Instagram/TikTok. Sin emojis en LinkedIn.
-- Evita: "descubre", "no te pierdas", "ideal para", "revolucionario", tono de anuncio de IA, mayoristas de características sin beneficio.
-- NO inventes precios, garantías, reviews ni datos que no vengan en el contexto del producto.
-- Responde ÚNICAMENTE con un arreglo JSON UTF-8 (sin markdown) con la misma cantidad de elementos que slots:
-[{"canal":"instagram","topic":"Tema corto","content":"Texto de la publicación con saltos de línea \\n"}]
-- Usa la clave "canal" con el valor exacto del canal. topic: máx 100 caracteres.
+Objetivo: cada post debe parecer escrito por un humano experto (UGC / social commerce), NO un resumen pobre del nombre del producto.
+
+Estructura mínima por post:
+1) Gancho (pregunta, escena o contraste) en la primera línea.
+2) Desarrollo: 2–5 líneas con beneficio tangible, uso concreto o mini-historia según el ángulo del slot.
+3) CTA natural (comprar, ver, guardar). Si hay URL del producto, inclúyela al final.
+
+Reglas:
+- Respeta el ÁNGULO/TEMA de cada slot; el "topic" resume ese ángulo en ≤80 caracteres.
+- Longitudes: Twitter/X ~220–280, Instagram/TikTok/Facebook 350–900 (máx 2000), LinkedIn 400–900 (máx 1500), YouTube 500–1500, Gmail 400–1200.
+- Instagram/TikTok: 2–5 hashtags relevantes al final. LinkedIn: sin emojis. Twitter: máx 1–2 emojis.
+- Prohibido: solo pegar el nombre del producto + “¡Consigue el tuyo hoy!”; tono de anuncio de IA; “revolucionario”, “descubre”, “no te pierdas”, “ideal para” sin sustancia; inventar reviews, descuentos o specs.
+- Usa solo datos del contexto (nombre, descripción, precio, URL).
+- Responde ÚNICAMENTE con un arreglo JSON UTF-8 (sin markdown), misma cantidad de elementos que slots:
+[{"canal":"instagram","topic":"Ángulo corto","content":"Texto completo con saltos \\n"}]
 PROMPT;
     }
 
@@ -272,14 +380,46 @@ PROMPT;
      */
     protected function fallbackContent(array $slot): string
     {
-        $name = (string) ($slot['product_name'] ?? '');
-        $head = $name !== '' ? $name : 'Producto destacado';
-
-        return match ($slot['network']) {
-            'twitter' => $head.' disponible. Conoce más en la tienda. #Nuevo #Oferta',
-            'linkedin' => $head.' — conoce nuestra oferta en la tienda.',
-            default => '✨ '.$head."\n\n¡Consigue el tuyo hoy! 🛍️",
+        $name = trim((string) ($slot['product_name'] ?? ''));
+        $desc = trim((string) ($slot['product_description'] ?? ''));
+        $url = trim((string) ($slot['product_url'] ?? ''));
+        $theme = (string) ($slot['theme'] ?? 'beneficio_diario');
+        $hook = match ($theme) {
+            'problema_solucion' => $name !== ''
+                ? "¿Te suena familiar ese momento en que {$name} habría cambiado todo?"
+                : '¿Te pasa esto a diario y ya te cansaste?',
+            'tutorial_tip' => $name !== ''
+                ? "3 formas simples de aprovechar tu {$name}:"
+                : 'Guarda este tip para usarlo hoy:',
+            'storytelling' => $name !== ''
+                ? "Había un día normal… hasta que entró {$name}."
+                : 'Pequeño cambio, gran diferencia en la rutina.',
+            'urgencia_suave' => $name !== ''
+                ? "Si {$name} ya estaba en tu lista, este es buen momento."
+                : 'Si lo estabas pensando, hoy tiene más sentido.',
+            'lifestyle' => $name !== ''
+                ? "Esa vibra de casa/oficina ordenada empieza con detalles como {$name}."
+                : 'Detalles que se sienten bien todos los días.',
+            'prueba_social' => $name !== ''
+                ? "La gente no busca mil gadgets: busca algo que cumpla. {$name} va a eso."
+                : 'Menos promesas, más producto que sí se usa.',
+            default => $name !== ''
+                ? "Esto es lo que cambia cuando tienes {$name} a la mano:"
+                : 'Un detalle que simplifica el día:',
         };
+
+        $body = $desc !== ''
+            ? $this->clip($desc, 180)
+            : ($name !== '' ? "Diseñado para usarse de verdad, no para quedar en el cajón." : 'Beneficio concreto, sin relleno.');
+
+        $cta = $url !== '' ? "Míralo aquí: {$url}" : 'Encuéntralo en la tienda.';
+
+        $text = $hook."\n\n".$body."\n\n".$cta;
+        if (in_array($slot['network'], ['instagram', 'tiktok'], true)) {
+            $text .= "\n\n#producto #tienda #oferta";
+        }
+
+        return $this->withRules((string) $slot['network'], $text);
     }
 
     protected function withRules(string $network, string $text): string

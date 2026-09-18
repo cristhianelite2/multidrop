@@ -9,6 +9,8 @@
     $promptVideoCount = $productPrompts->sum(fn ($pr) => $pr->videos->count());
     $videoCount = $productVideos->count() + $promptVideoCount;
     $ffmpegOk = $ffmpeg ?? true;
+    $collapseRemotion = $productPrompts->isEmpty() && $generatedLoose->isEmpty();
+    $collapseUpload = $uploadedVideos->isEmpty();
 @endphp
 <div class="space-y-5" id="md-product-{{ $product->id }}">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -36,13 +38,16 @@
         </form>
     </div>
 
-    <section class="rounded-xl border border-line overflow-hidden">
-        <div class="border-b border-line bg-mist/30 px-4 py-3">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 1</p>
-            <h3 class="mt-0.5 font-semibold text-ink">Generar video con Remotion</h3>
-            <p class="mt-1 text-sm text-ink-soft/70">Crea el guion con MIIA y, en el prompt, genera el MP4. No sube un archivo.</p>
-        </div>
-        <div class="p-4 space-y-4">
+    <div class="rounded-xl border border-line overflow-hidden bg-white" data-md-fold @if($collapseRemotion) data-md-fold-collapsed @endif>
+        <button type="button" class="flex w-full items-start gap-3 border-b border-line bg-mist/30 px-4 py-3 text-left" data-md-fold-toggle aria-expanded="{{ $collapseRemotion ? 'false' : 'true' }}">
+            <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 1</p>
+                <h3 class="mt-0.5 font-semibold text-ink">Generar video con Remotion</h3>
+                <p class="mt-1 text-sm text-ink-soft/70">Crea el guion con MIIA y, en el prompt, genera el MP4. No sube un archivo.</p>
+            </div>
+            <span class="mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150 md-fold-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="p-4 space-y-4" data-md-fold-body @if($collapseRemotion) hidden @endif>
             <p class="text-xs text-ink-soft/55">1. Prompt con MIIA · 2. Generar con Remotion en ese prompt</p>
             <button type="button" class="admin-btn !px-3 !py-1.5 text-sm" data-md-ai-open data-use-in-prompt="{{ $product->id }}" data-product-name="{{ $product->localizedName() }}">Generar prompt con MIIA</button>
 
@@ -61,17 +66,20 @@
                 </div>
             @endif
         </div>
-    </section>
+    </div>
 
     <p class="text-center text-[11px] font-semibold uppercase tracking-widest text-ink-soft/40">o</p>
 
-    <section class="rounded-xl border border-line overflow-hidden">
-        <div class="border-b border-line bg-mist/30 px-4 py-3">
-            <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 2</p>
-            <h3 class="mt-0.5 font-semibold text-ink">Subir un video</h3>
-            <p class="mt-1 text-sm text-ink-soft/70">Archivo que ya tienes. No usa MIIA ni Remotion.</p>
-        </div>
-        <div class="p-4 space-y-4">
+    <div class="rounded-xl border border-line overflow-hidden bg-white" data-md-fold @if($collapseUpload) data-md-fold-collapsed @endif>
+        <button type="button" class="flex w-full items-start gap-3 border-b border-line bg-mist/30 px-4 py-3 text-left" data-md-fold-toggle aria-expanded="{{ $collapseUpload ? 'false' : 'true' }}">
+            <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 2</p>
+                <h3 class="mt-0.5 font-semibold text-ink">Subir un video</h3>
+                <p class="mt-1 text-sm text-ink-soft/70">Archivo que ya tienes. No usa MIIA ni Remotion.</p>
+            </div>
+            <span class="mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150 md-fold-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="p-4 space-y-4" data-md-fold-body @if($collapseUpload) hidden @endif>
             @unless($ffmpegOk)
                 <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
                     ffmpeg no está en el PATH. El video se guarda, pero no se limpia la metadata. Define <code>FFMPEG_PATH</code> en <code>.env</code>.
@@ -101,5 +109,5 @@
                 <p class="text-sm text-ink-soft/60">Aún no hay videos subidos para este producto.</p>
             @endif
         </div>
-    </section>
+    </div>
 </div>

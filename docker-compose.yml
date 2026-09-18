@@ -1,0 +1,45 @@
+services:
+  app:
+    image: shinsenter/laravel:php8.3-nginx
+    container_name: multidrop-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8083:80"
+    volumes:
+      - ./:/var/www/html
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: multidrop
+      DB_USERNAME: root
+      DB_PASSWORD: ""
+      APP_URL: http://localhost:8083
+      CACHE_STORE: file
+      SESSION_DRIVER: file
+      QUEUE_CONNECTION: database
+      LARAVEL_AUTO_MIGRATION: "1"
+      LARAVEL_AUTO_MIGRATION_OPTIONS: "--seed"
+
+  db:
+    image: mysql:8.0
+    container_name: multidrop-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: multidrop
+    ports:
+      - "3308:3306"
+    volumes:
+      - multidrop-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  multidrop-db-data:

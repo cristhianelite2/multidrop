@@ -1,0 +1,30 @@
+---
+description: Flujo git Multidrop — push silencioso a test; “subir a git” = main+test
+alwaysApply: true
+---
+
+# Git: test silencioso / main bajo pedido
+
+## Tras cada cambio pedido por el usuario
+
+Cuando el usuario pida un cambio de código/config (fix, feature, ajuste) y el trabajo quede aplicado:
+
+1. Hacer **commit** de los archivos relevantes (sin secretos: `.env`, tokens, etc.).
+2. Hacer **push a la rama `test`** (crear/actualizar tracking si hace falta).
+3. Hacerlo de forma **silenciosa**: no pedir confirmación de “¿hago commit/push?”; en la respuesta final, como mucho una línea breve (`pushed → test`).
+
+Si no hay cambios que commitear, no crear commit vacío.
+
+## Cuando diga “subir a git” / master / main
+
+Si el usuario pide subir algo a git, master o main (o equivalente):
+
+1. Entiende siempre **main** (o `master` si es la rama principal del repo).
+2. Integrar el trabajo en **main** y en **test** (merge o fast-forward según el estado; push de ambas).
+3. No dejar solo una de las dos ramas desactualizada.
+
+## No aplica
+
+- No force-push a `main`/`master` salvo pedido explícito.
+- No `migrate:fresh` ni comandos destructivos por este flujo.
+- Changelog / backup de BD solo cuando el usuario lo pida (o regla aparte de commit).

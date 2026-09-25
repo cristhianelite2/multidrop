@@ -252,35 +252,63 @@ class ProductMediaMirrorService
 
         $maxBytes = $folder === 'videos' ? 104857600 : 10485760;
         try {
-            $response = Http::timeout($folder === 'videos' ? 120 : 45)
-                ->withHeaders($this->downloadHeaders($url))
-                ->get($url);
-            if (! $response->successful()) {
-                $this->lastMirrorReport['failed']++;
+            $lastStatus = 0;
+            foreach ($this->downloadUrlCandidates($url) as $candidate) {
+                $response = Http::timeout($folder === 'videos' ? 120 : 45)
+                    ->withHeaders($this->downloadHeaders($candidate))
+                    ->get($candidate);
+                $lastStatus = $response->status();
+                if (! $response->successful()) {
+                    continue;
+                }
+                $body = $response->body();
+                if (! is_string($body) || $body === '' || strlen($body) > $maxBytes) {
+                    continue;
+                }
 
-                return null;
+                $ext = $this->guessExtension($candidate, (string) $response->header('Content-Type'), $folder);
+                $mirrored = $this->putContents($body, $store, $product, $folder, null, $candidate, $ext);
+                if ($mirrored) {
+                    $this->lastMirrorReport['mirrored']++;
+
+                    return $mirrored;
+                }
             }
-            $body = $response->body();
-            if (! is_string($body) || $body === '' || strlen($body) > $maxBytes) {
-                $this->lastMirrorReport['failed']++;
-
-                return null;
+            $this->lastMirrorReport['failed']++;
+            if ($lastStatus > 0) {
+                // no-op: contado arriba
             }
 
-            $ext = $this->guessExtension($url, (string) $response->header('Content-Type'), $folder);
-            $mirrored = $this->putContents($body, $store, $product, $folder, null, $url, $ext);
-            if ($mirrored) {
-                $this->lastMirrorReport['mirrored']++;
-            } else {
-                $this->lastMirrorReport['failed']++;
-            }
-
-            return $mirrored;
+            return null;
         } catch (\Throwable) {
             $this->lastMirrorReport['failed']++;
 
             return null;
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function downloadUrlCandidates(string $url): array
+    {
+        $candidates = [];
+        $push = function (string $candidate) use (&$candidates): void {
+            $candidate = trim($candidate);
+            if ($candidate !== '' && ! in_array($candidate, $candidates, true)) {
+                $candidates[] = $candidate;
+            }
+        };
+        $push($url);
+        $base = preg_replace('/[?#].*$/', '', $url) ?? $url;
+        $push($base);
+        if (preg_match('#^(https?://[^/]+/kf/S[a-zA-Z0-9]+)\.(jpe?g|png|webp)$#i', $base, $m)) {
+            foreach (['png', 'jpg', 'jpeg', 'webp'] as $ext) {
+                $push($m[1].'.'.$ext);
+            }
+        }
+
+        return $candidates;
     }
 
     /**
@@ -293,7 +321,7 @@ class ProductMediaMirrorService
             'Accept' => '*/*',
         ];
 
-        if (preg_match('#(alicdn\.com|aliexpress\.com|aliexpress\.us)#i', $url)) {
+        if (preg_match('#(alicdn\.com|aliexpress\.com|aliexpress\.us|aliexpress-media)#i', $url)) {
             $headers['Referer'] = 'https://www.aliexpress.com/';
         } elseif (preg_match('#(cjdropshipping\.com|cj\.com)#i', $url)) {
             $headers['Referer'] = 'https://www.cjdropshipping.com/';

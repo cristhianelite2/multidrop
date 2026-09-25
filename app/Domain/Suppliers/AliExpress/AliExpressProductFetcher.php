@@ -978,12 +978,23 @@ class AliExpressProductFetcher
         if ($url === '') {
             return '';
         }
-        if (preg_match('#^(https?://[^/]+/kf/S[a-zA-Z0-9]+)#i', $url, $m)) {
-            return $m[1].'.jpg';
+
+        // Patrones CDN AE: foo.jpg_220x220.jpg / foo.png_50x50.png / foo.jpg_.webp
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(jpe?g|png|webp|avif)(?:\?.*)?$/i', '.$1', $url) ?? $url;
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\.(avif|webp)$/i', '.$1', $url) ?? $url;
+        $url = preg_replace('/_\.(avif|webp)$/i', '', $url) ?? $url;
+        $url = preg_replace('/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpe?g|png|webp|avif)(?:\?.*)?$/i', '.$1', $url) ?? $url;
+
+        // /kf/S… → URL full conservando la extensión real (muchas son .png; forzar .jpg da 404).
+        if (preg_match('#^(https?://[^/]+/kf/S[a-zA-Z0-9]+)(?:\.(jpe?g|png|webp|avif))?$#i', $url, $m)) {
+            $ext = strtolower($m[2] ?? '');
+            if ($ext === 'jpeg') {
+                $ext = 'jpg';
+            }
+            if ($ext !== '') {
+                return $m[1].'.'.$ext;
+            }
         }
-        $url = preg_replace('/_\.(avif|webp)$/i', '.$1', $url) ?? $url;
-        $url = preg_replace('/\.(jpg|jpeg|png|webp|avif)_\.(avif|webp)$/i', '.$1', $url) ?? $url;
-        $url = preg_replace('/_\d+x\d+q?\d*\.(jpg|jpeg|png|webp|avif)(?:_\.(avif|webp))?$/i', '.$1', $url) ?? $url;
 
         return $url;
     }
@@ -991,7 +1002,7 @@ class AliExpressProductFetcher
     protected function galleryImageKey(string $url): string
     {
         if (preg_match('/\/(kf\/[A-Za-z0-9._-]+)/i', $url, $m)) {
-            return preg_replace('/_\d+x\d+.*$/', '', $m[1]) ?? $m[1];
+            return preg_replace('/\.(jpe?g|png|webp|avif)$/i', '', preg_replace('/_\d+x\d+.*$/', '', $m[1]) ?? $m[1]) ?? $m[1];
         }
 
         return md5($url);
@@ -1002,17 +1013,25 @@ class AliExpressProductFetcher
         if ($url === '' || str_contains($url, 'data:')) {
             return false;
         }
-        if (! preg_match('/\.(jpe?g|webp|avif)(?:\?|$)/i', $url)) {
+        if (! preg_match('/\.(jpe?g|png|webp|avif)(?:\?|$)/i', $url)) {
             return false;
         }
         if (preg_match('/shipping--|sku-item|review--|avatar|favicon|logo|icon/i', $url)) {
             return false;
         }
-        if (! str_contains($url, '/kf/') && ! str_contains($url, 'aliexpress-media')) {
+        if (
+            ! str_contains($url, '/kf/')
+            && ! str_contains($url, 'aliexpress-media')
+            && ! preg_match('/alicdn\.com|ahtimg\.com|imgextra/i', $url)
+        ) {
             return false;
         }
-        if (preg_match('/_\d+x\d+/i', $url) && ! preg_match('/_(?:640|800|960|1200)x(?:640|800|960|1200)/i', $url)) {
-            return false;
+        // Thumbs pequeños fuera; full (sin _NxM) o lado ≥ 300px OK.
+        if (preg_match('/_(\d+)x(\d+)/i', $url, $m)) {
+            $side = max((int) $m[1], (int) $m[2]);
+            if ($side > 0 && $side < 300) {
+                return false;
+            }
         }
 
         return true;

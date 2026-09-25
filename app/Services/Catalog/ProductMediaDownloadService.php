@@ -119,6 +119,14 @@ class ProductMediaDownloadService
         $withoutFragment = strtok($withoutQuery, '#') ?: '';
         $push($withoutFragment);
 
+        // URLs AE forzadas a .jpg por error histórico → probar png/webp/jpeg.
+        if (preg_match('#^(https?://[^/]+/kf/S[a-zA-Z0-9]+)\.(jpe?g|png|webp)$#i', $withoutFragment ?: $url, $m)) {
+            $base = $m[1];
+            foreach (['png', 'jpg', 'jpeg', 'webp'] as $ext) {
+                $push($base.'.'.$ext);
+            }
+        }
+
         return $candidates;
     }
 

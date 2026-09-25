@@ -275,9 +275,18 @@ function normalizeImageUrl(url) {
   url = String(url || '').trim();
   if (!url) return '';
   if (/^\/\//.test(url)) url = 'https:' + url;
+  // foo.jpg_220x220.jpg / foo.png_50x50.png → extensión real
+  url = url.replace(/\.(jpg|jpeg|png|webp|avif)_[0-9]+x[0-9]+q?[0-9]*\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$3');
   url = url.replace(/\.(jpg|jpeg|png|webp|avif)_\.(avif|webp)$/i, '.$1');
-  url = url.replace(/\.(jpg|jpeg|png|webp)_[0-9]+x[0-9]+\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$3');
+  url = url.replace(/_\.(avif|webp)$/i, '');
   url = url.replace(/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$2');
+  // Full /kf/S… conservando extensión (NO forzar .jpg: muchas son .png).
+  var km = url.match(/^(https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+)(?:\.(jpg|jpeg|png|webp|avif))?$/i);
+  if (km) {
+    var ext = (km[2] || '').toLowerCase();
+    if (ext === 'jpeg') ext = 'jpg';
+    if (ext) return km[1] + '.' + ext;
+  }
   return url;
 }
 
@@ -303,12 +312,15 @@ async function resolveFullImageUrl(tabId, thumbUrl) {
       function normalize(url) {
         url = absUrl(url);
         if (!url) return '';
+        url = url.replace(/\.(jpg|jpeg|png|webp|avif)_[0-9]+x[0-9]+q?[0-9]*\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$3');
         url = url.replace(/\.(jpg|jpeg|png|webp|avif)_\.(avif|webp)$/i, '.$1');
-        url = url.replace(/\.(jpg|jpeg|png|webp)_[0-9]+x[0-9]+\.(jpg|jpeg|png|webp)(\?.*)?$/i, '.$1$3');
+        url = url.replace(/_\.(avif|webp)$/i, '');
         url = url.replace(/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpg|jpeg|png|webp|avif)(\?.*)?$/i, '.$1$2');
-        if (/^https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+/i.test(url)) {
-          var km = url.match(/^(https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+)/i);
-          if (km) return km[1] + '.jpg';
+        var km = url.match(/^(https?:\/\/[^/]+\/kf\/S[a-zA-Z0-9]+)(?:\.(jpg|jpeg|png|webp|avif))?$/i);
+        if (km) {
+          var ext = (km[2] || '').toLowerCase();
+          if (ext === 'jpeg') ext = 'jpg';
+          if (ext) return km[1] + '.' + ext;
         }
         return url;
       }

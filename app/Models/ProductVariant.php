@@ -29,4 +29,32 @@ class ProductVariant extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    public function saleAmount(): ?float
+    {
+        return $this->price !== null ? (float) $this->price : null;
+    }
+
+    public function purchaseAmount(): ?float
+    {
+        if ($this->cost !== null && (float) $this->cost > 0) {
+            return (float) $this->cost;
+        }
+        $fromOpt = data_get($this->options, 'purchase_price');
+        if ($fromOpt !== null && $fromOpt !== '' && (float) $fromOpt > 0) {
+            return (float) $fromOpt;
+        }
+
+        return null;
+    }
+
+    public function compareAmount(): ?float
+    {
+        $fromOpt = data_get($this->options, 'compare_at_price');
+        if ($fromOpt !== null && $fromOpt !== '' && (float) $fromOpt > 0) {
+            return (float) $fromOpt;
+        }
+
+        return null;
+    }
 }

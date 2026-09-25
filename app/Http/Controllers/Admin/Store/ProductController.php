@@ -362,6 +362,213 @@ class ProductController extends Controller
         return back()->with('success', count($variants) . ' variante(s) eliminada(s).');
     }
 
+    /**
+     * Guardar / añadir / actualizar variantes desde el editor del formulario.
+     */
+    public function syncVariants(Product $product, StoreContext $storeContext, Request $request)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'variants' => ['required', 'array', 'max:200'],
+            'variants.*.id' => ['nullable', 'integer'],
+            'variants.*.name' => ['nullable', 'string', 'max:190'],
+            'variants.*.sku' => ['nullable', 'string', 'max:80'],
+            'variants.*.image' => ['nullable', 'string', 'max:500'],
+            'variants.*.purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.price' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.compare_at_price' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.stock' => ['nullable', 'integer', 'min:0'],
+            'variants.*.delete' => ['nullable', 'boolean'],
+        ]);
+
+        $rows = $data['variants'];
+        $keepIds = [];
+        $verifiedRows = [];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if (! empty($row['delete'])) {
+                $delId = (int) ($row['id'] ?? 0);
+                if ($delId > 0) {
+                    $variant = $product->variants()->where('id', $delId)->first();
+                    if ($variant) {
+                        $vid = (string) data_get($variant->options, 'vid', '');
+                        $variant->delete();
+                        if ($vid !== '') {
+                            $creative = is_array($product->creative_data) ? $product->creative_data : [];
+                            $excluded = array_values(array_unique(array_filter(array_map(
+                                'strval',
+                                $creative['excluded_variant_vids'] ?? []
+                            ))));
+                            if (! in_array($vid, $excluded, true)) {
+                                $excluded[] = $vid;
+                            }
+                            $creative['excluded_variant_vids'] = $excluded;
+                            $product->creative_data = $creative;
+                        }
+                    }
+                }
+
+                continue;
+            }
+
+            $name = trim((string) ($row['name'] ?? ''));
+            $sku = trim((string) ($row['sku'] ?? ''));
+            if ($name === '' && $sku === '') {
+                continue;
+            }
+            if ($sku === '') {
+                $sku = 'VAR-'.Str::lower(Str::random(8));
+            }
+
+            $id = (int) ($row['id'] ?? 0);
+            $purchase = isset($row['purchase_price']) && $row['purchase_price'] !== ''
+                ? (float) $row['purchase_price'] : null;
+            $sale = isset($row['price']) && $row['price'] !== ''
+                ? (float) $row['price'] : null;
+            $compare = isset($row['compare_at_price']) && $row['compare_at_price'] !== ''
+                ? (float) $row['compare_at_price'] : null;
+            $image = trim((string) ($row['image'] ?? ''));
+            $stock = isset($row['stock']) && $row['stock'] !== '' ? (int) $row['stock'] : null;
+
+            if ($id > 0) {
+                $variant = $product->variants()->where('id', $id)->first();
+                if (! $variant) {
+                    continue;
+                }
+                $opt = is_array($variant->options) ? $variant->options : [];
+            } else {
+                $variant = new ProductVariant(['product_id' => $product->id]);
+                $opt = ['source' => $product->isFromAliExpress() ? 'aliexpress' : ($product->isFromCj() ? 'cj' : 'manual')];
+            }
+
+            $opt['image'] = $image;
+            $opt['purchase_price'] = $purchase;
+            $opt['compare_at_price'] = ($compare !== null && $sale !== null && $compare > $sale) ? $compare : $compare;
+            if ($stock !== null) {
+                $opt['stock'] = $stock;
+            }
+            if (empty($opt['vid'])) {
+                $opt['vid'] = (string) ($opt['vid'] ?? $sku);
+            }
+
+            $variant->fill([
+                'sku' => mb_substr($sku, 0, 80),
+                'name' => mb_substr($name !== '' ? $name : $sku, 0, 190),
+                'options' => $opt,
+                'price' => $sale,
+                'cost' => $purchase,
+            ]);
+            $variant->product_id = $product->id;
+            $variant->save();
+            $keepIds[] = (int) $variant->id;
+
+            $verifiedRows[] = [
+                'vid' => (string) ($opt['vid'] ?? ''),
+                'sku' => (string) $variant->sku,
+                'name' => (string) $variant->name,
+                'key' => (string) ($opt['key'] ?? ''),
+                'price' => $purchase,
+                'compare_at_price' => $opt['compare_at_price'] ?? null,
+                'image' => $image,
+                'stock' => $stock,
+            ];
+        }
+
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+        $verified['variants'] = $verifiedRows;
+        $product->verified_data = $verified;
+        $product->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => count($keepIds).' variante(s) guardada(s).',
+                'count' => count($keepIds),
+            ]);
+        }
+
+        return back()->with('success', count($keepIds).' variante(s) guardada(s).');
+    }
+
+    public function suggestVariantPrices(
+        Product $product,
+        StoreContext $storeContext,
+        Request $request,
+        ProductPriceSuggestionService $suggester
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+
+        $data = $request->validate([
+            'ids' => ['nullable', 'array'],
+            'ids.*' => ['integer'],
+            'variants' => ['nullable', 'array'],
+            'variants.*.purchase_price' => ['nullable', 'numeric', 'min:0'],
+            'variants.*.name' => ['nullable', 'string', 'max:190'],
+        ]);
+
+        $currency = strtoupper((string) ($product->currency ?: $store->currency() ?: 'MXN'));
+        $ids = array_values(array_filter(array_map('intval', $data['ids'] ?? [])));
+
+        $out = [];
+        if ($ids !== []) {
+            $query = $product->variants()->whereIn('id', $ids);
+            foreach ($query->get() as $variant) {
+                $purchase = $variant->purchaseAmount() ?? 0.0;
+                if ($purchase <= 0) {
+                    continue;
+                }
+                $raw = $purchase / max(0.15, 1 - 0.42 - 0.045);
+                $sale = $suggester->attractivePrice($raw, $currency);
+                $compare = $suggester->suggestCompare($sale, $currency);
+                $out[] = [
+                    'id' => (int) $variant->id,
+                    'price' => $sale,
+                    'compare_at_price' => $compare,
+                    'purchase_price' => $purchase,
+                ];
+            }
+        } else {
+            foreach (($data['variants'] ?? []) as $i => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $purchase = isset($row['purchase_price']) ? (float) $row['purchase_price'] : 0.0;
+                if ($purchase <= 0) {
+                    continue;
+                }
+                $raw = $purchase / max(0.15, 1 - 0.42 - 0.045);
+                $sale = $suggester->attractivePrice($raw, $currency);
+                $compare = $suggester->suggestCompare($sale, $currency);
+                $out[] = [
+                    'index' => (int) $i,
+                    'price' => $sale,
+                    'compare_at_price' => $compare,
+                    'purchase_price' => $purchase,
+                ];
+            }
+        }
+
+        if ($out === []) {
+            return response()->json([
+                'success' => false,
+                'error' => 'No hay variantes con precio de compra para sugerir.',
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'currency' => $currency,
+            'prices' => $out,
+            'message' => 'Precios MIIA sugeridos para '.count($out).' variante(s). Revisa y guarda.',
+        ]);
+    }
+
     public function recalculatePrices(StoreContext $storeContext, CjPricingEstimator $estimator)
     {
         $store = $this->currentStoreOrFail($storeContext);

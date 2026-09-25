@@ -780,7 +780,7 @@ class AliExpressProductFetcher
         $currency = $this->resolveCurrency($html, $run, $visible, is_array($jsonLd) ? $jsonLd : null);
 
         $variantData = $this->resolveVariants($html, $run);
-        $variants = $variantData['variants'];
+        $variants = $this->assignLargeVariantImages($variantData['variants'], $images);
         $attributes = $variantData['attributes'];
         if (($price === null || $price <= 0) && isset($run['price'])) {
             $price = $run['price'];
@@ -2083,7 +2083,7 @@ class AliExpressProductFetcher
             $list = $imageModule[$key] ?? $data[$key] ?? [];
             if (is_array($list)) {
                 foreach ($list as $img) {
-                    $u = $this->absUrl(is_string($img) ? $img : '');
+                    $u = $this->normalizeGalleryImageUrl($this->absUrl(is_string($img) ? $img : ''));
                     if ($u !== '') {
                         $images[] = $u;
                     }
@@ -2105,7 +2105,10 @@ class AliExpressProductFetcher
             ?: $this->detectCurrencyFromText((string) ($priceModule['formatedPrice'] ?? ''))
             ?: (string) ($priceModule['currencyCode'] ?? '');
 
-        $variants = $this->variantsFromSkuModule($skuModule);
+        $variants = $this->assignLargeVariantImages(
+            $this->variantsFromSkuModule(is_array($skuModule) ? $skuModule : []),
+            $images
+        );
 
         $reviews = [];
         $evaList = $feedbackModule['evaViewList'] ?? $feedbackModule['feedbackList'] ?? [];
@@ -3226,9 +3229,17 @@ class AliExpressProductFetcher
                 $vid = (string) ($val['propertyValueId'] ?? $val['propertyValueIdLong'] ?? '');
                 $label = (string) ($val['propertyValueDisplayName'] ?? $val['propertyValueName'] ?? $val['skuPropertyTips'] ?? '');
                 $key = ($pid !== '' && $vid !== '') ? $pid.':'.$vid : $vid;
+                $rawImg = (string) (
+                    $val['skuPropertyImagePath']
+                    ?? $val['skuPropertyImagePathOriginal']
+                    ?? $val['skuPropertyImageSummPath']
+                    ?? $val['imagePath']
+                    ?? $val['image']
+                    ?? ''
+                );
                 $propMap[$key] = [
                     'name' => ($pname !== '' && $label !== '') ? ($pname.': '.$label) : $label,
-                    'image' => $this->absUrl((string) ($val['skuPropertyImagePath'] ?? '')),
+                    'image' => $this->normalizeGalleryImageUrl($this->absUrl($rawImg)),
                 ];
             }
         }
@@ -3292,7 +3303,7 @@ class AliExpressProductFetcher
                     'name' => mb_substr($name, 0, 190),
                     'key' => (string) $key,
                     'price' => null,
-                    'image' => (string) ($meta['image'] ?? ''),
+                    'image' => $this->normalizeGalleryImageUrl((string) ($meta['image'] ?? '')),
                     'stock' => null,
                     'weight' => null,
                 ];
@@ -3300,6 +3311,68 @@ class AliExpressProductFetcher
         }
 
         return $variants;
+    }
+
+    /**
+     * Asigna la URL grande de galería a cada variante (thumbs AE → full /kf/S…).
+     *
+     * @param  list<array<string, mixed>>  $variants
+     * @param  list<string>  $gallery
+     * @return list<array<string, mixed>>
+     */
+    protected function assignLargeVariantImages(array $variants, array $gallery): array
+    {
+        $galleryNorm = [];
+        foreach ($gallery as $url) {
+            $u = $this->normalizeGalleryImageUrl($this->absUrl(is_string($url) ? $url : ''));
+            if ($u !== '') {
+                $galleryNorm[] = $u;
+            }
+        }
+
+        foreach ($variants as $i => $v) {
+            if (! is_array($v)) {
+                continue;
+            }
+            $img = $this->normalizeGalleryImageUrl($this->absUrl((string) ($v['image'] ?? '')));
+            if ($img === '') {
+                $variants[$i]['image'] = '';
+
+                continue;
+            }
+            $key = $this->galleryImageKey($img);
+            $best = $img;
+            $bestScore = $this->imageUrlSizeScore($img);
+            foreach ($galleryNorm as $g) {
+                if ($this->galleryImageKey($g) !== $key) {
+                    continue;
+                }
+                $sc = $this->imageUrlSizeScore($g);
+                if ($sc > $bestScore) {
+                    $best = $g;
+                    $bestScore = $sc;
+                }
+            }
+            $variants[$i]['image'] = $best;
+        }
+
+        return $variants;
+    }
+
+    protected function imageUrlSizeScore(string $url): int
+    {
+        $score = 0;
+        if (! preg_match('/_\d+x\d+/i', $url)) {
+            $score += 1000;
+        }
+        if (preg_match('/_(\d+)x(\d+)/i', $url, $m)) {
+            $score += max((int) $m[1], (int) $m[2]);
+        }
+        if (preg_match('/\.(jpe?g|png|webp)(\?|$)/i', $url) && ! preg_match('/\.(jpe?g|png|webp)_/i', $url)) {
+            $score += 100;
+        }
+
+        return $score;
     }
 
     protected function toFloat(mixed $value): ?float

@@ -832,6 +832,75 @@
                         @endif
                     </div>
                 </div>
+
+                <div class="mt-5 space-y-3" id="ae-variants-editor">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h3 class="font-display text-base font-bold text-ink">
+                                Variaciones (<span id="ae-var-count">{{ $cjVariants->count() }}</span>)
+                            </h3>
+                            <p class="text-xs text-ink-soft/55">Imagen grande, compra, venta y compare. Puedes agregar, quitar y regenerar precios con MIIA.</p>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                            <button type="button" id="ae-var-add" class="admin-btn-secondary !py-1 !px-2 text-xs">+ Agregar</button>
+                            <button type="button" id="ae-var-suggest" class="admin-btn !py-1 !px-2 text-xs" title="Genera precio de venta y compare con MIIA desde el costo de compra">✨ Precios MIIA</button>
+                            <button type="button" id="ae-var-save" class="admin-btn-secondary !py-1 !px-2 text-xs">Guardar variaciones</button>
+                        </div>
+                    </div>
+                    <p id="ae-var-status" class="hidden text-xs text-ink-soft/60"></p>
+                    <div class="overflow-x-auto rounded-xl border border-line">
+                        <table id="ae-variants-table" class="w-full min-w-[960px] text-left text-xs">
+                            <thead class="bg-mist text-ink-soft/70">
+                                <tr>
+                                    <th class="px-2 py-2 font-medium w-16">Img</th>
+                                    <th class="px-2 py-2 font-medium">Nombre</th>
+                                    <th class="px-2 py-2 font-medium">SKU</th>
+                                    <th class="px-2 py-2 font-medium">URL imagen</th>
+                                    <th class="px-2 py-2 font-medium">Compra</th>
+                                    <th class="px-2 py-2 font-medium">Venta</th>
+                                    <th class="px-2 py-2 font-medium">Compare</th>
+                                    <th class="px-2 py-2 font-medium">Stock</th>
+                                    <th class="px-2 py-2 font-medium w-16"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="ae-variants-tbody">
+                                @forelse($cjVariants as $variant)
+                                    @php
+                                        $opt = is_array($variant->options) ? $variant->options : [];
+                                        $vImg = (string) ($opt['image'] ?? '');
+                                        $vPurchase = $variant->purchaseAmount();
+                                        $vSale = $variant->saleAmount();
+                                        $vCompare = $variant->compareAmount();
+                                    @endphp
+                                    <tr class="ae-var-row border-t border-line/70" data-id="{{ $variant->id }}">
+                                        <td class="px-2 py-1.5">
+                                            @if($vImg !== '')
+                                                <img src="{{ $vImg }}" alt="" class="ae-var-thumb h-12 w-12 rounded-md object-cover border border-line cursor-zoom-in" loading="lazy">
+                                            @else
+                                                <span class="ae-var-thumb-empty text-ink-soft/40">—</span>
+                                            @endif
+                                            <input type="hidden" class="ae-var-id" value="{{ $variant->id }}">
+                                        </td>
+                                        <td class="px-2 py-1.5"><input type="text" class="admin-input !py-1 !px-1.5 text-xs ae-var-name" value="{{ $variant->name }}"></td>
+                                        <td class="px-2 py-1.5"><input type="text" class="admin-input !py-1 !px-1.5 text-xs font-mono ae-var-sku" value="{{ $variant->sku }}"></td>
+                                        <td class="px-2 py-1.5"><input type="url" class="admin-input !py-1 !px-1.5 text-xs font-mono ae-var-image" value="{{ $vImg }}" placeholder="https://…"></td>
+                                        <td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-purchase" value="{{ $vPurchase !== null ? number_format($vPurchase, 2, '.', '') : '' }}"></td>
+                                        <td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-price" value="{{ $vSale !== null ? number_format($vSale, 2, '.', '') : '' }}"></td>
+                                        <td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-compare" value="{{ $vCompare !== null ? number_format($vCompare, 2, '.', '') : '' }}"></td>
+                                        <td class="px-2 py-1.5"><input type="number" step="1" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-stock" value="{{ $opt['stock'] ?? '' }}"></td>
+                                        <td class="px-2 py-1.5 text-right">
+                                            <button type="button" class="text-coral hover:underline text-[11px] ae-var-remove">Quitar</button>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr id="ae-var-empty" class="border-t border-line/70">
+                                        <td colspan="9" class="px-3 py-4 text-sm text-ink-soft/55">Sin variaciones. Usa «+ Agregar» o vuelve a capturar con el plugin.</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             @elseif($isCj)
                 <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">
                     <div><span class="text-ink-soft/55">SKU CJ</span><div class="font-medium text-ink">{{ $verified['product_sku'] ?? '—' }}</div></div>
@@ -3329,6 +3398,177 @@
     });
     $(document).on('click', function (e) {
       if (! $(e.target).closest('#currency-combobox').length) close();
+    });
+  })();
+
+  /* ── Variaciones AE (editar / agregar / MIIA) ───────────────────── */
+  (function () {
+    var $editor = $('#ae-variants-editor');
+    if (!$editor.length) return;
+
+    var syncUrl = @json($product->exists ? route('admin.store.products.variants.sync', $product) : null);
+    var suggestUrl = @json($product->exists ? route('admin.store.products.variants.suggest-prices', $product) : null);
+    var csrfToken = $('meta[name="csrf-token"]').attr('content');
+    var $tbody = $('#ae-variants-tbody');
+    var $status = $('#ae-var-status');
+    var $count = $('#ae-var-count');
+
+    function refreshCount() {
+      var n = $tbody.find('.ae-var-row').not('.is-deleted').length;
+      $count.text(n);
+      if (n > 0) $('#ae-var-empty').remove();
+    }
+
+    function setStatus(msg, isErr) {
+      if (!msg) { $status.addClass('hidden').text(''); return; }
+      $status.removeClass('hidden text-coral text-ink-soft/60')
+        .addClass(isErr ? 'text-coral' : 'text-ink-soft/60')
+        .text(msg);
+    }
+
+    function collectRows() {
+      var rows = [];
+      $tbody.find('.ae-var-row').each(function () {
+        var $r = $(this);
+        var deleted = $r.hasClass('is-deleted');
+        rows.push({
+          id: parseInt($r.find('.ae-var-id').val(), 10) || 0,
+          name: $r.find('.ae-var-name').val() || '',
+          sku: $r.find('.ae-var-sku').val() || '',
+          image: $r.find('.ae-var-image').val() || '',
+          purchase_price: $r.find('.ae-var-purchase').val() || '',
+          price: $r.find('.ae-var-price').val() || '',
+          compare_at_price: $r.find('.ae-var-compare').val() || '',
+          stock: $r.find('.ae-var-stock').val() || '',
+          delete: deleted ? 1 : 0
+        });
+      });
+      return rows;
+    }
+
+    function bindThumb($row) {
+      $row.find('.ae-var-image').on('change blur', function () {
+        var url = String($(this).val() || '').trim();
+        var $cell = $row.find('td').first();
+        $cell.find('.ae-var-thumb, .ae-var-thumb-empty').remove();
+        if (url) {
+          $cell.prepend('<img src="' + url.replace(/"/g, '&quot;') + '" alt="" class="ae-var-thumb h-12 w-12 rounded-md object-cover border border-line cursor-zoom-in" loading="lazy">');
+        } else {
+          $cell.prepend('<span class="ae-var-thumb-empty text-ink-soft/40">—</span>');
+        }
+      });
+    }
+
+    $tbody.find('.ae-var-row').each(function () { bindThumb($(this)); });
+
+    $('#ae-var-add').on('click', function () {
+      $('#ae-var-empty').remove();
+      var $row = $([
+        '<tr class="ae-var-row border-t border-line/70" data-id="">',
+          '<td class="px-2 py-1.5"><span class="ae-var-thumb-empty text-ink-soft/40">—</span><input type="hidden" class="ae-var-id" value=""></td>',
+          '<td class="px-2 py-1.5"><input type="text" class="admin-input !py-1 !px-1.5 text-xs ae-var-name" value="" placeholder="Color / talla"></td>',
+          '<td class="px-2 py-1.5"><input type="text" class="admin-input !py-1 !px-1.5 text-xs font-mono ae-var-sku" value=""></td>',
+          '<td class="px-2 py-1.5"><input type="url" class="admin-input !py-1 !px-1.5 text-xs font-mono ae-var-image" value="" placeholder="https://…"></td>',
+          '<td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-purchase" value=""></td>',
+          '<td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-price" value=""></td>',
+          '<td class="px-2 py-1.5"><input type="number" step="0.01" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-compare" value=""></td>',
+          '<td class="px-2 py-1.5"><input type="number" step="1" min="0" class="admin-input !py-1 !px-1.5 text-xs ae-var-stock" value=""></td>',
+          '<td class="px-2 py-1.5 text-right"><button type="button" class="text-coral hover:underline text-[11px] ae-var-remove">Quitar</button></td>',
+        '</tr>'
+      ].join(''));
+      $tbody.append($row);
+      bindThumb($row);
+      refreshCount();
+      $row.find('.ae-var-name').focus();
+    });
+
+    $tbody.on('click', '.ae-var-remove', function () {
+      var $row = $(this).closest('.ae-var-row');
+      var id = parseInt($row.find('.ae-var-id').val(), 10) || 0;
+      if (id > 0) {
+        $row.addClass('is-deleted').css('opacity', 0.35);
+        $(this).text('Deshacer').removeClass('ae-var-remove').addClass('ae-var-undo');
+      } else {
+        $row.remove();
+      }
+      refreshCount();
+    });
+
+    $tbody.on('click', '.ae-var-undo', function () {
+      var $row = $(this).closest('.ae-var-row');
+      $row.removeClass('is-deleted').css('opacity', 1);
+      $(this).text('Quitar').removeClass('ae-var-undo').addClass('ae-var-remove');
+      refreshCount();
+    });
+
+    $('#ae-var-save').on('click', function () {
+      if (!syncUrl) return;
+      var $btn = $(this).prop('disabled', true);
+      setStatus('Guardando…');
+      $.ajax({
+        url: syncUrl,
+        method: 'POST',
+        data: { _token: csrfToken, variants: collectRows() },
+        success: function (res) {
+          setStatus((res && res.message) || 'Guardado.');
+          setTimeout(function () { window.location.reload(); }, 500);
+        },
+        error: function (xhr) {
+          var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) || 'No se pudieron guardar.';
+          setStatus(msg, true);
+          $btn.prop('disabled', false);
+        }
+      });
+    });
+
+    $('#ae-var-suggest').on('click', function () {
+      if (!suggestUrl) return;
+      var $btn = $(this).prop('disabled', true);
+      setStatus('Calculando precios MIIA…');
+      var payload = { _token: csrfToken, variants: [], ids: [] };
+      $tbody.find('.ae-var-row').not('.is-deleted').each(function (i) {
+        var $r = $(this);
+        var id = parseInt($r.find('.ae-var-id').val(), 10) || 0;
+        if (id > 0) payload.ids.push(id);
+        payload.variants.push({
+          purchase_price: $r.find('.ae-var-purchase').val() || '',
+          name: $r.find('.ae-var-name').val() || ''
+        });
+        $r.data('row-index', i);
+      });
+      $.ajax({
+        url: suggestUrl,
+        method: 'POST',
+        data: payload,
+        success: function (res) {
+          if (!res || !res.success) {
+            setStatus((res && res.error) || 'Sin sugerencias.', true);
+            $btn.prop('disabled', false);
+            return;
+          }
+          var byId = {};
+          var byIndex = {};
+          (res.prices || []).forEach(function (p) {
+            if (p.id) byId[p.id] = p;
+            if (typeof p.index === 'number') byIndex[p.index] = p;
+          });
+          $tbody.find('.ae-var-row').not('.is-deleted').each(function (i) {
+            var $r = $(this);
+            var id = parseInt($r.find('.ae-var-id').val(), 10) || 0;
+            var p = (id && byId[id]) ? byId[id] : byIndex[i];
+            if (!p) return;
+            if (p.price != null) $r.find('.ae-var-price').val(p.price);
+            if (p.compare_at_price != null) $r.find('.ae-var-compare').val(p.compare_at_price);
+          });
+          setStatus(res.message || 'Precios aplicados. Pulsa Guardar variaciones.');
+          $btn.prop('disabled', false);
+        },
+        error: function (xhr) {
+          var msg = (xhr.responseJSON && (xhr.responseJSON.message || xhr.responseJSON.error)) || 'Error al sugerir precios.';
+          setStatus(msg, true);
+          $btn.prop('disabled', false);
+        }
+      });
     });
   })();
 

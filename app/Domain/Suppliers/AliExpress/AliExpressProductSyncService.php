@@ -2,6 +2,7 @@
 
 namespace App\Domain\Suppliers\AliExpress;
 
+use App\Domain\AI\ProductPriceSuggestionService;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Store;
@@ -40,7 +41,7 @@ class AliExpressProductSyncService
             ->where('verified_data->aliexpress_product_id', $aeId)
             ->first();
 
-        $result = DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare, $purchaseLocal) {
+        $result = DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $srcCurrency, $price, $compare, $purchaseLocal) {
             $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
@@ -126,7 +127,14 @@ class AliExpressProductSyncService
                 $created = true;
             }
 
-            $this->syncVariants($product, is_array($detail['variants'] ?? null) ? $detail['variants'] : []);
+            $this->syncVariants(
+                $product,
+                is_array($detail['variants'] ?? null) ? $detail['variants'] : [],
+                $srcCurrency,
+                $currency
+            );
+
+            $product = $this->applyMiiaRetailPricing($product->fresh(['variants']), $currency);
 
             return [
                 'success' => true,
@@ -160,6 +168,7 @@ class AliExpressProductSyncService
                 'name' => (string) ($v['name'] ?? ''),
                 'key' => (string) ($v['key'] ?? ''),
                 'price' => $v['price'] ?? null,
+                'compare_at_price' => $v['compare_at_price'] ?? null,
                 'image' => (string) ($v['image'] ?? ''),
                 'stock' => $v['stock'] ?? null,
             ];
@@ -212,32 +221,126 @@ class AliExpressProductSyncService
     /**
      * @param  list<array<string, mixed>>  $variants
      */
-    protected function syncVariants(Product $product, array $variants): void
-    {
+    protected function syncVariants(
+        Product $product,
+        array $variants,
+        string $srcCurrency = 'USD',
+        string $storeCurrency = 'MXN'
+    ): void {
+        $fx = app(CurrencyService::class);
+        $prices = app(ProductPriceSuggestionService::class);
+        $excluded = array_values(array_filter(array_map(
+            'strval',
+            data_get($product->creative_data, 'excluded_variant_vids', []) ?: []
+        )));
+
+        $previous = ProductVariant::query()
+            ->where('product_id', $product->id)
+            ->get()
+            ->keyBy(function (ProductVariant $row) {
+                $vid = trim((string) data_get($row->options, 'vid', ''));
+
+                return $vid !== '' ? 'vid:'.$vid : 'sku:'.mb_strtolower((string) $row->sku);
+            });
+
         ProductVariant::query()->where('product_id', $product->id)->delete();
+
+        $srcCurrency = strtoupper($srcCurrency ?: 'USD');
+        $storeCurrency = strtoupper($storeCurrency ?: 'MXN');
+
         foreach ($variants as $v) {
             if (! is_array($v)) {
                 continue;
             }
-            $sku = (string) ($v['sku'] ?? $v['vid'] ?? '');
+            $vid = (string) ($v['vid'] ?? '');
+            if ($vid !== '' && in_array($vid, $excluded, true)) {
+                continue;
+            }
+            $sku = (string) ($v['sku'] ?? $vid);
+            if ($sku === '' && $vid !== '') {
+                $sku = 'VID-'.$vid;
+            }
             if ($sku === '') {
                 continue;
             }
+
+            $sourcePrice = isset($v['price']) && $v['price'] !== null && $v['price'] !== ''
+                ? (float) $v['price']
+                : null;
+            $purchase = $sourcePrice;
+            if ($purchase !== null && $purchase > 0 && $srcCurrency !== $storeCurrency) {
+                $purchase = $fx->roundAmount(
+                    $fx->convert($purchase, $srcCurrency, $storeCurrency, false),
+                    $storeCurrency
+                );
+            }
+
+            $prevKey = $vid !== '' ? 'vid:'.$vid : 'sku:'.mb_strtolower($sku);
+            /** @var ProductVariant|null $prev */
+            $prev = $previous->get($prevKey);
+            $sale = $prev && $prev->price !== null ? (float) $prev->price : null;
+            $compare = $prev ? data_get($prev->options, 'compare_at_price') : null;
+            if ($compare !== null) {
+                $compare = (float) $compare;
+            }
+
+            // Si no hay precio de venta previo, generar con MIIA (vitrina atractiva).
+            if (($sale === null || $sale <= 0) && $purchase !== null && $purchase > 0) {
+                $raw = $purchase / max(0.15, 1 - 0.42 - 0.045);
+                $sale = $prices->attractivePrice($raw, $storeCurrency);
+                $compare = $prices->suggestCompare($sale, $storeCurrency);
+            }
+
+            $image = mb_substr(trim((string) ($v['image'] ?? '')), 0, 500);
+
             ProductVariant::create([
                 'product_id' => $product->id,
                 'sku' => mb_substr($sku, 0, 80),
                 'name' => mb_substr((string) ($v['name'] ?: $v['key'] ?: $sku), 0, 190),
                 'options' => [
-                    'vid' => (string) ($v['vid'] ?? ''),
+                    'vid' => $vid,
                     'key' => (string) ($v['key'] ?? ''),
-                    'image' => (string) ($v['image'] ?? ''),
+                    'image' => $image,
                     'stock' => $v['stock'] ?? null,
                     'source' => 'aliexpress',
+                    'purchase_price' => $purchase,
+                    'compare_at_price' => ($compare !== null && $sale !== null && $compare > $sale) ? $compare : null,
+                    'source_price' => $sourcePrice,
+                    'source_currency' => $srcCurrency,
                 ],
-                'price' => isset($v['price']) ? (float) $v['price'] : null,
-                'cost' => isset($v['price']) ? (float) $v['price'] : null,
+                'price' => $sale,
+                'cost' => $purchase,
             ]);
         }
+    }
+
+    protected function applyMiiaRetailPricing(Product $product, string $currency): Product
+    {
+        $currency = strtoupper($currency);
+        $purchase = (float) ($product->purchase_price ?? 0);
+        $sale = (float) ($product->price ?? 0);
+
+        if ($purchase > 0 && ($sale <= 0 || $sale <= ($purchase * 1.05))) {
+            $suggester = app(ProductPriceSuggestionService::class);
+            $out = $suggester->suggest([
+                'name' => (string) $product->name,
+                'purchase_price' => $purchase,
+                'purchase_currency' => $currency,
+                'base_currency' => $currency,
+                'currencies' => [['code' => $currency, 'rounding' => 'auto']],
+            ]);
+            if (($out['success'] ?? false) && isset($out['prices'][$currency])) {
+                $row = $out['prices'][$currency];
+                $product->price = (float) $row['price'];
+                $compare = $row['compare_at_price'] ?? null;
+                $product->compare_at_price = ($compare !== null && (float) $compare > (float) $product->price)
+                    ? (float) $compare
+                    : null;
+                $product->save();
+            }
+        }
+
+        return $product;
     }
 
     /**

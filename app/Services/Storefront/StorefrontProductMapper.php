@@ -257,11 +257,14 @@ class StorefrontProductMapper
                 'vid' => (string) ($opt['vid'] ?? ''),
                 'image' => $image,
                 'stock' => isset($opt['stock']) ? (int) $opt['stock'] : null,
-                'price' => $variant->price !== null ? (float) $variant->price : null,
+                'price' => $variant->saleAmount(),
+                'compare_at_price' => $variant->compareAmount(),
+                'purchase_price' => $variant->purchaseAmount(),
             ];
             if ($full) {
                 $row['key'] = (string) ($opt['key'] ?? '');
                 $row['weight_g'] = $opt['weight_g'] ?? null;
+                $row['cost'] = $variant->purchaseAmount();
             }
             $out[] = $row;
         }

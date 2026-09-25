@@ -310,6 +310,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::resource('products', ProductController::class)->except(['show']);
                 Route::post('products/{product}/sync-cj', [ProductController::class, 'syncCj'])->name('products.sync-cj');
                 Route::post('products/{product}/translate', [ProductController::class, 'translate'])->name('products.translate');
+                Route::post('products/{product}/variants/sync', [ProductController::class, 'syncVariants'])->name('products.variants.sync');
+                Route::post('products/{product}/variants/suggest-prices', [ProductController::class, 'suggestVariantPrices'])->name('products.variants.suggest-prices');
                 Route::delete('products/{product}/variants/{variant}', [ProductController::class, 'destroyVariant'])->name('products.variants.destroy');
                 Route::delete('products/{product}/variants', [ProductController::class, 'bulkDestroyVariants'])->name('products.variants.bulk-destroy');
 

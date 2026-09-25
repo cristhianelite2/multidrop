@@ -330,19 +330,28 @@ class RemotionAdsRenderService
         $zipPath = $this->buildJobZip($jobId, $jobDir);
 
         try {
-            $handle = @fopen($zipPath, 'rb');
-            if (! is_resource($handle)) {
-                throw new \RuntimeException('No se pudo abrir el zip del job para el upload.');
+            // Body como string (no stream): evita cURL error 65 al reintentar
+            // (Expect: 100-continue / rewind de resource no seekable).
+            $zipBody = @file_get_contents($zipPath);
+            if ($zipBody === false || $zipBody === '') {
+                throw new \RuntimeException('No se pudo leer el zip del job Remotion.');
             }
 
             $resp = Http::timeout(300)
+                ->connectTimeout(15)
                 ->withHeaders([
                     'X-Remotion-Token' => $token,
                     'Content-Type' => 'application/zip',
+                    'Expect' => '',
                 ])
-                ->withOptions(['body' => $handle])
-                ->send('POST', $base.'/api/render?job='.rawurlencode($jobId).'&preset='.rawurlencode($preset));
-            @fclose($handle);
+                ->withOptions([
+                    'version' => 1.1,
+                    'curl' => [
+                        \CURLOPT_HTTP_VERSION => \CURL_HTTP_VERSION_1_1,
+                    ],
+                ])
+                ->withBody($zipBody, 'application/zip')
+                ->post($base.'/api/render?job='.rawurlencode($jobId).'&preset='.rawurlencode($preset));
 
             if ($resp->status() !== 202) {
                 throw new \RuntimeException('El bridge rechazó el job: '.mb_substr((string) $resp->body(), 0, 600));

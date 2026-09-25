@@ -212,8 +212,14 @@ class HyperFramesAdsRenderService
                     if ($diskMsg !== '') {
                         $cached['message'] = $diskMsg;
                     }
-                    if (in_array($diskState, ['running', 'prepared', 'queued'], true)) {
+                    if ($diskState === 'awaiting_review') {
+                        $cached['state'] = 'awaiting_review';
+                    } elseif (in_array($diskState, ['running', 'prepared', 'queued'], true)) {
                         $cached['state'] = 'running';
+                    }
+                    if ($diskState === 'cancelled') {
+                        $cached['state'] = 'cancelled';
+                        $cached['cancelled'] = true;
                     }
                     if ($diskState === 'done') {
                         $cached['state'] = 'running';
@@ -624,19 +630,25 @@ class HyperFramesAdsRenderService
             ],
         ];
 
-        $payload['files']['images'] = $this->withImageUrls($payload['files']['images'], $jobDir);
+        // Si el job no bajó archivos (CDN bloqueó / Docker), usar galería del producto
+        // para que el modal no quede vacío; el confirm reintentará la descarga.
+        if ($payload['files']['images'] === []) {
+            $payload['files']['images'] = $this->fallbackReviewImagesFromProduct($product);
+        }
+
+        $payload['files']['images'] = $this->withImageUrls($payload['files']['images'], $jobDir, $jobId);
+        $payload['files']['videos'] = $this->withVideoUrls($payload['files']['videos'], $jobId);
 
         return $payload;
     }
 
     /**
-     * Adjunta la URL de origen (manifest de descarga) a cada imagen de la lista,
-     * para mostrar miniaturas reales en el modal de revisión.
+     * Miniaturas vía ruta admin (archivos locales del job). Evita hotlink de AE CDN.
      *
-     * @param  list<array{name: string, size: int}>  $images
+     * @param  list<array{name: string, size: int, url?: string}>  $images
      * @return list<array{name: string, size: int, url: string}>
      */
-    protected function withImageUrls(array $images, string $jobDir): array
+    protected function withImageUrls(array $images, string $jobDir, string $jobId): array
     {
         $map = [];
         $manifestPath = $jobDir.DIRECTORY_SEPARATOR.'media_manifest.json';
@@ -649,11 +661,105 @@ class HyperFramesAdsRenderService
             }
         }
         foreach ($images as &$img) {
-            $img['url'] = $map[$img['name']] ?? '';
+            $name = (string) ($img['name'] ?? '');
+            $local = $jobDir.DIRECTORY_SEPARATOR.'images'.DIRECTORY_SEPARATOR.$name;
+            if ($name !== '' && is_file($local) && filesize($local) > 0) {
+                $img['url'] = route('admin.store.marketing.hyperframes.media', [
+                    'jobId' => $jobId,
+                    'type' => 'images',
+                    'file' => $name,
+                ]);
+            } else {
+                $img['url'] = (string) ($img['url'] ?? $map[$name] ?? '');
+            }
         }
         unset($img);
 
         return $images;
+    }
+
+    /**
+     * @param  list<array{name: string, size: int, url?: string}>  $videos
+     * @return list<array{name: string, size: int, url: string}>
+     */
+    protected function withVideoUrls(array $videos, string $jobId): array
+    {
+        foreach ($videos as &$vid) {
+            $name = (string) ($vid['name'] ?? '');
+            if ($name === '') {
+                $vid['url'] = (string) ($vid['url'] ?? '');
+
+                continue;
+            }
+            $vid['url'] = route('admin.store.marketing.hyperframes.media', [
+                'jobId' => $jobId,
+                'type' => 'videos',
+                'file' => $name,
+            ]);
+        }
+        unset($vid);
+
+        return $videos;
+    }
+
+    /**
+     * @param  array<string, mixed>  $product  product.json
+     * @return list<array{name: string, size: int, url: string}>
+     */
+    protected function fallbackReviewImagesFromProduct(array $product): array
+    {
+        $urls = [];
+        $main = trim((string) ($product['image_url'] ?? ''));
+        if ($main !== '') {
+            $urls[] = $main;
+        }
+        foreach (is_array($product['images'] ?? null) ? $product['images'] : [] as $u) {
+            if (is_string($u) && trim($u) !== '') {
+                $urls[] = trim($u);
+            }
+        }
+        $urls = array_values(array_unique($urls));
+        $out = [];
+        foreach (array_slice($urls, 0, 4) as $i => $url) {
+            $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?: '', PATHINFO_EXTENSION) ?: 'jpg');
+            if (! in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+                $ext = 'jpg';
+            }
+            if ($ext === 'jpeg') {
+                $ext = 'jpg';
+            }
+            $out[] = [
+                'name' => sprintf('product_%02d.%s', $i + 1, $ext),
+                'size' => 0,
+                'url' => $url,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Sirve un archivo de medios del job (miniaturas del modal de revisión).
+     */
+    public function resolveJobMediaPath(string $jobId, string $type, string $file, int $storeId): ?string
+    {
+        if (! in_array($type, ['images', 'videos'], true)) {
+            return null;
+        }
+        $file = basename($file);
+        if (! preg_match('/^product_\d{2}\.[A-Za-z0-9]+$/', $file)) {
+            return null;
+        }
+        $meta = $this->statusMeta($jobId);
+        if (! is_array($meta) || (int) ($meta['store_id'] ?? 0) !== $storeId) {
+            return null;
+        }
+        $path = $this->clientJobDir($jobId).DIRECTORY_SEPARATOR.$type.DIRECTORY_SEPARATOR.$file;
+        if (! is_file($path) || filesize($path) < 1) {
+            return null;
+        }
+
+        return $path;
     }
 
     /**
@@ -1579,7 +1685,7 @@ class HyperFramesAdsRenderService
         }
 
         $videoFiles = $this->downloadProductVideos($store, $product, $jobDir.DIRECTORY_SEPARATOR.'videos');
-        $imageManifest = $this->downloadProductImages($product, $jobDir.DIRECTORY_SEPARATOR.'images');
+        $imageManifest = $this->downloadProductImages($store, $product, $jobDir.DIRECTORY_SEPARATOR.'images');
         @file_put_contents(
             $jobDir.DIRECTORY_SEPARATOR.'media_manifest.json',
             json_encode(['images' => $imageManifest], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n"
@@ -1587,6 +1693,8 @@ class HyperFramesAdsRenderService
 
         $visualStyle = $this->resolveJobVisualStyle($jobDir);
         $styleMeta = (array) config('multidrop.marketing.hyperframes.visual_styles.'.$visualStyle, []);
+
+        $galleryUrls = array_values(array_slice($this->media->exportImageUrls($product), 0, 8));
 
         $productPayload = [
             'id' => $product->id,
@@ -1598,6 +1706,7 @@ class HyperFramesAdsRenderService
             'sku' => $product->sku,
             'badge' => $product->badge,
             'image_url' => $product->image_url,
+            'images' => $galleryUrls,
             'details' => method_exists($product, 'details') ? $product->details() : [],
             'rating' => method_exists($product, 'ratingAvg') ? $product->ratingAvg() : null,
             'store_name' => $store->name,
@@ -1740,20 +1849,16 @@ class HyperFramesAdsRenderService
         return $saved;
     }
 
-    protected function downloadProductImages(Product $product, string $imagesDir): array
+    protected function downloadProductImages(Store $store, Product $product, string $imagesDir): array
     {
         if (! is_dir($imagesDir) && ! mkdir($imagesDir, 0775, true) && ! is_dir($imagesDir)) {
             throw new \RuntimeException('No se pudo crear '.$imagesDir);
         }
 
-        $urls = [];
-        if (is_string($product->image_url) && $product->image_url !== '') {
+        // Misma fuente fiable que Remotion (R2/local + Referer AE).
+        $urls = $this->media->exportImageUrls($product);
+        if ($urls === [] && is_string($product->image_url) && $product->image_url !== '') {
             $urls[] = $product->image_url;
-        }
-        foreach ($product->galleryImages() as $url) {
-            if (is_string($url) && $url !== '') {
-                $urls[] = $url;
-            }
         }
         $urls = array_values(array_unique($urls));
         $i = 0;
@@ -1763,35 +1868,55 @@ class HyperFramesAdsRenderService
                 break;
             }
             try {
-                $resp = Http::timeout(30)->withOptions(['allow_redirects' => true])->get($url);
-                if (! $resp->ok()) {
-                    continue;
-                }
-                $body = $resp->body();
-                if ($body === '' || strlen($body) < 200) {
-                    continue;
-                }
-                $ext = 'jpg';
-                $ct = strtolower((string) $resp->header('Content-Type'));
-                if (str_contains($ct, 'png')) {
-                    $ext = 'png';
-                } elseif (str_contains($ct, 'webp')) {
-                    $ext = 'webp';
-                } elseif (str_contains($ct, 'gif')) {
-                    $ext = 'gif';
-                } else {
-                    $pathExt = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?: '', PATHINFO_EXTENSION));
-                    if (in_array($pathExt, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
-                        $ext = $pathExt === 'jpeg' ? 'jpg' : $pathExt;
+                $file = $this->media->fetchMediaBytes($store, $product, $url, 'image', $i + 1);
+                if (! $file || strlen((string) ($file['body'] ?? '')) < 200) {
+                    // Fallback HTTP simple (URLs públicas R2 / CDN)
+                    $resp = Http::timeout(30)
+                        ->withHeaders([
+                            'User-Agent' => 'Mozilla/5.0 (compatible; MultidropHyperFrames/1.0)',
+                            'Referer' => 'https://www.aliexpress.com/',
+                            'Accept' => 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                        ])
+                        ->withOptions(['allow_redirects' => true])
+                        ->get($url);
+                    if (! $resp->ok() || strlen($resp->body()) < 200) {
+                        Log::warning('HyperFrames: no se pudo bajar imagen', [
+                            'product_id' => $product->id,
+                            'url' => $url,
+                            'status' => $resp->status(),
+                        ]);
+
+                        continue;
                     }
+                    $body = $resp->body();
+                    $filename = 'img.'.(str_contains(strtolower((string) $resp->header('Content-Type')), 'png') ? 'png' : 'jpg');
+                } else {
+                    $body = (string) $file['body'];
+                    $filename = (string) ($file['filename'] ?? 'img.jpg');
+                }
+
+                $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION) ?: '');
+                if (! in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+                    $pathExt = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?: '', PATHINFO_EXTENSION));
+                    $ext = in_array($pathExt, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true) ? $pathExt : 'jpg';
+                }
+                if ($ext === 'jpeg') {
+                    $ext = 'jpg';
                 }
                 $i++;
-                $file = sprintf('product_%02d.%s', $i, $ext);
-                file_put_contents($imagesDir.DIRECTORY_SEPARATOR.$file, $body);
-                $manifest[] = ['file' => $file, 'url' => $url];
+                $safe = sprintf('product_%02d.%s', $i, $ext);
+                file_put_contents($imagesDir.DIRECTORY_SEPARATOR.$safe, $body);
+                $manifest[] = ['file' => $safe, 'url' => $url];
             } catch (\Throwable $e) {
                 Log::warning('HyperFrames: no se pudo bajar imagen', ['url' => $url, 'error' => $e->getMessage()]);
             }
+        }
+
+        if ($manifest === [] && $urls !== []) {
+            Log::warning('HyperFrames: producto con imágenes pero ninguna se pudo descargar', [
+                'product_id' => $product->id,
+                'urls' => array_slice($urls, 0, 4),
+            ]);
         }
 
         return $manifest;

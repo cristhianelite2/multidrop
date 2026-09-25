@@ -246,6 +246,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('hyperframes/cancel', [MarketingHyperFramesController::class, 'cancel'])->name('hyperframes.cancel');
                     Route::post('hyperframes/regenerate', [MarketingHyperFramesController::class, 'regenerate'])->name('hyperframes.regenerate');
                     Route::post('hyperframes/regenerate-payload', [MarketingHyperFramesController::class, 'regeneratePayload'])->name('hyperframes.regenerate-payload');
+                    Route::get('hyperframes/job/{jobId}/media/{type}/{file}', [MarketingHyperFramesController::class, 'media'])
+                        ->where(['jobId' => '[0-9A-Za-z-]{4,80}', 'type' => 'images|videos', 'file' => 'product_[0-9]{2}\.[A-Za-z0-9]+'])
+                        ->name('hyperframes.media');
                     Route::post('notebooklm/generate', [MarketingNotebookLmController::class, 'generate'])->name('notebooklm.generate');
                     Route::post('notebooklm/poll', [MarketingNotebookLmController::class, 'poll'])->name('notebooklm.poll');
                     Route::post('notebooklm/cancel', [MarketingNotebookLmController::class, 'cancel'])->name('notebooklm.cancel');

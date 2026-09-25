@@ -277,4 +277,25 @@ class HyperFramesController extends Controller
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
     }
+
+    /**
+     * Miniatura / archivo de medios del job (modal de revisión).
+     */
+    public function media(
+        string $jobId,
+        string $type,
+        string $file,
+        StoreContext $storeContext,
+        HyperFramesAdsRenderService $hyperframes
+    ) {
+        $store = $this->currentStoreOrFail($storeContext);
+        $path = $hyperframes->resolveJobMediaPath($jobId, $type, $file, (int) $store->id);
+        if ($path === null) {
+            abort(404);
+        }
+
+        return response()->file($path, [
+            'Cache-Control' => 'private, max-age=3600',
+        ]);
+    }
 }

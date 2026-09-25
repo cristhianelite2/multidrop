@@ -29,6 +29,27 @@ LOG_FILE = BRIDGE_DIR / "server.log"
 _JOB_ID_RE = re.compile(r"^[0-9A-Za-z-]{4,80}$")
 
 
+def ensure_ffmpeg_on_path() -> None:
+    """WinGet Gyan.FFmpeg often missing from PATH of processes launched via start."""
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        return
+    local = os.environ.get("LOCALAPPDATA", "")
+    if not local:
+        return
+    root = Path(local) / "Microsoft" / "WinGet" / "Packages"
+    if not root.is_dir():
+        return
+    for pkg in sorted(root.glob("Gyan.FFmpeg*"), reverse=True):
+        for build in sorted(pkg.glob("ffmpeg-*-full_build"), reverse=True):
+            bin_dir = build / "bin"
+            if (bin_dir / "ffmpeg.exe").is_file():
+                os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                return
+
+
+ensure_ffmpeg_on_path()
+
+
 def log(msg: str) -> None:
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
     try:

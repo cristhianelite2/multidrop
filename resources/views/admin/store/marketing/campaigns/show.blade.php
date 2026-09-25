@@ -91,6 +91,30 @@
         #md-hf-review-modal.flex {
             display: flex !important;
         }
+        /* Tailwind no genera h/w-[140px] en este build; sin esto el label colapsa a ~2px. */
+        .md-hf-asset {
+            display: block;
+            position: relative;
+            width: 140px !important;
+            height: 140px !important;
+            flex: 0 0 140px;
+            overflow: hidden;
+            border-radius: 0.75rem;
+            border: 1px solid var(--line, #e5e7eb);
+            background: rgba(248, 250, 252, 0.9);
+            cursor: pointer;
+            user-select: none;
+        }
+        .md-hf-thumb {
+            position: absolute;
+            inset: 0;
+        }
+        .md-hf-thumb img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
         .md-hf-asset:has(.hf-thumb-fallback) .md-hf-thumb,
         .md-hf-thumb-fallback .md-hf-thumb {
             background: linear-gradient(135deg, #eef2f7, #f8fafc);

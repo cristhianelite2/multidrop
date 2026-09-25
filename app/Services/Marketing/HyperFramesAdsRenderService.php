@@ -664,11 +664,12 @@ class HyperFramesAdsRenderService
             $name = (string) ($img['name'] ?? '');
             $local = $jobDir.DIRECTORY_SEPARATOR.'images'.DIRECTORY_SEPARATOR.$name;
             if ($name !== '' && is_file($local) && filesize($local) > 0) {
+                // Ruta relativa: evita APP_URL=localhost cuando el admin se abre por túnel/dominio.
                 $img['url'] = route('admin.store.marketing.hyperframes.media', [
                     'jobId' => $jobId,
                     'type' => 'images',
                     'file' => $name,
-                ]);
+                ], absolute: false);
             } else {
                 $img['url'] = (string) ($img['url'] ?? $map[$name] ?? '');
             }
@@ -695,7 +696,7 @@ class HyperFramesAdsRenderService
                 'jobId' => $jobId,
                 'type' => 'videos',
                 'file' => $name,
-            ]);
+            ], absolute: false);
         }
         unset($vid);
 

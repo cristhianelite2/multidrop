@@ -1531,8 +1531,16 @@
     var images = files.images || [];
     var videos = files.videos || [];
     html += '<div class="space-y-2 rounded-xl border border-line p-3">';
-    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Archivos que se enviarán</p>';
-    if (!images.length && !videos.length) html += '<p class="text-xs text-ink-soft/60">No se detectaron medios descargados para este producto.</p>';
+    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Archivos que se enviarán';
+    if (images.length || videos.length) {
+      html += ' <span class="normal-case font-medium text-ink">(' + images.length + ' img';
+      if (videos.length) html += ', ' + videos.length + ' vid';
+      html += ')</span>';
+    }
+    html += '</p>';
+    if (!images.length && !videos.length) {
+      html += '<p class="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">No se detectaron medios descargados. Revisa que el producto tenga imagen/galería y vuelve a generar.</p>';
+    }
     if (images.length) html += hfAssetGroup('Imágenes', images, 'image');
     if (videos.length) html += hfAssetGroup('Videos de producto', videos, 'video');
     html += '</div>';

@@ -283,12 +283,12 @@
   document.getElementById('capture').addEventListener('click', function () {
     var btn = document.getElementById('capture');
     btn.disabled = true;
-    setStatus('Capturando ficha…');
+    setStatus('Capturando y sanitizando con MIIA (puede tardar 30–90 s)…');
     var storeId = parseInt(storeEl.value, 10) || 0;
     chrome.storage.sync.set({ store_id: storeId }, function () {
       chrome.runtime.sendMessage({ type: 'MULTIDROP_RUN_CAPTURE', store_id: storeId }, function (res) {
         btn.disabled = false;
-        if (res && res.ok) setStatus(res.message || 'Enviado a borrador', 'ok');
+        if (res && res.ok) setStatus(res.message || 'Enviado a borrador (sanitizado)', 'ok');
         else setStatus((res && res.error) || 'Error al capturar', 'error');
       });
     });

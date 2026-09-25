@@ -12,6 +12,35 @@ class ProductDescriptionGenerationService
      */
     public function generate(string $name, string $slug = '', array $details = []): array
     {
+        return $this->composeDescription($name, $slug, $details, '', '');
+    }
+
+    /**
+     * Reescribe descripción de importación (plugin AE) usando resumen IA + texto fuente.
+     *
+     * @param  list<array{name?: string, value?: string}>|array<int, mixed>  $details
+     * @return array{success: bool, description?: string, error?: string, provider?: string}
+     */
+    public function rewriteFromImport(
+        string $name,
+        string $sourceDescription = '',
+        string $aiSummary = '',
+        array $details = []
+    ): array {
+        return $this->composeDescription($name, '', $details, $sourceDescription, $aiSummary);
+    }
+
+    /**
+     * @param  list<array{name?: string, value?: string}>|array<int, mixed>  $details
+     * @return array{success: bool, description?: string, error?: string, provider?: string}
+     */
+    protected function composeDescription(
+        string $name,
+        string $slug,
+        array $details,
+        string $sourceDescription,
+        string $aiSummary
+    ): array {
         if (! $this->ai->hasMiia()) {
             return [
                 'success' => false,
@@ -25,17 +54,20 @@ class ProductDescriptionGenerationService
         }
 
         $slug = $this->ensureUtf8(trim($slug));
+        $sourceDescription = $this->ensureUtf8(trim($sourceDescription));
+        $aiSummary = $this->ensureUtf8(trim($aiSummary));
         $detailLines = $this->formatDetails($details);
 
         $system = <<<'TXT'
 Eres copywriter ecommerce especializado en fichas de producto que convierten.
 Redacta una descripción de venta clara, persuasiva y natural en el mismo idioma del nombre del producto.
-Usa el nombre, el slug (pistas de keywords) y los detalles/especificaciones como fuente de verdad.
+Usa el nombre, el slug (pistas de keywords), los detalles/especificaciones, el resumen de IA y la descripción fuente como verdad.
 Estructura sugerida (texto plano, sin markdown):
 1) Gancho de 1-2 frases con beneficio principal.
 2) 3-6 beneficios concretos (viñetas con guion "- ").
 3) Cierre breve con confianza / uso / para quién es.
 Reglas:
+- PROHIBIDO mencionar AliExpress, Alibaba, 1688, China, CN, PRC, "Made in China", envío desde China o marketplaces.
 - No inventes certificaciones, garantías ni cifras que no estén en los datos.
 - No uses HTML, markdown (#, **, ```, *) ni JSON.
 - No digas "descripción:", "aquí tienes" ni meta-comentarios.
@@ -47,12 +79,18 @@ TXT;
         if ($slug !== '') {
             $userParts[] = "Slug / URL:\n{$slug}";
         }
+        if ($aiSummary !== '') {
+            $userParts[] = "Resumen de IA del artículo (fuente):\n{$aiSummary}";
+        }
+        if ($sourceDescription !== '') {
+            $userParts[] = "Descripción fuente (ya limpia de marketplace):\n".mb_substr($sourceDescription, 0, 2500, 'UTF-8');
+        }
         if ($detailLines !== '') {
             $userParts[] = "Detalles / especificaciones:\n{$detailLines}";
         } else {
-            $userParts[] = "Detalles / especificaciones:\n(sin filas; redacta a partir del nombre y el slug)";
+            $userParts[] = "Detalles / especificaciones:\n(sin filas; redacta a partir del nombre y el resto de contexto)";
         }
-        $userParts[] = 'Genera la descripción de venta del producto.';
+        $userParts[] = 'Genera la descripción de venta del producto para la tienda propia.';
 
         $result = $this->ai->chat('product_generate_description', [
             ['role' => 'system', 'content' => $system],

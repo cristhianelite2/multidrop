@@ -41,7 +41,7 @@ class AliExpressProductSyncService
             ->first();
 
         $result = DB::transaction(function () use ($store, $aeId, $detail, $hints, $verified, $existing, $currency, $price, $compare, $purchaseLocal) {
-            $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto AliExpress');
+            $title = (string) ($hints['title'] ?? $detail['title'] ?? 'Producto');
             $title = mb_substr($title, 0, 190);
             $sku = trim((string) ($hints['sku'] ?? $detail['sku'] ?? ''));
             if ($sku === '') {
@@ -54,6 +54,11 @@ class AliExpressProductSyncService
             $description = app(\App\Services\Storefront\ProductDescriptionHtml::class)->normalizeSpaces(
                 (string) ($detail['description_html'] ?? $detail['description'] ?? '')
             );
+            $badge = array_key_exists('badge_hint', $detail)
+                ? ($detail['badge_hint'] !== null && $detail['badge_hint'] !== ''
+                    ? (string) $detail['badge_hint']
+                    : null)
+                : (! empty($detail['has_video']) ? 'Video' : null);
             $creativeBase = [
                 'has_video' => (bool) ($detail['has_video'] ?? false),
                 'translations' => [],
@@ -68,15 +73,27 @@ class AliExpressProductSyncService
                 if (! empty(data_get($existing->verified_data, 'imported_at'))) {
                     $verified['imported_at'] = data_get($existing->verified_data, 'imported_at');
                 }
-                $existing->fill([
+                $fill = [
                     'sku' => $existing->sku ?: $sku,
                     'image_url' => $image !== '' ? mb_substr($image, 0, 500) : $existing->image_url,
-                    'description' => $existing->description ?: mb_substr($description, 0, 20000),
-                    'badge' => $existing->badge ?: (! empty($detail['has_video']) ? 'Video' : 'AliExpress'),
                     'purchase_price' => $purchaseLocal,
                     'verified_data' => $verified,
                     'creative_data' => $creative,
-                ]);
+                ];
+                // Reimport sanitizado: actualizar nombre/desc en borradores
+                if ($existing->status === 'draft' && ! empty($detail['sanitized_with_miia'])) {
+                    $fill['name'] = $title;
+                    $fill['description'] = mb_substr($description, 0, 20000) ?: $existing->description;
+                    if ($badge !== null || $existing->badge === 'AliExpress') {
+                        $fill['badge'] = $badge;
+                    }
+                } else {
+                    $fill['description'] = $existing->description ?: mb_substr($description, 0, 20000);
+                    if (! $existing->badge || $existing->badge === 'AliExpress') {
+                        $fill['badge'] = $badge ?: $existing->badge;
+                    }
+                }
+                $existing->fill($fill);
                 if ($existing->status === 'draft' && (float) $existing->price <= 0 && $price > 0) {
                     $existing->price = $price;
                     $existing->currency = $currency;
@@ -100,7 +117,7 @@ class AliExpressProductSyncService
                     'purchase_price' => $purchaseLocal,
                     'currency' => $currency,
                     'status' => 'draft',
-                    'badge' => ! empty($detail['has_video']) ? 'Video' : 'AliExpress',
+                    'badge' => $badge,
                     'stock' => $this->sumVariantStock($detail['variants'] ?? []) ?? 99,
                     'is_featured' => false,
                     'verified_data' => $verified,
@@ -163,6 +180,10 @@ class AliExpressProductSyncService
             'variants' => $variants,
             'description_short' => $detail['description_short'] ?? null,
             'description_html' => $detail['description_html'] ?? null,
+            'ai_summary' => isset($detail['ai_summary']) && trim((string) $detail['ai_summary']) !== ''
+                ? mb_substr(trim((string) $detail['ai_summary']), 0, 4000)
+                : null,
+            'sanitized_with_miia' => (bool) ($detail['sanitized_with_miia'] ?? false),
             'source_mode' => $detail['source_mode'] ?? null,
             'source_note' => $detail['source_note'] ?? null,
             'shop_name' => $detail['shop_name'] ?? null,

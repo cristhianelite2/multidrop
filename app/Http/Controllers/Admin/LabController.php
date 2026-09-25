@@ -434,7 +434,8 @@ class LabController extends Controller
         Request $request,
         AliExpressProductFetcher $fetcher,
         AliExpressProductSyncService $sync,
-        CjProductMatcher $matcher
+        CjProductMatcher $matcher,
+        \App\Domain\AI\AliExpressListingSanitizeService $sanitize
     ) {
         if ($request->isMethod('OPTIONS')) {
             return response('', 204)->withHeaders($this->pluginCorsHeaders());
@@ -444,6 +445,8 @@ class LabController extends Controller
             return response()->json(['success' => false, 'error' => 'Token del plugin inválido. Cópialo de Product Hunter.'], 401)
                 ->withHeaders($this->pluginCorsHeaders());
         }
+
+        @set_time_limit(180);
 
         $html = (string) $request->input('html', '');
         $url = (string) $request->input('url', '');
@@ -478,6 +481,11 @@ class LabController extends Controller
                 'error' => 'No hay tienda disponible. Crea una en Multidrop o elige tienda en el popup.',
             ], 422)->withHeaders($this->pluginCorsHeaders());
         }
+
+        // Sanitizar + optimizar con MIIA antes de guardar (sin menciones AE/China).
+        $sanitized = $sanitize->sanitizeForStore($ae);
+        $ae = $sanitized['product'];
+        $sanitizeWarnings = $sanitized['warnings'] ?? [];
 
         $out = $sync->syncToStore($store, $ae);
         if (! ($out['success'] ?? false)) {
@@ -515,8 +523,17 @@ class LabController extends Controller
         ], now()->addMinutes(20));
 
         $msg = $created
-            ? 'Producto enviado a borrador en «'.$store->name.'».'
-            : 'Borrador actualizado en «'.$store->name.'».';
+            ? 'Producto enviado a borrador en «'.$store->name.'» (sanitizado).'
+            : 'Borrador actualizado en «'.$store->name.'» (sanitizado).';
+        if (! empty($ae['sanitized_with_miia'])) {
+            $msg .= ' Título y descripción optimizados con MIIA.';
+        }
+        if (! empty($ae['ai_summary'])) {
+            $msg .= ' Resumen de IA importado.';
+        }
+        if ($sanitizeWarnings !== []) {
+            $msg .= ' '.implode(' ', $sanitizeWarnings);
+        }
 
         $mirrorReport = app(\App\Services\Storage\ProductMediaMirrorService::class)->lastMirrorReport();
         $msg .= $this->mediaMirrorMessageSuffix($mirrorReport);
@@ -531,6 +548,9 @@ class LabController extends Controller
             'store_name' => $store->name,
             'edit_url' => route('admin.store.products.edit', $product),
             'title' => $ae['title'] ?? $product->name,
+            'ai_summary' => $ae['ai_summary'] ?? null,
+            'sanitized' => true,
+            'sanitize_warnings' => $sanitizeWarnings,
             'message' => $msg,
             'media_mirror' => $mirrorReport,
         ])->withHeaders($this->pluginCorsHeaders());

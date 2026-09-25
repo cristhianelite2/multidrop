@@ -305,6 +305,19 @@ class AliExpressProductFetcher
             }
         }
 
+        if (! $mediaOnlyExtract) {
+            $aiSummary = trim((string) ($snapshot['aiSummary'] ?? $snapshot['ai_summary'] ?? ''));
+            if ($aiSummary === '') {
+                $aiSummary = $this->extractAiSummaryFromHtml($html);
+            }
+            if ($aiSummary === '' && ! empty($snapshot['runParams']) && is_array($snapshot['runParams'])) {
+                $aiSummary = $this->extractAiSummaryFromRunParams($snapshot['runParams']);
+            }
+            if ($aiSummary !== '') {
+                $product['ai_summary'] = mb_substr($aiSummary, 0, 4000);
+            }
+        }
+
         $product = $this->mergeSnapshotVideos($product, $snapshot);
 
         $product['source_mode'] = ! empty($snapshot) ? 'plugin' : 'html';
@@ -1565,6 +1578,95 @@ class AliExpressProductFetcher
         }
 
         return $candidates[0] ?? null;
+    }
+
+    /**
+     * Extrae «Resumen de IA del artículo» del HTML capturado.
+     */
+    protected function extractAiSummaryFromHtml(string $html): string
+    {
+        if ($html === '') {
+            return '';
+        }
+
+        // Bloque con encabezado visible (ES / EN / PT)
+        if (preg_match(
+            '/(?:Resumen\s+de\s+IA\s+del\s+art[ií]culo|AI\s+(?:item\s+)?(?:summary|overview)|Resumo\s+de\s+IA(?:\s+do\s+artigo)?)[\s\S]{0,80}?(?:<\/[^>]+>)([\s\S]{40,6000}?)(?=(?:Aviso\s+legal|Legal\s+notice|Disclaimer|<h[1-4]\b|id=["\']nav-|data-pl=["\']product-description))/iu',
+            $html,
+            $m
+        )) {
+            $plain = trim(html_entity_decode(strip_tags($m[1]), ENT_QUOTES, 'UTF-8'));
+            $plain = preg_replace('/[ \t]+/u', ' ', $plain) ?? $plain;
+            $plain = preg_replace("/\n{3,}/", "\n\n", $plain) ?? $plain;
+            if (mb_strlen($plain) >= 40) {
+                return mb_substr($plain, 0, 4000);
+            }
+        }
+
+        // JSON embebido
+        foreach ([
+            '/"aiSummary"\s*:\s*"((?:\\\\.|[^"\\\\]){40,})"/u',
+            '/"ai_summary"\s*:\s*"((?:\\\\.|[^"\\\\]){40,})"/u',
+            '/"aiOverview"\s*:\s*"((?:\\\\.|[^"\\\\]){40,})"/u',
+            '/"productAiSummary"\s*:\s*"((?:\\\\.|[^"\\\\]){40,})"/u',
+            '/"aiDesc(?:ription)?"\s*:\s*"((?:\\\\.|[^"\\\\]){40,})"/u',
+        ] as $re) {
+            if (preg_match($re, $html, $jm)) {
+                $decoded = html_entity_decode(stripslashes($jm[1]), ENT_QUOTES, 'UTF-8');
+                $decoded = trim(strip_tags($decoded));
+                if (mb_strlen($decoded) >= 40) {
+                    return mb_substr($decoded, 0, 4000);
+                }
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $runParams
+     */
+    protected function extractAiSummaryFromRunParams(array $runParams): string
+    {
+        $data = $runParams['data'] ?? $runParams;
+        if (! is_array($data)) {
+            return '';
+        }
+
+        $candidates = [
+            $data['aiSummary'] ?? null,
+            $data['ai_summary'] ?? null,
+            $data['aiOverview'] ?? null,
+            $data['productAiSummary'] ?? null,
+            data_get($data, 'descriptionModule.aiSummary'),
+            data_get($data, 'descriptionModule.aiOverview'),
+            data_get($data, 'productDescModule.aiSummary'),
+            data_get($data, 'titleModule.aiSummary'),
+        ];
+
+        foreach ($candidates as $c) {
+            if (is_array($c)) {
+                $c = implode("\n", array_filter(array_map(function ($row) {
+                    if (is_string($row)) {
+                        return trim($row);
+                    }
+                    if (is_array($row)) {
+                        return trim((string) ($row['text'] ?? $row['content'] ?? $row['value'] ?? ''));
+                    }
+
+                    return '';
+                }, $c)));
+            }
+            if (! is_string($c)) {
+                continue;
+            }
+            $c = trim(html_entity_decode(strip_tags($c), ENT_QUOTES, 'UTF-8'));
+            if (mb_strlen($c) >= 40) {
+                return mb_substr($c, 0, 4000);
+            }
+        }
+
+        return '';
     }
 
     /**

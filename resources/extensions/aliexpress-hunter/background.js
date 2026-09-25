@@ -90,6 +90,78 @@ async function readPagePayload(tabId, sections) {
         } catch (e2) {}
         return out;
       }
+      function headingLooksAiSummary(text) {
+        text = String(text || '').replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 120) return false;
+        return /resumen\s+de\s+ia\s+del\s+art[ií]culo/i.test(text)
+          || /ai\s+(?:item\s+)?(?:summary|overview)/i.test(text)
+          || /resumo\s+de\s+ia/i.test(text);
+      }
+      function cleanAiSummaryText(text) {
+        text = String(text || '').replace(/\r\n?/g, '\n').trim();
+        text = text.replace(/^(?:🔹\s*)?(?:Resumen\s+de\s+IA\s+del\s+art[ií]culo|AI\s+(?:item\s+)?(?:summary|overview)|Resumo\s+de\s+IA(?:\s+do\s+artigo)?)\s*[:：]?\s*/i, '');
+        text = text.replace(/(?:🔹\s*)?(?:Aviso\s+legal|Legal\s+notice|Disclaimer)[\s\S]{0,500}$/i, '');
+        text = text.replace(/\n{3,}/g, '\n\n').trim();
+        return text;
+      }
+      function extractAiSummary() {
+        var out = '';
+        try {
+          var rp = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
+          var data = rp && (rp.data || rp);
+          if (data && typeof data === 'object') {
+            var keys = ['aiSummary', 'ai_summary', 'aiOverview', 'productAiSummary', 'aiDesc', 'aiDescription'];
+            for (var i = 0; i < keys.length; i++) {
+              var v = data[keys[i]];
+              if (typeof v === 'string' && v.trim().length > 40) { out = v; break; }
+            }
+            if (!out) {
+              var mods = [data.descriptionModule, data.productDescModule, data.titleModule];
+              for (var m = 0; m < mods.length && !out; m++) {
+                var mod = mods[m];
+                if (!mod || typeof mod !== 'object') continue;
+                for (var k = 0; k < keys.length; k++) {
+                  var mv = mod[keys[k]];
+                  if (typeof mv === 'string' && mv.trim().length > 40) { out = mv; break; }
+                }
+              }
+            }
+          }
+        } catch (eRp) {}
+        if (out) return cleanAiSummaryText(out);
+
+        try {
+          var nodes = document.querySelectorAll('h1,h2,h3,h4,h5,strong,span,div,p,[role="heading"]');
+          for (var n = 0; n < nodes.length; n++) {
+            var el = nodes[n];
+            if (!headingLooksAiSummary(el.innerText || el.textContent || '')) continue;
+            var root = el.closest('section, article, [class*="ai"], [class*="summary"], [class*="markdown"], div') || el.parentElement;
+            if (!root) continue;
+            // Prefer sibling/container body after the heading
+            var body = '';
+            var sib = el.nextElementSibling;
+            if (sib && textLen(sib) > 40) body = String(sib.innerText || '');
+            if ((!body || body.length < 40) && root !== el) {
+              var cloneText = String(root.innerText || '');
+              body = cloneText.replace(String(el.innerText || ''), '').trim();
+            }
+            body = cleanAiSummaryText(body);
+            if (body.length >= 40) return body.slice(0, 4000);
+          }
+        } catch (eDom) {}
+
+        try {
+          var marked = document.querySelector(
+            '[class*="ai-summary"], [class*="aiSummary"], [class*="AiSummary"], ' +
+            '[data-pl*="ai"], [class*="markdown-body"]'
+          );
+          if (marked && textLen(marked) > 40) {
+            var t = cleanAiSummaryText(marked.innerText || '');
+            if (t.length >= 40) return t.slice(0, 4000);
+          }
+        } catch (eSel) {}
+        return '';
+      }
       function compactRunModules(data) {
         if (!data || typeof data !== 'object') return null;
         var mods = {
@@ -126,6 +198,18 @@ async function readPagePayload(tabId, sections) {
             || document.querySelector('[data-pl="product-description"], [id*="description"]');
           if (nav && nav.scrollIntoView) nav.scrollIntoView({ behavior: 'instant', block: 'center' });
           await sleep(600);
+          // Intentar expandir / revelar «Resumen de IA del artículo»
+          var aiHead = null;
+          document.querySelectorAll('h1,h2,h3,h4,strong,span,div,[role="heading"]').forEach(function (el) {
+            if (aiHead) return;
+            if (headingLooksAiSummary(el.innerText || el.textContent || '')) aiHead = el;
+          });
+          if (aiHead) {
+            try { aiHead.click(); } catch (eAiClick) {}
+            var aiWrap = aiHead.closest('section, article, div') || aiHead;
+            if (aiWrap.scrollIntoView) aiWrap.scrollIntoView({ behavior: 'instant', block: 'center' });
+            await sleep(400);
+          }
         } catch (eScroll) {}
       } else if (!isCj && videoOnly) {
         try {
@@ -154,6 +238,7 @@ async function readPagePayload(tabId, sections) {
         var dm = rpData && (rpData.descriptionModule || rpData.productDescModule || {});
         descriptionUrl = String((dm && (dm.descriptionUrl || dm.descUrl || dm.productDescUrl || dm.descriptionPCUrl)) || (rpData && rpData.descriptionUrl) || '');
       } catch (eUrl) {}
+      var aiSummary = (!isCj && !videoOnly) ? extractAiSummary() : '';
 
       var html = '';
       if (fullCapture) {
@@ -188,6 +273,7 @@ async function readPagePayload(tabId, sections) {
           shippingText: shipEl ? String(shipEl.innerText || '').replace(/\s+/g, ' ').trim() : '',
           descriptionHtml: descriptionHtml,
           descriptionUrl: descriptionUrl,
+          aiSummary: aiSummary,
           isCj: isCj,
           pageVideos: pageVideos
         }

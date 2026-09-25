@@ -1,0 +1,18 @@
+# Cloudflare Tunnel — HyperFrames Ads (local)
+
+# 1) Crear túnel (una vez):
+#    cloudflared tunnel login
+#    cloudflared tunnel create multidrop-hyperframes
+#    cloudflared tunnel route dns multidrop-hyperframes hyperframes.ceballosleon.com
+#
+# 2) Copia este archivo a cloudflared-config.yml y reemplaza:
+#    - <TUNNEL_UUID>
+#    - ruta a <TUNNEL_UUID>.json en %USERPROFILE%\.cloudflared\
+
+tunnel: <TUNNEL_UUID>
+credentials-file: C:\Users\USER\.cloudflared\<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: hyperframes.ceballosleon.com
+    service: http://127.0.0.1:9014
+  - service: http_status:404

@@ -8,13 +8,16 @@ use App\Http\Controllers\Controller;
 use App\Models\MarketingCampaign;
 use App\Models\MarketingPrompt;
 use App\Models\Product;
+use App\Models\SellerCentralVideoJob;
 use App\Models\Store;
 use App\Models\StorePublicationPlan;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignOptimizerService;
 use App\Services\Marketing\CampaignService;
+use App\Services\Marketing\HyperFramesAdsRenderService;
 use App\Services\Marketing\VideoIngestService;
 use App\Services\SellerCentral\SellerCentralApi;
+use App\Services\SellerCentral\SellerCentralVideoService;
 use Illuminate\Http\Request;
 
 class CampaignController extends Controller
@@ -93,6 +96,8 @@ class CampaignController extends Controller
         VideoIngestService $ingest,
         CreatifyClient $creatify,
         SellerCentralApi $sellerCentral,
+        SellerCentralVideoService $notebookLm,
+        HyperFramesAdsRenderService $hyperframes,
         MarketingCampaign $campaign
     ) {
         $store = $this->currentStoreOrFail($storeContext);
@@ -109,12 +114,33 @@ class CampaignController extends Controller
             return (string) $pid;
         });
 
+        $notebookJobs = SellerCentralVideoJob::query()
+            ->where('store_id', $store->id)
+            ->where('campaign_id', $campaign->id)
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get()
+            ->groupBy(fn (SellerCentralVideoJob $j) => (string) $j->product_id);
+
         return view('admin.store.marketing.campaigns.show', [
             'store' => $store,
             'campaign' => $campaign,
             'pages' => $campaigns->pageOptions($store),
             'budgetCap' => $campaigns->maxDailySpend(),
             'creatify' => $creatify->connectionStatus(),
+            'hyperframes' => [
+                'ok' => $hyperframes->configured(),
+                'mode' => $hyperframes->mode(),
+                'url' => $hyperframes->remoteBaseUrl(),
+                'visual_styles' => config('multidrop.marketing.hyperframes.visual_styles', []),
+                'default_visual_style' => (string) config('multidrop.marketing.hyperframes.default_visual_style', 'signal'),
+            ],
+            'notebooklm' => [
+                'ok' => $notebookLm->hasConnection($store),
+                'poll_seconds' => (int) config('multidrop.marketing.sellercentral.video_poll_seconds', 8),
+                'settings_url' => route('admin.store.marketing.sellercentral.index'),
+            ],
+            'notebookJobsByProduct' => $notebookJobs,
             'ffmpeg' => $ingest->ffmpegAvailable(),
             'maxMb' => (int) config('multidrop.marketing.max_video_mb', 80),
             'catalogProducts' => Product::query()

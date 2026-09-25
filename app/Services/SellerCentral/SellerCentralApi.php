@@ -175,6 +175,50 @@ class SellerCentralApi
         return $this->decode($response);
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function createVideo(Store $store, array $payload): array
+    {
+        return $this->post($store, '/videos', $payload);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getVideo(Store $store, int|string $taskId): array
+    {
+        return $this->get($store, '/videos/'.(string) $taskId);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    public function listVideos(Store $store, array $filters = []): array
+    {
+        $query = http_build_query(array_filter($filters, fn ($v) => $v !== null && $v !== ''));
+
+        return $this->get($store, '/videos'.($query !== '' ? '?'.$query : ''));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function generateVideo(Store $store, int|string $taskId): array
+    {
+        return $this->post($store, '/videos/'.(string) $taskId.'/generate');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function stopVideo(Store $store, int|string $taskId): array
+    {
+        return $this->post($store, '/videos/'.(string) $taskId.'/stop');
+    }
+
     protected function get(Store $store, string $path): array
     {
         return $this->decode($this->client->withToken($this->apiKey($store))->get($this->endpoint($store, $path)));

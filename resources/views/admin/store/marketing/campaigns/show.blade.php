@@ -88,6 +88,28 @@
         #md-ai-modal.flex {
             display: flex !important;
         }
+        #md-hf-review-modal.flex {
+            display: flex !important;
+        }
+        .md-hf-asset:has(.hf-thumb-fallback) .md-hf-thumb,
+        .md-hf-thumb-fallback .md-hf-thumb {
+            background: linear-gradient(135deg, #eef2f7, #f8fafc);
+        }
+        .hf-thumb-glyph {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: 20px;
+            color: #64748b;
+            background: linear-gradient(135deg, #eef2f7, #f8fafc);
+        }
+        .md-hf-asset:has(.md-hf-asset-cb:not(:checked))::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.55);
+        }
         a.md-product-list-thumb,
         button.md-product-list-thumb {
             width: 72px !important;
@@ -170,8 +192,16 @@
                 @php
                     $pp = $promptsByProduct->get((string) $focusProduct->id, collect());
                     $pv = $videosByProduct->get((string) $focusProduct->id, collect());
+                    // Remotion/Creatify anidados en el prompt se muestran en Opción 1.
+                    // HyperFrames debe seguir en productVideos para Opción 3 (aunque tengan prompt_id del scrape).
                     $nestedIds = $pp->flatMap(fn ($pr) => $pr->videos->pluck('id'))->all();
-                    $pvLoose = $pv->reject(fn ($v) => in_array($v->id, $nestedIds, true));
+                    $pvLoose = $pv->reject(function ($v) use ($nestedIds) {
+                        if (($v->source ?: '') === 'hyperframes') {
+                            return false;
+                        }
+
+                        return in_array($v->id, $nestedIds, true);
+                    });
                 @endphp
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <a href="{{ $listUrl }}" class="text-sm text-teal hover:underline">← Productos de la campaña</a>
@@ -184,6 +214,9 @@
                     'ctas' => $ctas,
                     'maxMb' => $maxMb,
                     'ffmpeg' => $ffmpeg,
+                    'hyperframes' => $hyperframes ?? ['ok' => false],
+                    'notebooklm' => $notebooklm ?? ['ok' => false],
+                    'notebookJobs' => ($notebookJobsByProduct ?? collect())->get((string) $focusProduct->id, collect()),
                 ])
             @else
                 <div class="flex flex-wrap items-center justify-between gap-3">
@@ -420,6 +453,24 @@
     </div>
     @endif
 
+    {{-- Modal revisión HyperFrames: edita guion, plan, archivos y estilo antes de renderizar --}}
+    <div id="md-hf-review-modal" class="fixed inset-0 z-[220] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line bg-mist/30 px-4 py-3">
+                <div class="min-w-0">
+                    <h3 class="font-semibold text-ink">Revisar y personalizar video</h3>
+                    <p class="truncate text-[11px] text-ink-soft/55 md-hf-review-product"></p>
+                </div>
+                <button type="button" class="shrink-0 admin-btn-secondary !px-2.5 !py-1 text-xs" id="md-hf-review-close">Cancelar</button>
+            </div>
+            <div class="overflow-y-auto p-4 space-y-5 md-hf-review-body"></div>
+            <div class="flex items-center justify-between gap-3 border-t border-line bg-mist/30 px-4 py-3">
+                <p class="text-[11px] text-ink-soft/55 md-hf-review-hint">Edita textos, marca los archivos que quieres usar y elige el estilo. El video se genera con lo que ves aquí.</p>
+                <button type="button" class="shrink-0 admin-btn md-hf-review-submit">Enviar a HyperFrames</button>
+            </div>
+        </div>
+    </div>
+
     {{-- Modal preview video: debe vivir en content (antes del JS) --}}
     <div id="md-video-modal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
         <div class="relative flex w-full max-w-[220px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
@@ -514,6 +565,54 @@
     var url = this.getAttribute('data-url') || '';
     if (!url) return;
     copyTextToClipboard(url, this);
+  });
+
+  function mdVideoBulkRefresh(group) {
+    var checks = document.querySelectorAll('.md-video-bulk-check[data-bulk-group="' + group + '"]');
+    var n = 0;
+    checks.forEach(function (c) { if (c.checked) n++; });
+    var countEl = document.querySelector('.md-video-bulk-count[data-bulk-group="' + group + '"]');
+    if (countEl) countEl.textContent = n + (n === 1 ? ' seleccionado' : ' seleccionados');
+    var runBtn = document.querySelector('.md-video-bulk-run[data-bulk-group="' + group + '"]');
+    if (runBtn) runBtn.disabled = n < 1;
+    var all = document.querySelector('.md-video-bulk-all[data-bulk-group="' + group + '"]');
+    if (all) {
+      all.checked = n > 0 && n === checks.length;
+      all.indeterminate = n > 0 && n < checks.length;
+    }
+  }
+  window.mdVideoBulkSubmit = function (form) {
+    var group = form.getAttribute('data-bulk-group') || '';
+    var box = form.querySelector('.md-video-bulk-ids');
+    if (!box) return false;
+    box.innerHTML = '';
+    var selected = document.querySelectorAll('.md-video-bulk-check[data-bulk-group="' + group + '"]:checked');
+    if (!selected.length) {
+      alert('Selecciona al menos un video.');
+      return false;
+    }
+    if (!confirm('¿Eliminar ' + selected.length + ' video(s) seleccionado(s)?')) {
+      return false;
+    }
+    selected.forEach(function (c) {
+      var input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'ids[]';
+      input.value = c.value;
+      box.appendChild(input);
+    });
+    return true;
+  };
+  $(document).on('change', '.md-video-bulk-check', function () {
+    mdVideoBulkRefresh(this.getAttribute('data-bulk-group') || '');
+  });
+  $(document).on('change', '.md-video-bulk-all', function () {
+    var group = this.getAttribute('data-bulk-group') || '';
+    var on = this.checked;
+    document.querySelectorAll('.md-video-bulk-check[data-bulk-group="' + group + '"]').forEach(function (c) {
+      c.checked = on;
+    });
+    mdVideoBulkRefresh(group);
   });
 
   function closeMdVideoModal() {
@@ -639,9 +738,12 @@
   var token = csrf ? csrf.getAttribute('content') : '';
   var attachedProductIds = @json($campaign->products->pluck('id')->map(fn ($id) => (int) $id)->values());
 
-  function productosUrl() {
+  function productosUrl(productId) {
     var url = new URL(window.location.href);
     url.searchParams.set('tab', 'productos');
+    if (productId) {
+      url.searchParams.set('product', String(productId));
+    }
     return url.toString();
   }
   function pollCreatify(jobId, promptId, onMsg, onDone) {
@@ -754,6 +856,599 @@
     }).catch(function () {
       if (el) el.textContent = 'Error de red';
       btn.disabled = false;
+    });
+  });
+
+  function hfMsgEl(productId) {
+    return document.querySelector('.md-hyperframes-msg[data-product-id="' + productId + '"]');
+  }
+  var hfJobs = {};
+  function hfProgressEls(productId) {
+    return {
+      wrap: document.querySelector('.md-hyperframes-progress[data-product-id="' + productId + '"]'),
+      step: document.querySelector('.md-hyperframes-step[data-product-id="' + productId + '"]'),
+      bar: document.querySelector('.md-hyperframes-bar[data-product-id="' + productId + '"]'),
+      cancel: document.querySelector('.md-hyperframes-cancel[data-product-id="' + productId + '"]')
+    };
+  }
+  function hfSetCancelVisible(productId, visible, jobId) {
+    var els = hfProgressEls(productId);
+    if (!els.cancel) return;
+    if (visible) {
+      els.cancel.hidden = false;
+      els.cancel.style.display = '';
+      if (jobId) {
+        els.cancel.setAttribute('data-job-id', jobId);
+        els.cancel.disabled = false;
+      } else {
+        els.cancel.removeAttribute('data-job-id');
+        els.cancel.disabled = true;
+      }
+    } else {
+      els.cancel.hidden = true;
+      els.cancel.removeAttribute('data-job-id');
+      els.cancel.disabled = true;
+    }
+  }
+  function hfSetMsg(productId, message, isError) {
+    var el = hfMsgEl(productId);
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('text-red-700', !!isError);
+    el.classList.toggle('font-medium', !!isError);
+    el.classList.toggle('text-ink-soft/55', !isError);
+  }
+  function hfUpdateProgress(productId, res) {
+    var els = hfProgressEls(productId);
+    var step = res && res.step != null ? parseInt(res.step, 10) : 0;
+    var steps = res && res.steps != null ? parseInt(res.steps, 10) : 8;
+    if (isNaN(step)) step = 0;
+    if (isNaN(steps) || steps < 1) steps = 8;
+    if (els.wrap) {
+      els.wrap.classList.remove('hidden');
+      els.wrap.classList.remove('border-red-200', 'bg-red-50/60');
+      els.wrap.classList.add('border-line', 'bg-mist/40');
+    }
+    if (els.step) els.step.textContent = step + '/' + steps;
+    if (els.bar) {
+      els.bar.classList.remove('bg-red-500');
+      els.bar.classList.add('bg-teal');
+      els.bar.style.width = Math.max(4, Math.min(100, Math.round((step / steps) * 100))) + '%';
+    }
+    var hint = els.wrap ? els.wrap.querySelector('.md-hyperframes-progress-hint') : null;
+    if (hint) hint.textContent = 'Puedes detener el render en cualquier momento.';
+    var msg = (res && res.message) ? String(res.message) : 'Procesando HyperFrames…';
+    hfSetMsg(productId, msg, false);
+    var jobId = (hfJobs[productId] && hfJobs[productId].jobId) || null;
+    hfSetCancelVisible(productId, true, jobId);
+  }
+  /** Termina el job en UI. Nunca oculta el panel en error: el mensaje debe quedar visible. */
+  function hfFinish(productId, btn, message, opts) {
+    opts = opts || {};
+    if (hfJobs[productId]) {
+      hfJobs[productId].stopped = true;
+      delete hfJobs[productId];
+    }
+    hfSetCancelVisible(productId, false);
+    hfSetMsg(productId, message || '', !!opts.error);
+    if (btn) btn.disabled = false;
+    var els = hfProgressEls(productId);
+    if (opts.error) {
+      if (els.wrap) {
+        els.wrap.classList.remove('hidden');
+        els.wrap.classList.remove('border-line', 'bg-mist/40');
+        els.wrap.classList.add('border-red-200', 'bg-red-50/60');
+      }
+      if (els.bar) {
+        els.bar.classList.remove('bg-teal');
+        els.bar.classList.add('bg-red-500');
+      }
+      var hint = els.wrap ? els.wrap.querySelector('.md-hyperframes-progress-hint') : null;
+      if (hint) hint.textContent = 'Revisa el error arriba y vuelve a intentar.';
+    }
+  }
+  function pollHyperframes(jobId, productId, btn) {
+    if (hfJobs[productId] && hfJobs[productId].stopped) return;
+    fetch(@json(route('admin.store.marketing.hyperframes.poll')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ job_id: jobId })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }).catch(function () {
+        return { okHttp: false, j: { ok: false, failed: true, message: 'Respuesta inválida al consultar HyperFrames (HTTP ' + r.status + ')' } };
+      });
+    }).then(function (pack) {
+      var res = pack.j || {};
+      if (hfJobs[productId] && hfJobs[productId].stopped) return;
+      if (res.review && res.review_payload) {
+        if (hfRegenResume && String(hfRegenResume.productId) === String(productId) && String(hfRegenResume.jobId) === String(jobId)) {
+          var rev = hfRegenResume;
+          hfRegenResume = null;
+          hfSetMsg(productId, 'Guion regenerado. Aplicando tu personalización…', false);
+          fetch(@json(route('admin.store.marketing.hyperframes.confirm')), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+            body: JSON.stringify({
+              job_id: jobId,
+              texts: rev.edits.texts,
+              visual_style: rev.edits.visual_style,
+              exclude_images: rev.edits.exclude_images,
+              exclude_videos: rev.edits.exclude_videos
+            })
+          }).then(function (r) {
+            return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () {
+              return { ok: false, j: { ok: false, message: 'Respuesta inválida al aplicar la personalización (HTTP ' + r.status + ')' } };
+            });
+          }).then(function (pack) {
+            if (!pack.j || !pack.j.ok) {
+              hfFinish(productId, btn, (pack.j && pack.j.message) ? pack.j.message : 'No se pudo aplicar la personalización.', { error: true });
+              return;
+            }
+            hfSetMsg(productId, pack.j.message || 'Render en curso…', false);
+            if (hfJobs[productId]) {
+              hfJobs[productId].jobId = pack.j.job_id;
+              hfJobs[productId].stopped = false;
+            }
+            hfSetCancelVisible(productId, true, pack.j.job_id);
+            pollHyperframes(pack.j.job_id, productId, btn);
+          }).catch(function () {
+            hfFinish(productId, btn, 'Error de red al aplicar la personalización.', { error: true });
+          });
+          return;
+        }
+        hfSetMsg(productId, 'Guion y medios listos. Revisa la personalización…', false);
+        hfOpenReview(productId, btn, res.review_payload, jobId);
+        return;
+      }
+      if (res.cancelled || res.status === 'cancelled') {
+        hfUpdateProgress(productId, res);
+        hfFinish(productId, btn, res.message || 'Generación detenida', { error: false });
+        return;
+      }
+      if (res.failed || res.status === 'failed' || (!pack.okHttp && res.message)) {
+        hfUpdateProgress(productId, res);
+        hfFinish(productId, btn, res.message || 'Falló HyperFrames', { error: true });
+        return;
+      }
+      if (res.done || res.status === 'done') {
+        hfUpdateProgress(productId, res);
+        var queue = (hfJobs[productId] && hfJobs[productId].queue) ? hfJobs[productId].queue : [];
+        var doneCount = (hfJobs[productId] && hfJobs[productId].doneCount) ? hfJobs[productId].doneCount : 0;
+        doneCount += 1;
+        if (hfJobs[productId]) hfJobs[productId].doneCount = doneCount;
+        if (queue.length > 0) {
+          hfSetMsg(productId, 'Video ' + doneCount + ' listo. Siguiente fuente…', false);
+          hfStartNextHyperframes(productId, btn);
+          return;
+        }
+        hfSetCancelVisible(productId, false);
+        var total = (hfJobs[productId] && hfJobs[productId].total) ? hfJobs[productId].total : doneCount;
+        hfSetMsg(productId, (total > 1 ? (total + ' videos listos') : 'Video listo') + '. Recargando…', false);
+        var els = hfProgressEls(productId);
+        if (els.bar) els.bar.style.width = '100%';
+        if (els.step) els.step.textContent = '8/8';
+        setTimeout(function () {
+          window.location.href = productosUrl(productId);
+        }, 3500);
+        return;
+      }
+      if (res.status === 'unknown') {
+        hfFinish(productId, btn, res.message || 'Job HyperFrames no encontrado (¿cache reiniciado?)', { error: true });
+        return;
+      }
+      hfUpdateProgress(productId, res);
+      hfSetCancelVisible(productId, true, jobId);
+      var t = setTimeout(function () { pollHyperframes(jobId, productId, btn); }, 2000);
+      if (hfJobs[productId]) hfJobs[productId].timer = t;
+    }).catch(function () {
+      if (hfJobs[productId] && hfJobs[productId].stopped) return;
+      hfFinish(productId, btn, 'Error de red al consultar HyperFrames', { error: true });
+    });
+  }
+  $(document).on('click', '.md-hyperframes-cancel', function () {
+    var cancelBtn = this;
+    var productId = cancelBtn.getAttribute('data-product-id');
+    var jobId = cancelBtn.getAttribute('data-job-id') || (hfJobs[productId] && hfJobs[productId].jobId);
+    if (!productId || !jobId) return;
+    cancelBtn.disabled = true;
+    if (hfJobs[productId]) {
+      hfJobs[productId].stopped = true;
+      hfJobs[productId].queue = [];
+    }
+    var goBtn = document.querySelector('.md-hyperframes-go[data-product-id="' + productId + '"]');
+    hfSetMsg(productId, 'Deteniendo generación…', false);
+    fetch(@json(route('admin.store.marketing.hyperframes.cancel')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ job_id: jobId })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      hfFinish(productId, goBtn, (res && res.message) ? res.message : 'Generación detenida');
+    }).catch(function () {
+      hfFinish(productId, goBtn, 'No se pudo confirmar la cancelación (el job puede seguir un momento).', { error: true });
+    });
+  });
+
+  function hfCollectSources(productId) {
+    return [{ use_miia: true, prompt_id: null, label: 'MIIA' }];
+  }
+
+  function hfStartNextHyperframes(productId, btn) {
+    var state = hfJobs[productId];
+    if (!state || state.stopped) return;
+    var next = (state.queue || []).shift();
+    if (!next) {
+      hfFinish(productId, btn, 'Listo');
+      return;
+    }
+    var campaign = btn.getAttribute('data-campaign-id') || campaignId;
+    var styleSel = document.querySelector('.md-hyperframes-style[data-product-id="' + productId + '"]');
+    var visualStyle = styleSel ? styleSel.value : 'signal';
+    var idx = (state.doneCount || 0) + 1;
+    var total = state.total || 1;
+    var startMsg = idx + '/' + total + ' · ' + next.label + ' · estilo ' + visualStyle + '…';
+    hfUpdateProgress(productId, { step: 0, steps: 8, message: startMsg });
+    hfSetCancelVisible(productId, true, null);
+    var body = {
+      campaign_id: parseInt(campaign, 10),
+      product_id: parseInt(productId, 10),
+      use_miia: !!next.use_miia,
+      visual_style: visualStyle
+    };
+    if (!next.use_miia && next.prompt_id) body.prompt_id = next.prompt_id;
+    fetch(@json(route('admin.store.marketing.hyperframes.generate')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () {
+        return { ok: false, j: { ok: false, message: 'Respuesta inválida del servidor al iniciar HyperFrames (HTTP ' + r.status + ')' } };
+      });
+    }).then(function (pack) {
+      if (!pack.j || !pack.j.ok) {
+        hfFinish(productId, btn, (pack.j && pack.j.message) ? pack.j.message : 'No se pudo iniciar HyperFrames', { error: true });
+        return;
+      }
+      hfSetMsg(productId, pack.j.message || startMsg, false);
+      if (hfJobs[productId]) {
+        hfJobs[productId].jobId = pack.j.job_id;
+        hfJobs[productId].stopped = false;
+      }
+      hfSetCancelVisible(productId, true, pack.j.job_id);
+      pollHyperframes(pack.j.job_id, productId, btn);
+    }).catch(function () {
+      hfFinish(productId, btn, 'Error de red al iniciar HyperFrames. Si el scrape Cloudflare tarda, espera e intenta de nuevo.', { error: true });
+    });
+  }
+
+  $(document).on('click', '.md-hyperframes-go', function () {
+    var btn = this;
+    var productId = btn.getAttribute('data-product-id');
+    var campaign = btn.getAttribute('data-campaign-id') || campaignId;
+    if (!productId) return;
+    var sources = hfCollectSources(productId);
+    if (!sources.length) {
+      hfSetMsg(productId, 'Marca “Usar MIIA para guiones” y/o al menos un prompt.', true);
+      return;
+    }
+    var styleSel = document.querySelector('.md-hyperframes-style[data-product-id="' + productId + '"]');
+    if (!styleSel || !styleSel.value) {
+      hfSetMsg(productId, 'Elige un estilo visual.', true);
+      return;
+    }
+    btn.disabled = true;
+    hfJobs[productId] = {
+      jobId: null,
+      stopped: false,
+      timer: null,
+      queue: sources.slice(),
+      doneCount: 0,
+      total: sources.length
+    };
+    hfUpdateProgress(productId, {
+      step: 0,
+      steps: 8,
+      message: '0/8 Preparando ' + sources.length + ' render(s) · ' + styleSel.value + '…'
+    });
+    hfStartNextHyperframes(productId, btn);
+  });
+
+  // ---- Modal de revisión HyperFrames: edita textos, archivos y estilo antes de renderizar ----
+  var hfReview = { productId: null, btn: null, payload: null, jobId: null };
+  var hfRegenResume = null;
+
+  function hfEsc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function hfReviewEls() {
+    var modal = document.getElementById('md-hf-review-modal');
+    return {
+      modal: modal,
+      body: modal ? modal.querySelector('.md-hf-review-body') : null,
+      product: modal ? modal.querySelector('.md-hf-review-product') : null,
+      hint: modal ? modal.querySelector('.md-hf-review-hint') : null
+    };
+  }
+
+  function hfReviewInput(label, path, value, opts) {
+    opts = opts || {};
+    var v = hfEsc(value == null ? '' : value);
+    var multi = opts.rows || (value && String(value).length > 90);
+    var field = multi
+      ? '<textarea data-hf-path="' + hfEsc(path) + '" class="admin-input w-full text-sm" rows="' + (opts.rows || 3) + '">' + v + '</textarea>'
+      : '<input type="text" data-hf-path="' + hfEsc(path) + '" class="admin-input w-full text-sm" value="' + v + '">';
+    return '<div class="space-y-1">' +
+      '<label class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">' + hfEsc(label) + '</label>' +
+      field +
+      '</div>';
+  }
+
+  function hfAssetGroup(label, items, kind) {
+    var html = '<div class="space-y-1.5">';
+    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">' + hfEsc(label) + '</p>';
+    html += '<div class="flex flex-wrap gap-2">';
+    items.forEach(function (item) {
+      var sizeKb = Math.max(1, Math.round((item.size || 0) / 1024));
+      var name = String(item.name || '');
+      var thumb = '';
+      if (kind === 'image' && item.url) {
+        thumb = '<img src="' + hfEsc(item.url) + '" alt="" loading="lazy" referrerpolicy="no-referrer" class="h-full w-full object-cover" onerror="this.parentNode.classList.add(\'hf-thumb-fallback\');this.remove()">';
+      } else if (kind === 'image') {
+        thumb = '<span class="hf-thumb-glyph">🖼</span>';
+      } else {
+        thumb = '<span class="hf-thumb-glyph"><i class="fa-solid fa-play"></i></span>';
+      }
+      html += '<label class="md-hf-asset relative h-[140px] w-[140px] shrink-0 cursor-pointer overflow-hidden rounded-xl border border-line bg-mist/40 select-none" title="' + hfEsc(name) + '">' +
+        '<input type="checkbox" class="md-hf-asset-cb absolute left-1.5 top-1.5 z-[1] h-3.5 w-3.5 rounded border-line accent-teal" data-hf-asset="' + hfEsc(name) + '" checked>' +
+        '<span class="md-hf-thumb absolute inset-0">' + thumb + '</span>' +
+        '<span class="absolute inset-x-0 bottom-0 truncate bg-white/80 px-1 py-0.5 text-[9px] text-ink">' + hfEsc(name) + '</span>' +
+        '<span class="absolute right-1.5 top-1.5 z-[1] rounded-full bg-ink/60 px-1 py-px text-[8px] font-semibold text-white">' + sizeKb + ' KB</span>' +
+        '</label>';
+    });
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function hfOpenReview(productId, btn, payload, jobId) {
+    var els = hfReviewEls();
+    if (!els.modal || !els.body) return;
+    hfReview = { productId: productId, btn: btn, payload: payload || {}, jobId: jobId };
+
+    var prod = payload.product || {};
+    var hasPlan = !!payload.has_plan;
+    var brief = payload.brief || {};
+    var html = '';
+
+    if (els.product) {
+      els.product.textContent = (prod.name || 'Producto') + (prod.sku ? ' · ' + prod.sku : '');
+    }
+
+    html += '<div class="rounded-xl border border-line bg-mist/30 px-3 py-2 text-xs text-ink-soft/70 grid grid-cols-2 gap-x-4 gap-y-1">';
+    if (prod.price != null) html += '<div>Precio: <strong class="text-ink">' + hfEsc(prod.currency || '') + ' ' + hfEsc(String(prod.price)) + '</strong></div>';
+    if (prod.compare_at_price != null) html += '<div>Antes: <s class="text-ink-soft/60">' + hfEsc(String(prod.compare_at_price)) + '</s></div>';
+    if (prod.badge) html += '<div>Badge: ' + hfEsc(prod.badge) + '</div>';
+    if (prod.product_url) html += '<div class="col-span-2 truncate"><a class="text-teal underline" href="' + hfEsc(prod.product_url) + '" target="_blank" rel="noopener">' + hfEsc(prod.product_url) + '</a></div>';
+    html += '</div>';
+
+    html += '<div class="space-y-1"><label class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Estilo visual</label><select id="md-hf-review-style" class="admin-input w-full max-w-md text-sm">';
+    Object.keys(payload.styles || {}).forEach(function (k) {
+      var s = payload.styles[k] || {};
+      html += '<option value="' + hfEsc(k) + '"' + (k === (payload.options || {}).visual_style ? ' selected' : '') + '>' + hfEsc(s.label || k) + (s.hint ? ' — ' + hfEsc(s.hint) : '') + '</option>';
+    });
+    html += '</select></div>';
+
+    var hookPath = hasPlan ? 'plan.creative.hook' : 'prompt.hook';
+    var ctaPath = hasPlan ? 'plan.creative.cta' : 'prompt.cta';
+    html += '<div class="space-y-2 rounded-xl border border-line p-3">';
+    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Guion</p>';
+    html += hfReviewInput('Hook', hookPath, brief.hook, {});
+    html += hfReviewInput('CTA', ctaPath, brief.cta, {});
+    html += hfReviewInput('Guion completo (texto)', 'prompt.script', brief.script, { rows: 6 });
+    html += '</div>';
+
+    var extra = (payload.creative || []).filter(function (c) {
+      return c.path !== 'plan.creative.hook' && c.path !== 'plan.creative.cta';
+    });
+    if (extra.length) {
+      html += '<div class="space-y-2 rounded-xl border border-line p-3">';
+      html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Dirección creativa</p>';
+      extra.forEach(function (c) { html += hfReviewInput(c.label, c.path, c.value, {}); });
+      html += '</div>';
+    }
+
+    var scenes = payload.scenes || [];
+    if (scenes.length) {
+      html += '<div class="space-y-2"><p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Escenas del plan (' + scenes.length + ')</p>';
+      scenes.forEach(function (sc, i) {
+        html += '<div class="rounded-xl border border-line p-3 space-y-2"><p class="text-[11px] font-medium uppercase tracking-wide text-teal">Escena ' + (i + 1) + (sc.purpose ? ' · ' + hfEsc(sc.purpose) : '') + '</p>';
+        sc.nodes.forEach(function (n) { html += hfReviewInput(n.label, n.path, n.value, {}); });
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    var dialogue = payload.dialogue || [];
+    if (dialogue.length) {
+      html += '<div class="space-y-2"><p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Narración</p>';
+      dialogue.forEach(function (d) { html += hfReviewInput(d.label, d.path, d.value, {}); });
+      html += '</div>';
+    }
+
+    var files = payload.files || {};
+    var images = files.images || [];
+    var videos = files.videos || [];
+    html += '<div class="space-y-2 rounded-xl border border-line p-3">';
+    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Archivos que se enviarán</p>';
+    if (!images.length && !videos.length) html += '<p class="text-xs text-ink-soft/60">No se detectaron medios descargados para este producto.</p>';
+    if (images.length) html += hfAssetGroup('Imágenes', images, 'image');
+    if (videos.length) html += hfAssetGroup('Videos de producto', videos, 'video');
+    html += '</div>';
+
+    els.body.innerHTML = html;
+    els.modal.classList.remove('hidden');
+    els.modal.classList.add('flex');
+    els.modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function hfHideReview() {
+    var els = hfReviewEls();
+    if (!els.modal) return;
+    els.modal.classList.add('hidden');
+    els.modal.classList.remove('flex');
+    els.modal.setAttribute('aria-hidden', 'true');
+  }
+
+  function hfCollectReviewEdits() {
+    var els = hfReviewEls();
+    var texts = {};
+    if (els.body) {
+      els.body.querySelectorAll('[data-hf-path]').forEach(function (el) {
+        var path = el.getAttribute('data-hf-path');
+        if (!path) return;
+        texts[path] = el.value == null ? '' : String(el.value);
+      });
+    }
+    var styleSel = document.getElementById('md-hf-review-style');
+    var excludeImages = [];
+    var excludeVideos = [];
+    if (els.body) {
+      els.body.querySelectorAll('[data-hf-asset]').forEach(function (cb) {
+        if (cb.checked) return;
+        var name = cb.getAttribute('data-hf-asset');
+        if (!name) return;
+        var dot = name.lastIndexOf('.');
+        if (dot === -1) return;
+        var ext = name.slice(dot + 1).toLowerCase();
+        if (['mp4', 'webm', 'mov', 'm4v'].indexOf(ext) !== -1) excludeVideos.push(name);
+        else excludeImages.push(name);
+      });
+    }
+    return {
+      texts: texts,
+      visual_style: styleSel ? styleSel.value : (hfReview.payload.options || {}).visual_style,
+      exclude_images: excludeImages,
+      exclude_videos: excludeVideos
+    };
+  }
+
+  $(document).on('click', '#md-hf-review-close', function () {
+    var state = hfReview;
+    if (!state.jobId) { hfHideReview(); return; }
+    hfHideReview();
+    var productId = state.productId;
+    if (hfJobs[productId]) {
+      hfJobs[productId].stopped = true;
+      hfJobs[productId].queue = [];
+    }
+    var goBtn = document.querySelector('.md-hyperframes-go[data-product-id="' + productId + '"]');
+    hfSetMsg(productId, 'Cancelando revisión…', false);
+    fetch(@json(route('admin.store.marketing.hyperframes.cancel')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ job_id: state.jobId })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      hfFinish(productId, goBtn, (res && res.message) ? res.message : 'Generación cancelada');
+    }).catch(function () {
+      hfFinish(productId, goBtn, 'No se pudo confirmar la cancelación; el job puede quedar en pausa.', { error: true });
+    });
+  });
+
+  $(document).on('click', '.md-hf-review-submit', function () {
+    var state = hfReview;
+    var btn = this;
+    var isRegen = !!(state && state.payload && state.payload.video_id);
+    if (!state || (!state.jobId && !isRegen)) return;
+    var productId = state.productId;
+    var goBtn = state.btn || document.querySelector('.md-hyperframes-go[data-product-id="' + productId + '"]');
+    var edits = hfCollectReviewEdits();
+    var hint = hfReviewEls().hint;
+
+    btn.disabled = true;
+    if (hint) { hint.textContent = isRegen ? 'Regenerando guion y encolando render…' : 'Enviando y comenzando render…'; hint.classList.remove('text-red-700'); }
+
+    var endpoint = isRegen
+      ? @json(route('admin.store.marketing.hyperframes.regenerate'))
+      : @json(route('admin.store.marketing.hyperframes.confirm'));
+    var payload = isRegen ? {
+      campaign_id: parseInt(state.payload.campaign_id, 10) || 0,
+      product_id: parseInt(state.payload.product_id, 10) || parseInt(productId, 10) || 0,
+      video_id: parseInt(state.payload.video_id, 10) || 0,
+      texts: edits.texts,
+      visual_style: edits.visual_style
+    } : {
+      job_id: state.jobId,
+      texts: edits.texts,
+      visual_style: edits.visual_style,
+      exclude_images: edits.exclude_images,
+      exclude_videos: edits.exclude_videos
+    };
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () {
+        return { ok: false, j: { ok: false, message: 'Respuesta inválida del servidor (HTTP ' + r.status + ')' } };
+      });
+    }).then(function (pack) {
+      btn.disabled = false;
+      if (!pack.j || !pack.j.ok) {
+        if (hint) { hint.textContent = (pack.j && pack.j.message) ? pack.j.message : 'No se pudo completar la operación.'; hint.classList.add('text-red-700'); }
+        return;
+      }
+      hfHideReview();
+      hfSetMsg(productId, pack.j.message || (isRegen ? 'Regenerando video…' : 'Render iniciado con tu revisión…'), false);
+      if (isRegen) {
+        if (hfJobs[productId]) hfJobs[productId].stopped = true;
+        hfJobs[productId] = { jobId: pack.j.job_id, stopped: false, timer: null, queue: [], doneCount: 0, total: 1 };
+        hfRegenResume = { productId: productId, jobId: pack.j.job_id, edits: edits };
+      } else {
+        if (hfJobs[productId]) {
+          hfJobs[productId].jobId = pack.j.job_id;
+          hfJobs[productId].stopped = false;
+          hfJobs[productId].queue = [];
+        }
+      }
+      hfSetCancelVisible(productId, true, pack.j.job_id);
+      pollHyperframes(pack.j.job_id, productId, goBtn);
+    }).catch(function () {
+      btn.disabled = false;
+      if (hint) { hint.textContent = isRegen ? 'Error de red al regenerar. Intenta de nuevo.' : 'Error de red al confirmar la revisión. Intenta de nuevo.'; hint.classList.add('text-red-700'); }
+    });
+  });
+
+  $(document).on('click', '[data-md-hf-regen]', function () {
+    var regenBtn = this;
+    var videoId = regenBtn.getAttribute('data-video-id');
+    var productId = regenBtn.getAttribute('data-product-id');
+    if (!videoId || !productId) return;
+    regenBtn.disabled = true;
+    var goBtn = document.querySelector('.md-hyperframes-go[data-product-id="' + productId + '"]');
+    hfSetMsg(productId, 'Cargando configuración del video…', false);
+    fetch(@json(route('admin.store.marketing.hyperframes.regenerate-payload')), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ video_id: parseInt(videoId, 10) })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () {
+        return { ok: false, j: { ok: false, message: 'Respuesta inválida al cargar el video (HTTP ' + r.status + ')' } };
+      });
+    }).then(function (pack) {
+      regenBtn.disabled = false;
+      if (!pack.j || !pack.j.ok || !pack.j.payload) {
+        hfSetMsg(productId, (pack.j && pack.j.message) ? pack.j.message : 'No se pudo abrir el modal de regeneración.', true);
+        return;
+      }
+      hfOpenReview(productId, goBtn, pack.j.payload, null);
+      var submitBtn = document.querySelector('.md-hf-review-submit');
+      if (submitBtn) submitBtn.textContent = 'Regenerar video';
+    }).catch(function () {
+      regenBtn.disabled = false;
+      hfSetMsg(productId, 'Error de red al cargar la configuración del video.', true);
     });
   });
 
@@ -1406,6 +2101,195 @@
       if (card) card.classList.add('pointer-events-none');
     });
   }
+
+  // ---- NotebookLM / Seller Central videos ----
+  var nlmPollers = {};
+  var nlmPollUrl = @json(route('admin.store.marketing.notebooklm.poll'));
+  var nlmGenerateUrl = @json(route('admin.store.marketing.notebooklm.generate'));
+  var nlmCancelUrl = @json(route('admin.store.marketing.notebooklm.cancel'));
+  var nlmDefaultPoll = {{ (int) (($notebooklm['poll_seconds'] ?? 8)) }};
+
+  function nlmCsrf() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+  }
+
+  function nlmEls(productId) {
+    return {
+      msg: document.querySelector('.md-notebooklm-msg[data-product-id="' + productId + '"]'),
+      process: document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]'),
+      status: document.querySelector('.md-notebooklm-status[data-product-id="' + productId + '"]'),
+      badge: document.querySelector('.md-notebooklm-badge[data-product-id="' + productId + '"]'),
+      steps: document.querySelector('.md-notebooklm-steps[data-product-id="' + productId + '"]'),
+      go: document.querySelector('.md-notebooklm-go[data-product-id="' + productId + '"]'),
+      cancel: document.querySelector('.md-notebooklm-cancel[data-product-id="' + productId + '"]')
+    };
+  }
+
+  function nlmMode(productId) {
+    var el = document.querySelector('input.md-notebooklm-mode[data-product-id="' + productId + '"]:checked');
+    return el ? el.value : 'assets';
+  }
+
+  function nlmInstructions(productId) {
+    var el = document.querySelector('.md-notebooklm-instructions[data-product-id="' + productId + '"]');
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function nlmRenderJob(productId, job) {
+    var els = nlmEls(productId);
+    if (!job) return;
+    if (els.process) {
+      els.process.classList.remove('hidden');
+      els.process.setAttribute('data-job-id', job.id || '');
+    }
+    if (els.status) els.status.textContent = job.status_label || job.status || '—';
+    if (els.badge) els.badge.textContent = job.status || '—';
+    if (els.steps) {
+      var steps = Array.isArray(job.steps) ? job.steps : [];
+      if (!steps.length) {
+        els.steps.innerHTML = '<li class="text-ink-soft/50">Esperando pasos del agente NotebookLM…</li>';
+      } else {
+        els.steps.innerHTML = steps.map(function (s) {
+          var color = s.ok === false ? 'text-coral' : (s.ok === true ? 'text-teal' : 'text-ink-soft/40');
+          var msg = s.message ? (' — ' + String(s.message).replace(/</g, '&lt;')) : '';
+          return '<li class="flex gap-2"><span class="shrink-0 ' + color + '">•</span><span><span class="font-medium text-ink-soft/70">' +
+            String(s.step || 'step').replace(/</g, '&lt;') + '</span>' + msg + '</span></li>';
+        }).join('');
+      }
+    }
+    if (els.go) els.go.disabled = !job.is_terminal;
+    if (els.cancel) els.cancel.disabled = !!job.is_terminal;
+    if (els.msg) {
+      if (job.status === 'completed') els.msg.textContent = 'Video recibido y guardado en el producto.';
+      else if (job.status === 'error') els.msg.textContent = job.error_message || 'Error en la generación.';
+      else els.msg.textContent = job.status_label || 'Procesando…';
+    }
+  }
+
+  function nlmStopPoll(productId) {
+    if (nlmPollers[productId]) {
+      clearTimeout(nlmPollers[productId]);
+      delete nlmPollers[productId];
+    }
+  }
+
+  function nlmPoll(productId, jobId, seconds) {
+    nlmStopPoll(productId);
+    var wait = Math.max(4, parseInt(seconds || nlmDefaultPoll, 10) || nlmDefaultPoll) * 1000;
+    nlmPollers[productId] = setTimeout(function () {
+      fetch(nlmPollUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': nlmCsrf()
+        },
+        body: JSON.stringify({ job_id: jobId })
+      }).then(function (r) { return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }); })
+        .then(function (pack) {
+          var job = pack.j && pack.j.job ? pack.j.job : null;
+          if (!job) {
+            var els = nlmEls(productId);
+            if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo consultar el estado.';
+            return;
+          }
+          nlmRenderJob(productId, job);
+          if (job.is_terminal) {
+            nlmStopPoll(productId);
+            if (job.status === 'completed') {
+              setTimeout(function () { window.location.reload(); }, 1200);
+            }
+            return;
+          }
+          nlmPoll(productId, job.id, pack.j.poll_seconds || nlmDefaultPoll);
+        })
+        .catch(function () {
+          var els = nlmEls(productId);
+          if (els.msg) els.msg.textContent = 'Error de red al consultar NotebookLM. Reintentando…';
+          nlmPoll(productId, jobId, nlmDefaultPoll);
+        });
+    }, wait);
+  }
+
+  $(document).on('click', '.md-notebooklm-go', function () {
+    var btn = this;
+    var productId = btn.getAttribute('data-product-id');
+    var campaignId = btn.getAttribute('data-campaign-id');
+    var els = nlmEls(productId);
+    btn.disabled = true;
+    if (els.cancel) els.cancel.disabled = false;
+    if (els.msg) els.msg.textContent = 'Enviando a Seller Central…';
+    fetch(nlmGenerateUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': nlmCsrf()
+      },
+      body: JSON.stringify({
+        campaign_id: parseInt(campaignId, 10),
+        product_id: parseInt(productId, 10),
+        mode: nlmMode(productId),
+        instructions: nlmInstructions(productId)
+      })
+    }).then(function (r) { return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }); })
+      .then(function (pack) {
+        if (!pack.okHttp || !pack.j || !pack.j.ok || !pack.j.job) {
+          btn.disabled = false;
+          if (els.cancel) els.cancel.disabled = true;
+          if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo iniciar NotebookLM.';
+          return;
+        }
+        nlmRenderJob(productId, pack.j.job);
+        nlmPoll(productId, pack.j.job.id, pack.j.poll_seconds || nlmDefaultPoll);
+      })
+      .catch(function () {
+        btn.disabled = false;
+        if (els.msg) els.msg.textContent = 'Error de red al iniciar NotebookLM.';
+      });
+  });
+
+  $(document).on('click', '.md-notebooklm-cancel', function () {
+    var productId = this.getAttribute('data-product-id');
+    var process = document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]');
+    var jobId = process ? process.getAttribute('data-job-id') : '';
+    if (!jobId) return;
+    var els = nlmEls(productId);
+    this.disabled = true;
+    if (els.msg) els.msg.textContent = 'Deteniendo…';
+    nlmStopPoll(productId);
+    fetch(nlmCancelUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': nlmCsrf()
+      },
+      body: JSON.stringify({ job_id: parseInt(jobId, 10) })
+    }).then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.job) nlmRenderJob(productId, j.job);
+        if (els.go) els.go.disabled = false;
+        if (els.msg) els.msg.textContent = (j && j.message) || 'Detenido.';
+      })
+      .catch(function () {
+        if (els.msg) els.msg.textContent = 'No se pudo detener.';
+      });
+  });
+
+  document.querySelectorAll('.md-notebooklm-process[data-job-bootstrap]').forEach(function (el) {
+    var productId = el.getAttribute('data-product-id');
+    var raw = el.getAttribute('data-job-bootstrap');
+    if (!productId || !raw) return;
+    try {
+      var job = JSON.parse(raw);
+      nlmRenderJob(productId, job);
+      if (job && job.id && !job.is_terminal) {
+        nlmPoll(productId, job.id, nlmDefaultPoll);
+      }
+    } catch (e) {}
+  });
 })(jQuery);
 </script>
 @endpush

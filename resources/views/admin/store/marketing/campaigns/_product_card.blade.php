@@ -4,13 +4,36 @@
     $productVideos = $productVideos ?? collect();
     $ctas = $ctas ?? [];
     $maxMb = $maxMb ?? 80;
+    $hyperframes = $hyperframes ?? ['ok' => false];
     $uploadedVideos = $productVideos->filter(fn ($v) => ($v->source ?: 'upload') === 'upload')->values();
-    $generatedLoose = $productVideos->reject(fn ($v) => ($v->source ?: 'upload') === 'upload')->values();
-    $promptVideoCount = $productPrompts->sum(fn ($pr) => $pr->videos->count());
+    // Incluir HF ligados a prompt (scrape auto); no depender solo de productVideos “sueltos”.
+    $hyperframesVideos = $productVideos
+        ->filter(fn ($v) => ($v->source ?: '') === 'hyperframes')
+        ->concat(
+            $productPrompts->flatMap(
+                fn ($pr) => $pr->videos->filter(fn ($v) => ($v->source ?: '') === 'hyperframes')
+            )
+        )
+        ->unique('id')
+        ->values();
+    $notebooklmVideos = $productVideos
+        ->filter(fn ($v) => ($v->source ?: '') === 'notebooklm')
+        ->values();
+    $generatedLoose = $productVideos
+        ->reject(fn ($v) => in_array(($v->source ?: 'upload'), ['upload', 'hyperframes', 'notebooklm'], true))
+        ->values();
+    $promptVideoCount = $productPrompts->sum(
+        fn ($pr) => $pr->videos->reject(fn ($v) => in_array(($v->source ?: ''), ['hyperframes', 'notebooklm'], true))->count()
+    );
     $videoCount = $productVideos->count() + $promptVideoCount;
     $ffmpegOk = $ffmpeg ?? true;
+    $notebooklm = $notebooklm ?? ['ok' => false];
+    $notebookJobs = collect($notebookJobs ?? []);
+    $activeNotebookJob = $notebookJobs->first(fn ($j) => $j instanceof \App\Models\SellerCentralVideoJob && $j->isActive());
     $collapseRemotion = $productPrompts->isEmpty() && $generatedLoose->isEmpty();
     $collapseUpload = $uploadedVideos->isEmpty();
+    $collapseHyperframes = $hyperframesVideos->isEmpty();
+    $collapseNotebook = $notebooklmVideos->isEmpty() && ! $activeNotebookJob;
 @endphp
 <div class="space-y-5" id="md-product-{{ $product->id }}">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -107,6 +130,191 @@
                 </div>
             @else
                 <p class="text-sm text-ink-soft/60">Aún no hay videos subidos para este producto.</p>
+            @endif
+        </div>
+    </div>
+
+    <p class="text-center text-[11px] font-semibold uppercase tracking-widest text-ink-soft/40">o</p>
+
+    <div class="rounded-xl border border-line overflow-hidden bg-white" data-md-fold @if($collapseHyperframes) data-md-fold-collapsed @endif>
+        <button type="button" class="flex w-full items-start gap-3 border-b border-line bg-mist/30 px-4 py-3 text-left" data-md-fold-toggle aria-expanded="{{ $collapseHyperframes ? 'false' : 'true' }}">
+            <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 3</p>
+                <h3 class="mt-0.5 font-semibold text-ink">Generar video con HyperFrames</h3>
+                <p class="mt-1 text-sm text-ink-soft/70">Promo vertical 9:16 Catalog Pop (~30s): fondo claro, producto grande, tipografía kinetic. Render vía <code class="text-[11px]">hyperframes.ceballosleon.com</code>.</p>
+            </div>
+            <span class="mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150 md-fold-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="p-4 space-y-4" data-md-fold-body @if($collapseHyperframes) hidden @endif>
+            @unless($hyperframes['ok'] ?? false)
+                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    HyperFrames no está listo. Configura <code>HYPERFRAMES_ADS_URL</code> y <code>HYPERFRAMES_ADS_TOKEN</code>, arranca el bridge local y el túnel Cloudflare.
+                </p>
+            @endunless
+            <div class="space-y-3">
+                <div>
+                    <label class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50 mb-1.5 block" for="md-hf-style-{{ $product->id }}">Estilo visual</label>
+                    @php
+                        $hfStyles = $hyperframes['visual_styles'] ?? config('multidrop.marketing.hyperframes.visual_styles', []);
+                        $hfDefaultStyle = $hyperframes['default_visual_style'] ?? config('multidrop.marketing.hyperframes.default_visual_style', 'signal');
+                    @endphp
+                    <select
+                        id="md-hf-style-{{ $product->id }}"
+                        class="admin-input !py-1.5 !px-2 !text-sm w-full max-w-md md-hyperframes-style"
+                        data-product-id="{{ $product->id }}"
+                    >
+                        @foreach($hfStyles as $styleKey => $styleMeta)
+                            <option value="{{ $styleKey }}" @selected($styleKey === $hfDefaultStyle)>
+                                {{ $styleMeta['label'] ?? $styleKey }}@if(!empty($styleMeta['hint'])) — {{ $styleMeta['hint'] }}@endif
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-[11px] text-ink-soft/50 md-hyperframes-style-hint" data-product-id="{{ $product->id }}">Cambia paleta, tipografía y energía del motion.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        class="admin-btn !px-3 !py-1.5 text-sm md-hyperframes-go"
+                        data-campaign-id="{{ $campaign->id }}"
+                        data-product-id="{{ $product->id }}"
+                        data-prompt-id=""
+                        @disabled(! ($hyperframes['ok'] ?? false))
+                    >Generar con HyperFrames</button>
+                </div>
+            </div>
+            <p class="text-xs text-ink-soft/55 md-hyperframes-msg" data-product-id="{{ $product->id }}" role="status" aria-live="polite"></p>
+            <div class="hidden rounded-lg border border-line bg-mist/40 px-3 py-2 md-hyperframes-progress" data-product-id="{{ $product->id }}">
+                <div class="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">
+                    <span>Progreso</span>
+                    <span class="md-hyperframes-step" data-product-id="{{ $product->id }}">0/8</span>
+                </div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                    <div class="h-full w-0 rounded-full bg-teal transition-all duration-300 md-hyperframes-bar" data-product-id="{{ $product->id }}"></div>
+                </div>
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p class="text-[11px] text-ink-soft/55 md-hyperframes-progress-hint">Puedes detener el render en cualquier momento.</p>
+                    <button
+                        type="button"
+                        class="admin-btn-danger !px-2.5 !py-1 !text-[11px] md-hyperframes-cancel"
+                        data-product-id="{{ $product->id }}"
+                        disabled
+                    >Detener</button>
+                </div>
+            </div>
+
+            @if($hyperframesVideos->isNotEmpty())
+                <div class="space-y-2 border-t border-line pt-4">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Videos HyperFrames ({{ $hyperframesVideos->count() }})</p>
+                    @foreach($hyperframesVideos as $v)
+                        @include('admin.store.marketing.campaigns._video_item', ['v' => $v, 'redirectTab' => 'productos', 'redirectProduct' => $product->id])
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    </div>
+
+    <p class="text-center text-[11px] font-semibold uppercase tracking-widest text-ink-soft/40">o</p>
+
+    <div class="rounded-xl border border-line overflow-hidden bg-white" data-md-fold @if($collapseNotebook) data-md-fold-collapsed @endif>
+        <button type="button" class="flex w-full items-start gap-3 border-b border-line bg-mist/30 px-4 py-3 text-left" data-md-fold-toggle aria-expanded="{{ $collapseNotebook ? 'false' : 'true' }}">
+            <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 4</p>
+                <h3 class="mt-0.5 font-semibold text-ink">Generar videos con NotebookLM</h3>
+                <p class="mt-1 text-sm text-ink-soft/70">Envía contenidos (o solo la URL) a Seller Central. El agente NotebookLM genera el MP4 (hasta ~30–45 min) y lo devuelve al producto.</p>
+            </div>
+            <span class="mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150 md-fold-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="p-4 space-y-4" data-md-fold-body @if($collapseNotebook) hidden @endif>
+            @unless($notebooklm['ok'] ?? false)
+                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    Seller Central no está conectado.
+                    <a href="{{ $notebooklm['settings_url'] ?? route('admin.store.marketing.sellercentral.index') }}" class="underline text-teal">Configura la API key</a>
+                    en Marketing → Publicaciones.
+                </p>
+            @endunless
+
+            <div class="space-y-3">
+                <fieldset class="space-y-2">
+                    <legend class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Qué enviar</legend>
+                    <label class="flex items-start gap-2 rounded-lg border border-line bg-mist/20 px-3 py-2 cursor-pointer">
+                        <input type="radio" name="md-nlm-mode-{{ $product->id }}" value="assets" class="mt-1 md-notebooklm-mode" data-product-id="{{ $product->id }}" checked>
+                        <span>
+                            <span class="block text-sm font-medium text-ink">Contenidos del producto</span>
+                            <span class="block text-xs text-ink-soft/60">Imágenes de galería, videos del producto y textos de la ficha.</span>
+                        </span>
+                    </label>
+                    <label class="flex items-start gap-2 rounded-lg border border-line bg-mist/20 px-3 py-2 cursor-pointer">
+                        <input type="radio" name="md-nlm-mode-{{ $product->id }}" value="url_only" class="mt-1 md-notebooklm-mode" data-product-id="{{ $product->id }}">
+                        <span>
+                            <span class="block text-sm font-medium text-ink">Solo URL del producto</span>
+                            <span class="block text-xs text-ink-soft/60">Seller Central / NotebookLM trabaja con el enlace público de la ficha.</span>
+                        </span>
+                    </label>
+                </fieldset>
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-ink-soft" for="md-nlm-instructions-{{ $product->id }}">Instrucciones (opcional)</label>
+                    <textarea id="md-nlm-instructions-{{ $product->id }}" rows="2" class="admin-input text-sm md-notebooklm-instructions" data-product-id="{{ $product->id }}" placeholder="Ej. tono juvenil, cerrar con CTA de compra…"></textarea>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        class="admin-btn !px-3 !py-1.5 text-sm md-notebooklm-go"
+                        data-campaign-id="{{ $campaign->id }}"
+                        data-product-id="{{ $product->id }}"
+                        @disabled(! ($notebooklm['ok'] ?? false) || (bool) $activeNotebookJob)
+                    >Enviar a NotebookLM</button>
+                    <button
+                        type="button"
+                        class="admin-btn-danger !px-2.5 !py-1 !text-[11px] md-notebooklm-cancel"
+                        data-product-id="{{ $product->id }}"
+                        @disabled(! $activeNotebookJob)
+                    >Detener</button>
+                </div>
+            </div>
+
+            <p class="text-xs text-ink-soft/55 md-notebooklm-msg" data-product-id="{{ $product->id }}" role="status" aria-live="polite"></p>
+
+            <div
+                class="rounded-lg border border-line bg-mist/40 px-3 py-2 md-notebooklm-process {{ $activeNotebookJob ? '' : 'hidden' }}"
+                data-product-id="{{ $product->id }}"
+                data-job-id="{{ $activeNotebookJob?->id }}"
+                @if($activeNotebookJob) data-job-bootstrap="{{ e(json_encode($activeNotebookJob->toPollPayload(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}" @endif
+            >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Proceso</p>
+                        <p class="mt-0.5 text-sm font-semibold text-ink md-notebooklm-status" data-product-id="{{ $product->id }}">
+                            {{ $activeNotebookJob?->statusLabel() ?: '—' }}
+                        </p>
+                    </div>
+                    <span class="admin-badge bg-amber-100 text-amber-800 md-notebooklm-badge" data-product-id="{{ $product->id }}">
+                        {{ $activeNotebookJob?->status ?: 'idle' }}
+                    </span>
+                </div>
+                <ol class="mt-3 space-y-1.5 text-xs text-ink-soft/80 md-notebooklm-steps" data-product-id="{{ $product->id }}">
+                    @if($activeNotebookJob)
+                        @forelse($activeNotebookJob->steps() as $step)
+                            <li class="flex gap-2">
+                                <span class="shrink-0 {{ $step['ok'] === false ? 'text-coral' : ($step['ok'] === true ? 'text-teal' : 'text-ink-soft/40') }}">•</span>
+                                <span>
+                                    <span class="font-medium text-ink-soft/70">{{ $step['step'] }}</span>
+                                    @if($step['message']) — {{ $step['message'] }}@endif
+                                </span>
+                            </li>
+                        @empty
+                            <li class="text-ink-soft/50">Esperando pasos del agente NotebookLM…</li>
+                        @endforelse
+                    @endif
+                </ol>
+            </div>
+
+            @if($notebooklmVideos->isNotEmpty())
+                <div class="space-y-2 border-t border-line pt-4">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Videos NotebookLM ({{ $notebooklmVideos->count() }})</p>
+                    @foreach($notebooklmVideos as $v)
+                        @include('admin.store.marketing.campaigns._video_item', ['v' => $v, 'redirectTab' => 'productos', 'redirectProduct' => $product->id])
+                    @endforeach
+                </div>
             @endif
         </div>
     </div>

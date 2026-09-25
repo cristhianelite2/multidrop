@@ -19,7 +19,9 @@ use App\Http\Controllers\Admin\Store\RouletteController;
 use App\Http\Controllers\Admin\Store\CookieConsentController;
 use App\Http\Controllers\Admin\Store\Marketing\CampaignController as MarketingCampaignController;
 use App\Http\Controllers\Admin\Store\Marketing\CreatifyController as MarketingCreatifyController;
+use App\Http\Controllers\Admin\Store\Marketing\HyperFramesController as MarketingHyperFramesController;
 use App\Http\Controllers\Admin\Store\Marketing\MarketingController;
+use App\Http\Controllers\Admin\Store\Marketing\NotebookLmController as MarketingNotebookLmController;
 use App\Http\Controllers\Admin\Store\Marketing\PromptController as MarketingPromptController;
 use App\Http\Controllers\Admin\Store\Marketing\RemotionController as MarketingRemotionController;
 use App\Http\Controllers\Admin\Store\Marketing\SellerCentralController;
@@ -151,6 +153,8 @@ Route::prefix('t/{theme:slug}')->name('theme.sandbox.')->group(function () {
 Route::post('/webhooks/mercadopago', [PaymentWebhookController::class, 'mercadopago'])->name('webhooks.mercadopago');
 Route::post('/webhooks/paypal', [PaymentWebhookController::class, 'paypal'])->name('webhooks.paypal');
 Route::post('/webhooks/stripe', [PaymentWebhookController::class, 'stripe'])->name('webhooks.stripe');
+Route::post('/webhooks/sellercentral/videos/{token}', [\App\Http\Controllers\Webhooks\SellerCentralVideoWebhookController::class, '__invoke'])
+    ->name('webhooks.sellercentral.videos');
 
 Route::get('/mega', function () {
     $miniStores = \Illuminate\Support\Facades\DB::table('stores')
@@ -236,6 +240,15 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('creatify/poll', [MarketingCreatifyController::class, 'poll'])->name('creatify.poll');
                     Route::post('remotion/generate', [MarketingRemotionController::class, 'generate'])->name('remotion.generate');
                     Route::post('remotion/poll', [MarketingRemotionController::class, 'poll'])->name('remotion.poll');
+                    Route::post('hyperframes/generate', [MarketingHyperFramesController::class, 'generate'])->name('hyperframes.generate');
+                    Route::post('hyperframes/poll', [MarketingHyperFramesController::class, 'poll'])->name('hyperframes.poll');
+                    Route::post('hyperframes/confirm', [MarketingHyperFramesController::class, 'confirm'])->name('hyperframes.confirm');
+                    Route::post('hyperframes/cancel', [MarketingHyperFramesController::class, 'cancel'])->name('hyperframes.cancel');
+                    Route::post('hyperframes/regenerate', [MarketingHyperFramesController::class, 'regenerate'])->name('hyperframes.regenerate');
+                    Route::post('hyperframes/regenerate-payload', [MarketingHyperFramesController::class, 'regeneratePayload'])->name('hyperframes.regenerate-payload');
+                    Route::post('notebooklm/generate', [MarketingNotebookLmController::class, 'generate'])->name('notebooklm.generate');
+                    Route::post('notebooklm/poll', [MarketingNotebookLmController::class, 'poll'])->name('notebooklm.poll');
+                    Route::post('notebooklm/cancel', [MarketingNotebookLmController::class, 'cancel'])->name('notebooklm.cancel');
                     Route::get('sellercentral', [SellerCentralController::class, 'index'])->name('sellercentral.index');
                     Route::post('sellercentral/test', [SellerCentralController::class, 'test'])->name('sellercentral.test');
                     Route::post('sellercentral/settings', [SellerCentralController::class, 'saveSettings'])->name('sellercentral.settings');

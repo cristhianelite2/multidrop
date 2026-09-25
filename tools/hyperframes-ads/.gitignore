@@ -1,0 +1,13 @@
+jobs/
+client-jobs/
+transport/
+bridge/server.log
+bridge/token.txt
+bridge/tunnel.log
+bridge/cloudflared-config.yml
+**/node_modules/
+**/.hyperframes/
+**/renders/
+**/out/
+*.mp4
+.DS_Store

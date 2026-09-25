@@ -199,6 +199,52 @@ return [
             ),
         ],
         /*
+         * HyperFrames Ads (tools/hyperframes-ads): composición HTML → render local.
+         * mode=remote (default): Multidrop llama al bridge por túnel
+         *   https://hyperframes.ceballosleon.com (máquina local con HyperFrames/Node).
+         * mode=local: pipeline en la misma máquina que la app.
+         */
+        'hyperframes' => [
+            'root' => env('HYPERFRAMES_ADS_ROOT', base_path('tools/hyperframes-ads')),
+            'python' => env('HYPERFRAMES_ADS_PYTHON', 'python3'),
+            'timeout_seconds' => (int) env('HYPERFRAMES_ADS_TIMEOUT', 2400),
+            'mode' => env('HYPERFRAMES_ADS_MODE', 'remote'),
+            'remote_url' => env('HYPERFRAMES_ADS_URL', 'https://hyperframes.ceballosleon.com'),
+            'remote_token' => env('HYPERFRAMES_ADS_TOKEN', ''),
+            'sync' => filter_var(
+                env('HYPERFRAMES_ADS_SYNC', true),
+                FILTER_VALIDATE_BOOL
+            ),
+            /*
+             * Estilos Catalog Pop (clave → build_composition STYLE_PALETTES).
+             * El select del admin fuerza visual_style en product.json.
+             */
+            'visual_styles' => [
+                'signal' => ['label' => 'Catalog Pop', 'hint' => 'Papel + coral, vitrina clásica'],
+                'tech' => ['label' => 'Tech Blue', 'hint' => 'Gadget, frío y limpio'],
+                'beauty' => ['label' => 'Beauty Glow', 'hint' => 'Rosa / brillo skincare'],
+                'home' => ['label' => 'Home Fresh', 'hint' => 'Verde hogar y cocina'],
+                'sport' => ['label' => 'Sport Punch', 'hint' => 'Naranja energía fitness'],
+                'luxury' => ['label' => 'Luxe Gold', 'hint' => 'Champagne premium'],
+                'candy' => ['label' => 'Candy Pop', 'hint' => 'Colores dulces y juguetones'],
+                'citrus' => ['label' => 'Citrus Hit', 'hint' => 'Limón / naranja fresca'],
+                'ocean' => ['label' => 'Ocean Teal', 'hint' => 'Agua y calma'],
+                'ink' => ['label' => 'Ink Editorial', 'hint' => 'Alto contraste tipográfico'],
+                'pastel' => ['label' => 'Soft Pastel', 'hint' => 'Pasteles suaves'],
+                'neon' => ['label' => 'Neon Light', 'hint' => 'Acento neón sobre claro'],
+                'editorial' => ['label' => 'Magazine', 'hint' => 'Look revista / editorial'],
+                'mono' => ['label' => 'Mono Stark', 'hint' => 'Blanco/negro minimal'],
+            ],
+            'default_visual_style' => 'signal',
+            /*
+             * Planificador Miia (video_plan.json). Desactivado por defecto hasta
+             * restaurar el paquete completo; el pipeline Catalog Pop sigue sin él.
+             */
+            'video_planner' => [
+                'enabled' => filter_var(env('HYPERFRAMES_VIDEO_PLANNER', false), FILTER_VALIDATE_BOOL),
+            ],
+        ],
+        /*
          * Iframe de Seller Central para administrar publicaciones desde la campaña.
          * Por tienda se puede pisar en settings.marketing.sellercentral_embed_url.
          */
@@ -217,6 +263,8 @@ return [
             'max_posts_per_plan' => (int) env('SELLERCENTRAL_MAX_POSTS_PER_PLAN', 100),
             'max_days' => (int) env('SELLERCENTRAL_MAX_DAYS', 60),
             'max_per_day' => (int) env('SELLERCENTRAL_MAX_PER_DAY', 10),
+            'video_format' => env('SELLERCENTRAL_VIDEO_FORMAT', 'short'),
+            'video_poll_seconds' => (int) env('SELLERCENTRAL_VIDEO_POLL_SECONDS', 8),
         ],
     ],
 

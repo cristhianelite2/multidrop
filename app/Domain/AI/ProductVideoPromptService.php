@@ -2,6 +2,7 @@
 
 namespace App\Domain\AI;
 
+use App\Domain\AI\Support\JsonObjectParser;
 use App\Models\MarketingCampaign;
 use App\Models\Product;
 use App\Models\Store;
@@ -18,6 +19,11 @@ class ProductVideoPromptService
         protected ProductMarketingMediaService $media,
         protected ProductDescriptionHtml $copy
     ) {}
+
+    public function hasMiiaAvailable(): bool
+    {
+        return $this->ai->hasMiia();
+    }
 
     /**
      * @return array{
@@ -45,10 +51,27 @@ class ProductVideoPromptService
         $language = trim((string) ($options['language'] ?? 'es')) ?: 'es';
         $platform = trim((string) ($options['target_platform'] ?? 'Tiktok')) ?: 'Tiktok';
         $campaign = $this->resolveCampaign($store, $options['campaign_id'] ?? null);
+        $skipVision = array_key_exists('skip_vision', $options)
+            ? (bool) $options['skip_vision']
+            : ! empty($options['page_scrape']);
 
         $context = $this->buildContext($store, $product, $targetSeconds, $language, $platform, $campaign);
+        if (! empty($options['page_scrape']) && is_array($options['page_scrape'])) {
+            $context = $this->mergePageScrape($context, $options['page_scrape']);
+        }
+        if (! empty($options['creative_angle']) && is_array($options['creative_angle'])) {
+            $context['creative_angle'] = $options['creative_angle'];
+            $context['problem'] = (string) ($options['creative_angle']['problem'] ?? '');
+            $context['angle_type'] = (string) ($options['creative_angle']['type'] ?? '');
+            $context['angle_label'] = (string) ($options['creative_angle']['label'] ?? '');
+            $context['value_prop'] = (string) ($options['creative_angle']['value'] ?? '');
+        }
+        if ($skipVision) {
+            $context['vision_image_count'] = 0;
+            $context['skip_vision'] = true;
+        }
         $messages = $this->buildMessages($store, $product, $context);
-        $hasVision = count($context['image_urls'] ?? []) > 0;
+        $hasVision = ! $skipVision && count($context['image_urls'] ?? []) > 0 && ((int) ($context['vision_image_count'] ?? 0) > 0);
 
         $result = $this->callMiia($messages, withJsonFormat: true, withVision: $hasVision);
         if (! ($result['success'] ?? false)) {
@@ -97,13 +120,14 @@ class ProductVideoPromptService
             $segments = $this->fallbackSegments($parsed, $targetSeconds);
         }
         $segments = $this->sanitizeSegmentsCopy($segments);
+        $segments = $this->ensureSegmentOverlays($segments);
         $parsed = $this->sanitizeParsedCopy($parsed);
         $creative = $this->sanitizeCreativeCopy($creative);
 
         $script = $this->formatFullScript($creative, $segments, $parsed);
         $hook = trim((string) ($parsed['hook'] ?? ''));
         if ($hook === '' && $segments !== []) {
-            $hook = trim((string) ($segments[0]['voiceover'] ?? ''));
+            $hook = trim((string) ($segments[0]['text_on_screen'] ?? $segments[0]['voiceover'] ?? ''));
         }
         $hook = $this->sanitizeSpokenCopy($hook);
 
@@ -113,8 +137,8 @@ class ProductVideoPromptService
         }
 
         $analysis = [
-            'summary' => trim((string) ($parsed['summary'] ?? '')),
-            'product_angle' => trim((string) ($parsed['product_angle'] ?? '')),
+            'summary' => $this->sanitizeSpokenCopy(trim((string) ($parsed['summary'] ?? ''))),
+            'product_angle' => $this->sanitizeSpokenCopy(trim((string) ($parsed['product_angle'] ?? ''))),
             'recommended_format' => trim((string) ($parsed['recommended_format'] ?? 'mixed')),
             'video_length_seconds' => $this->segmentsDuration($segments),
             'creative_direction' => $creative,
@@ -122,7 +146,54 @@ class ProductVideoPromptService
             'camera_notes' => $this->segmentFieldToText($parsed['camera_notes'] ?? data_get($creative, 'camera.style', '')),
             'generated_at' => now()->toIso8601String(),
             'product_id' => $product->id,
+            'source' => 'miia',
         ];
+
+        // Beats on-screen: siempre desde segmentos MIIA (no desde scrape).
+        $segBeats = $this->beatsFromSegments($segments);
+        if ($segBeats !== []) {
+            $analysis['beats'] = $segBeats;
+        }
+
+        // Ángulo del scrape solo rellena huecos; nunca pisa el copy MIIA.
+        if (($analysis['summary'] ?? '') === '' && ! empty($context['value_prop'])) {
+            $analysis['summary'] = (string) $context['value_prop'];
+        }
+        if (($analysis['product_angle'] ?? '') === '' && ! empty($context['value_prop'])) {
+            $analysis['product_angle'] = (string) $context['value_prop'];
+        }
+        if (empty($analysis['problem']) && ! empty($context['problem'])) {
+            $analysis['problem'] = (string) $context['problem'];
+        }
+        if (empty($analysis['angle_type']) && ! empty($context['angle_type'])) {
+            $analysis['angle_type'] = (string) $context['angle_type'];
+            $analysis['angle_label'] = (string) ($context['angle_label'] ?? '');
+        }
+        if (empty($analysis['value_prop'])) {
+            $analysis['value_prop'] = (string) ($analysis['product_angle'] ?: ($context['value_prop'] ?? ''));
+        }
+        if (empty($analysis['beats']) && ! empty($context['creative_angle']['beats']) && is_array($context['creative_angle']['beats'])) {
+            $analysis['beats'] = $context['creative_angle']['beats'];
+        }
+        if (! empty($context['page_scrape_url']) && ($context['context_source'] ?? '') !== 'product_catalog') {
+            $analysis['scraped_url'] = (string) $context['page_scrape_url'];
+        }
+        if (($context['context_source'] ?? '') === 'product_catalog') {
+            $analysis['source'] = 'miia_catalog';
+        }
+
+        $cta = trim((string) data_get($creative, 'brand.cta', ''));
+        if ($cta === '') {
+            foreach (array_reverse($segments) as $seg) {
+                if (($seg['type'] ?? '') === 'cta' && trim((string) ($seg['voiceover'] ?? '')) !== '') {
+                    $cta = $this->sanitizeSpokenCopy((string) $seg['voiceover']);
+                    break;
+                }
+            }
+        }
+        if ($cta !== '') {
+            $analysis['cta'] = mb_substr($cta, 0, 80);
+        }
 
         return [
             'success' => true,
@@ -132,10 +203,11 @@ class ProductVideoPromptService
                 'script' => mb_substr($script, 0, self::SCRIPT_MAX_CHARS),
                 'audience' => mb_substr($this->segmentFieldToText($parsed['audience'] ?? data_get($creative, 'channel.audience', '')), 0, 240),
                 'language' => $language,
-                'style' => trim((string) ($parsed['visual_style'] ?? 'DynamicProductTemplate')) ?: 'DynamicProductTemplate',
-                'script_style' => trim((string) ($parsed['script_style'] ?? 'DontWorryWriter')),
+                'style' => trim((string) ($parsed['visual_style'] ?? 'CatalogPopTemplate')) ?: 'CatalogPopTemplate',
+                'script_style' => trim((string) ($parsed['script_style'] ?? 'ProductSpotlight')) ?: 'ProductSpotlight',
                 'target_platform' => $platform,
                 'video_length' => $this->segmentsDuration($segments),
+                'cta' => $analysis['cta'] ?? 'Compra ahora',
             ],
             'analysis' => $analysis,
             'segments' => $segments,
@@ -246,6 +318,62 @@ class ProductVideoPromptService
 
     /**
      * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $scrape
+     * @return array<string, mixed>
+     */
+    protected function mergePageScrape(array $context, array $scrape): array
+    {
+        $fromCatalog = ! empty($scrape['from_catalog']);
+        $title = trim((string) ($scrape['title'] ?? ''));
+        $desc = trim((string) ($scrape['description'] ?? ''));
+        $plain = trim((string) ($scrape['plain_text'] ?? ''));
+        $bullets = is_array($scrape['bullets'] ?? null) ? $scrape['bullets'] : [];
+
+        // Catálogo gana: solo enriquecer si el scrape aporta bullets útiles y no es chrome.
+        $catalogDesc = trim((string) ($context['description'] ?? ''));
+        if ($desc !== '' && $fromCatalog && ($catalogDesc === '' || mb_strlen($catalogDesc) < 40)) {
+            $context['description'] = mb_substr($desc, 0, 2800);
+        } elseif ($desc !== '' && ! $fromCatalog && mb_strlen($catalogDesc) < 40 && mb_strlen($desc) > 40) {
+            // Solo si el scrape parece ficha real (no storefront).
+            if (! preg_match('/\b(inicio|carrito|pasarela|checkout|también te puede)\b/iu', $desc)) {
+                $context['description'] = mb_substr($desc, 0, 2800);
+            }
+        }
+
+        if ($title !== '' && mb_strlen($title) > 3 && ! preg_match('/^(inicio|home|carrito)\b/iu', $title)) {
+            $context['scraped_title'] = mb_substr($title, 0, 160);
+        }
+
+        $details = is_array($context['details'] ?? null) ? $context['details'] : [];
+        foreach ($bullets as $b) {
+            $line = trim((string) $b);
+            if ($line === '' || in_array($line, $details, true)) {
+                continue;
+            }
+            if (preg_match('/\b(carrito|checkout|pasarela|cat[aá]logo|mxn|locale)\b/iu', $line)) {
+                continue;
+            }
+            $details[] = $line;
+            if (count($details) >= 16) {
+                break;
+            }
+        }
+        $context['details'] = $details;
+        $context['page_bullets'] = array_slice($bullets, 0, 10);
+        // Nunca inyectar plain_text crudo de storefront (JS/nav/checkout).
+        if ($fromCatalog || ($plain !== '' && ! preg_match('/\b(pasarela|md-checkout|:root|también te puede)\b/iu', $plain))) {
+            $context['page_plain_text'] = mb_substr($fromCatalog ? $plain : mb_substr($plain, 0, 1200), 0, 4500);
+        } else {
+            unset($context['page_plain_text']);
+        }
+        $context['page_scrape_url'] = (string) ($scrape['url'] ?? $scrape['source_hint'] ?? '');
+        $context['context_source'] = $fromCatalog ? 'product_catalog' : 'cloudflare_browser_rendering';
+
+        return $context;
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
      * @return list<array{role: string, content: mixed}>
      */
     protected function buildMessages(Store $store, Product $product, array $context): array
@@ -253,25 +381,52 @@ class ProductVideoPromptService
         $minSeg = (int) ($context['min_segments'] ?? 7);
         $seconds = (int) ($context['target_seconds'] ?? 21);
         $imageCount = (int) ($context['vision_image_count'] ?? 0);
+        $skipVision = ! empty($context['skip_vision']) || $imageCount < 1;
+        $pageNote = '';
+        if (! empty($context['page_scrape_url']) && ($context['context_source'] ?? '') !== 'product_catalog') {
+            $pageNote = ' Usa bullets de la ficha solo si aportan specs reales; el nombre/descripción del catálogo son la fuente principal.';
+        } else {
+            $pageNote = ' Fuente principal: catálogo del producto (nombre, descripción, precio, detalles). Ignora chrome de tienda.';
+        }
+        $angleNote = '';
+        if (! empty($context['angle_label'])) {
+            $angleNote = ' Ángulo creativo: '.$context['angle_label']
+                .' — video tipo CATÁLOGO KINETIC (magazine pop): producto protagonista, tipografía grande, beats cortos.'
+                .' Estructura: 1) gancho visual del producto, 2) beneficio concreto, 3) por qué es '
+                .mb_strtolower((string) $context['angle_label'])
+                .', 4) CTA. Sin relleno. Frases ≤12 palabras. PROHIBIDO hooks genéricos tipo "pierdes tiempo" si no vienen del producto.';
+        }
 
         $system = <<<TXT
-Eres un director creativo senior de TikTok Shop (UGC + demo de producto).
-Genera un brief listo para Creatify.
+Eres director creativo de anuncios verticales tipo catálogo kinetic / magazine pop (no UGC talking-head oscuro).
+Genera un brief listo para HyperFrames.{$pageNote}{$angleNote}
+
+LOOK OBLIGATORIO:
+- Fondo claro de papel / estudio luminoso (nunca dark cinematic).
+- Producto grande y nítido; tipografía bold punchy.
+- Energía de vitrina: sticker benefits, precio claro, CTA de compra.
+
+CALIDAD DEL GUION (crítico):
+- Cada segmento DEBE tener "text_on_screen" corto (máx 8 palabras) listo para overlay.
+- voiceover persuasivo y concreto (beneficio real del producto, no genérico).
+- creative_direction completo: lighting.mood, lighting.color_grade, talent.energy (baja|media|alta),
+  brand.cta, captions.style, captions.position, channel.tone.
+- El hook debe mencionar el producto o su beneficio distintivo (nada de "pierdes tiempo" genérico).
+- PROHIBIDO inventar specs; usa solo datos del catálogo / bullets reales.
 
 REGLAS CRÍTICAS DE FORMATO:
 - Responde ÚNICAMENTE con un objeto JSON válido RFC8259.
-- PROHIBIDO: markdown, bloques ``` , comentarios // o /* */, comas finales, comillas sin escapar.
-- PROHIBIDO anidar objetos dentro de "segments": talent, camera, visual y audio deben ser STRINGS (texto plano).
-- "audience", "casting_notes" y "camera_notes" deben ser STRINGS (no objetos).
-- creative_direction puede tener objetos, pero solo 1 nivel (valores string o arrays de strings).
+- PROHIBIDO: markdown, bloques ``` , comentarios // o /* */, comas finales.
+- PROHIBIDO anidar objetos dentro de "segments": talent, camera, visual y audio deben ser STRINGS.
+- "audience", "casting_notes" y "camera_notes" deben ser STRINGS.
 - Mínimo {$minSeg} segmentos; cada segmento dura MÁXIMO 3 segundos.
 - No inventes precios, reseñas ni specs que no estén en los datos.
-- recommended_format: "ugc" | "b_roll" | "mixed"
-- visual_style: "DynamicProductTemplate" | "CinematicTemplate"
-- script_style: "DontWorryWriter" | "StoryTimeWriter" | "ShoppableVideo"
-- GUION SIN EMOJIS: voiceover, hook, text_on_screen, summary, product_angle, CTA y captions.emphasis_words van en texto plano. Cero emojis, cero pictogramas, cero flechas unicode.
-- PROHIBIDO en el guion hablado y en overlays: "link en bio", "link in bio", "enlace en bio", hashtags (#Algo), handles (@user) y gestos de señalar hacia abajo como CTA.
-- El CTA debe ser verbal y de compra en plataforma (ej. "Cómpralo ahora en TikTok Shop"), no bio ni hashtag de marca.
+- recommended_format: "b_roll" | "mixed"
+- visual_style: "CatalogPopTemplate"
+- script_style: "ProductSpotlight"
+- GUION SIN EMOJIS. CTA verbal de compra en tienda (no link in bio).
+- PROHIBIDO mencionar: Inicio, BAZA como título, carrito, pasarela, checkout, "también te puede gustar".
+- PROHIBIDO segmentos de tipo "offer" ni "cta": el precio y el CTA se integran como overlay/voiceover del último segmento narrativo, sin bloques finales aparte.
 
 JSON EXACTO (respeta tipos):
 {
@@ -282,14 +437,14 @@ JSON EXACTO (respeta tipos):
   "casting_notes": "string 2-3 líneas",
   "camera_notes": "string 2-3 líneas",
   "recommended_format": "mixed",
-  "visual_style": "DynamicProductTemplate",
-  "script_style": "ShoppableVideo",
+  "visual_style": "CatalogPopTemplate",
+  "script_style": "ProductSpotlight",
   "prompt_name": "string corto",
   "creative_direction": {
     "channel": { "platform": "TikTok", "market": "MX", "tone": "string", "audience": "string" },
     "talent": { "profile": "string", "wardrobe": "string", "energy": "string", "setting": "string" },
     "camera": { "format": "9:16", "style": "string", "lens": "string", "movement": "string", "framing": "string" },
-    "lighting": { "key": "string", "mood": "string", "color_grade": "string" },
+    "lighting": { "key": "string", "mood": "bright catalog", "color_grade": "string" },
     "audio": { "voice": "string", "music": "string", "sfx": "string" },
     "captions": { "style": "string", "position": "string", "emphasis_words": ["palabra1"] },
     "brand": { "product_hero_shots": "string", "cta": "string" }
@@ -302,8 +457,8 @@ JSON EXACTO (respeta tipos):
       "duration": 3,
       "type": "hook",
       "voiceover": "texto hablado",
-      "talent": "string acciones del talento",
-      "camera": "string plano y movimiento",
+      "talent": "string acciones",
+      "camera": "string plano",
       "visual": "string qué se ve",
       "text_on_screen": "string overlay",
       "audio": "string música/sfx",
@@ -316,8 +471,12 @@ TXT;
 
         $userText = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $intro = "Analiza el producto";
-        if ($imageCount > 0) {
+        if (! $skipVision && $imageCount > 0) {
             $intro .= " y las {$imageCount} imágenes adjuntas (fotos reales del producto)";
+        } elseif (($context['context_source'] ?? '') === 'product_catalog') {
+            $intro .= ' desde el catálogo (nombre, descripción, detalles; sin chrome de tienda)';
+        } elseif (! empty($context['page_scrape_url'])) {
+            $intro .= ' priorizando catálogo; bullets de scrape solo si son specs reales';
         }
         $intro .= ". Genera brief + guion segmentado (~{$seconds}s, mínimo {$minSeg} segmentos de máx 3s):\n\n";
 
@@ -325,8 +484,10 @@ TXT;
             ['type' => 'text', 'text' => $intro.$userText],
         ];
 
-        foreach ($this->media->visionImageParts($store, $product, 4) as $part) {
-            $parts[] = $part;
+        if (! $skipVision) {
+            foreach ($this->media->visionImageParts($store, $product, 4) as $part) {
+                $parts[] = $part;
+            }
         }
 
         $content = count($parts) === 1 ? (string) $parts[0]['text'] : $parts;
@@ -444,6 +605,10 @@ TXT;
             if (! is_array($row)) {
                 continue;
             }
+            $rowType = strtolower((string) ($row['type'] ?? 'segment'));
+            if (in_array($rowType, ['offer', 'cta'], true)) {
+                continue;
+            }
             $duration = (int) ($row['duration'] ?? 3);
             $duration = max(1, min(3, $duration));
             $voice = $this->sanitizeSpokenCopy(trim((string) ($row['voiceover'] ?? '')));
@@ -474,6 +639,91 @@ TXT;
         }
 
         return $out;
+    }
+
+    /**
+     * Rellena text_on_screen vacío desde el voiceover (overlays útiles para HyperFrames).
+     *
+     * @param  list<array<string, mixed>>  $segments
+     * @return list<array<string, mixed>>
+     */
+    protected function ensureSegmentOverlays(array $segments): array
+    {
+        foreach ($segments as $i => $seg) {
+            $overlay = trim((string) ($seg['text_on_screen'] ?? ''));
+            if ($overlay !== '') {
+                continue;
+            }
+            $voice = trim((string) ($seg['voiceover'] ?? ''));
+            if ($voice === '') {
+                continue;
+            }
+            // Overlay corto: primera frase / ≤42 chars.
+            $overlay = preg_replace('/[.!?].*$/u', '', $voice) ?? $voice;
+            $overlay = trim((string) $overlay);
+            if (mb_strlen($overlay) > 42) {
+                $cut = mb_substr($overlay, 0, 42);
+                $space = mb_strrpos($cut, ' ');
+                $overlay = $space !== false && $space > 18 ? mb_substr($cut, 0, $space) : $cut;
+                $overlay = rtrim($overlay, '.,;:—-').'…';
+            }
+            $segments[$i]['text_on_screen'] = $this->sanitizeSpokenCopy($overlay);
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $segments
+     * @return list<string>
+     */
+    protected function beatsFromSegments(array $segments): array
+    {
+        $byType = [];
+        foreach ($segments as $seg) {
+            if (! is_array($seg)) {
+                continue;
+            }
+            $line = trim((string) ($seg['text_on_screen'] ?? ''));
+            if ($line === '') {
+                $line = trim((string) ($seg['voiceover'] ?? ''));
+            }
+            $line = $this->sanitizeSpokenCopy($line);
+            if ($line === '' || mb_strlen($line) < 8) {
+                continue;
+            }
+            $type = strtolower((string) ($seg['type'] ?? 'segment'));
+            if (! isset($byType[$type])) {
+                $byType[$type] = mb_substr($line, 0, 52);
+            }
+        }
+
+        $order = ['hook', 'problem', 'solution', 'value', 'proof', 'demo', 'benefit', 'cta', 'segment'];
+        $beats = [];
+        foreach ($order as $type) {
+            if (! empty($byType[$type]) && ! in_array($byType[$type], $beats, true)) {
+                $beats[] = $byType[$type];
+            }
+            if (count($beats) >= 4) {
+                return $beats;
+            }
+        }
+        foreach ($segments as $seg) {
+            if (! is_array($seg)) {
+                continue;
+            }
+            $line = trim((string) (($seg['text_on_screen'] ?? '') ?: ($seg['voiceover'] ?? '')));
+            $line = $this->sanitizeSpokenCopy(mb_substr($line, 0, 52));
+            if ($line === '' || in_array($line, $beats, true)) {
+                continue;
+            }
+            $beats[] = $line;
+            if (count($beats) >= 4) {
+                break;
+            }
+        }
+
+        return $beats;
     }
 
     /**
@@ -724,7 +974,7 @@ TXT;
      */
     protected function parseJson(string $content): array
     {
-        $decoded = $this->decodeJsonObject($content);
+        $decoded = JsonObjectParser::decode($content);
         if (is_array($decoded) && $decoded !== []) {
             return $this->normalizeParsedPayload($decoded);
         }
@@ -736,9 +986,7 @@ TXT;
             return $this->normalizeParsedPayload($partial);
         }
 
-        Log::warning('ProductVideoPromptService: JSON inválido tras sanitizar', [
-            'snippet' => mb_substr($this->sanitizeRawContent($content), 0, 600),
-        ]);
+        JsonObjectParser::logFailure('ProductVideoPromptService', $content);
 
         return [];
     }
@@ -748,160 +996,32 @@ TXT;
      */
     protected function decodeJsonObject(string $content): ?array
     {
-        $content = $this->sanitizeRawContent($content);
-        if ($content === '') {
-            return null;
-        }
-
-        $candidates = array_values(array_unique(array_filter([
-            $content,
-            $this->extractJsonObject($content),
-            $this->repairTruncatedJson($this->extractJsonObject($content, allowPartial: true) ?? ''),
-        ])));
-
-        foreach ($candidates as $candidate) {
-            if (! is_string($candidate) || trim($candidate) === '') {
-                continue;
-            }
-            $candidate = $this->fixJsonSyntax($candidate);
-            $decoded = json_decode($candidate, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-
-            $fixed = $this->escapeRawNewlinesInJsonStrings($candidate);
-            if ($fixed !== $candidate) {
-                $decoded = json_decode($fixed, true, 512, JSON_INVALID_UTF8_SUBSTITUTE);
-                if (is_array($decoded)) {
-                    return $decoded;
-                }
-            }
-        }
-
-        return null;
+        return JsonObjectParser::decode($content);
     }
 
     protected function sanitizeRawContent(string $content): string
     {
-        $content = trim($content);
-        if ($content === '') {
-            return '';
-        }
-
-        // Quitar BOM y bloques markdown ```json ... ```
-        $content = preg_replace("/^\xEF\xBB\xBF/", '', $content) ?? $content;
-        if (preg_match('/```(?:json)?\s*([\s\S]*?)```/i', $content, $fence)) {
-            $content = trim($fence[1]);
-        }
-
-        // Comillas tipográficas → ASCII
-        $content = str_replace(
-            ["\u{201C}", "\u{201D}", "\u{2018}", "\u{2019}", '«', '»', '“', '”', '‘', '’'],
-            ['"', '"', "'", "'", '"', '"', '"', '"', "'", "'"],
-            $content
-        );
-
-        // Saltos de línea literales dentro del stream que rompen json_decode
-        $content = str_replace(["\r\n", "\r"], "\n", $content);
-
-        return trim($content);
+        return JsonObjectParser::sanitize($content);
     }
 
     protected function extractJsonObject(string $content, bool $allowPartial = false): ?string
     {
-        $start = strpos($content, '{');
-        if ($start === false) {
-            return null;
-        }
-
-        $depth = 0;
-        $inString = false;
-        $escape = false;
-        $len = strlen($content);
-
-        for ($i = $start; $i < $len; $i++) {
-            $ch = $content[$i];
-            if ($inString) {
-                if ($escape) {
-                    $escape = false;
-
-                    continue;
-                }
-                if ($ch === '\\') {
-                    $escape = true;
-
-                    continue;
-                }
-                if ($ch === '"') {
-                    $inString = false;
-                }
-
-                continue;
-            }
-            if ($ch === '"') {
-                $inString = true;
-
-                continue;
-            }
-            if ($ch === '{') {
-                $depth++;
-            } elseif ($ch === '}') {
-                $depth--;
-                if ($depth === 0) {
-                    return substr($content, $start, $i - $start + 1);
-                }
-            }
-        }
-
-        if ($allowPartial && $depth > 0) {
-            return substr($content, $start);
-        }
-
-        return null;
+        return JsonObjectParser::extractObject($content, $allowPartial);
     }
 
     protected function repairTruncatedJson(string $json): ?string
     {
-        $json = trim($json);
-        if ($json === '' || ! str_starts_with($json, '{')) {
-            return null;
-        }
-
-        // Cortar última entrada incompleta (clave sin valor, coma colgando, etc.)
-        $json = preg_replace('/,\s*"[^"]*"\s*:\s*$/s', '', $json) ?? $json;
-        $json = preg_replace('/,\s*$/', '', $json) ?? $json;
-
-        $openBraces = substr_count($json, '{') - substr_count($json, '}');
-        $openBrackets = substr_count($json, '[') - substr_count($json, ']');
-
-        if ($openBraces <= 0 && $openBrackets <= 0) {
-            return $json;
-        }
-
-        // Cerrar strings abiertas de forma tosca
-        if (preg_match('/"[^"\\\\]*$/s', $json)) {
-            $json .= '"';
-        }
-
-        $json .= str_repeat(']', max(0, $openBrackets));
-        $json .= str_repeat('}', max(0, $openBraces));
-
-        return $json;
+        return JsonObjectParser::repairTruncated($json);
     }
 
     protected function fixJsonSyntax(string $json): string
     {
-        // Comentarios // inline y de línea, y /* */
-        $json = preg_replace('/\/\/[^\n\r]*/', '', $json) ?? $json;
-        $json = preg_replace('/\/\*[\s\S]*?\*\//', '', $json) ?? $json;
-        // Patrón típico del modelo: "tipo": "producto": "texto" → coma entre valores
-        $json = preg_replace('/"([^"]+)"\s*:\s*"([^"]*)"\s*:\s*"/', '"$1": "$2", "detail": "', $json) ?? $json;
-        // Valores sin comillas tras dos puntos (heurística conservadora)
-        $json = preg_replace('/:\s*([A-Za-zÁÉÍÓÚáéíóú][A-Za-zÁÉÍÓÚáéíóú0-9_\-\s]{0,80})(\s*[,}\]])/', ': "$1"$2', $json) ?? $json;
-        // Comas finales ilegales
-        $json = preg_replace('/,\s*([}\]])/', '$1', $json) ?? $json;
+        return JsonObjectParser::fixSyntax($json);
+    }
 
-        return trim($json);
+    protected function escapeRawNewlinesInJsonStrings(string $json): string
+    {
+        return JsonObjectParser::escapeRawNewlines($json);
     }
 
     /**
@@ -985,17 +1105,6 @@ TXT;
         }
 
         return ($payload['hook'] ?? '') !== '' || ! empty($payload['segments']) ? $payload : [];
-    }
-
-    protected function escapeRawNewlinesInJsonStrings(string $json): string
-    {
-        return preg_replace_callback(
-            '/"(?:\\\\.|[^"\\\\])*"/s',
-            function (array $match): string {
-                return str_replace(["\r\n", "\n", "\r", "\t"], ['\\n', '\\n', '\\n', '\\t'], $match[0]);
-            },
-            $json
-        ) ?? $json;
     }
 
     /**

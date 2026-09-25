@@ -10,7 +10,7 @@
     <div class="min-w-0 flex-1">
         <div class="flex flex-wrap items-center gap-1.5">
             <span class="truncate text-xs font-medium text-ink max-w-[14rem]" title="{{ $title }}">{{ $title }}</span>
-            <span class="admin-badge !text-[10px] !px-1.5 !py-0 {{ $v->source === 'creatify' ? 'bg-sky-100 text-sky-800' : ($v->source === 'remotion' ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700') }}">{{ $v->source === 'creatify' ? 'Creatify' : ($v->source === 'remotion' ? 'Remotion' : 'Subido') }}</span>
+            <span class="admin-badge !text-[10px] !px-1.5 !py-0 {{ $v->source === 'creatify' ? 'bg-sky-100 text-sky-800' : ($v->source === 'remotion' ? 'bg-violet-100 text-violet-800' : ($v->source === 'hyperframes' ? 'bg-emerald-100 text-emerald-800' : ($v->source === 'notebooklm' ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-700'))) }}">{{ $v->source === 'creatify' ? 'Creatify' : ($v->source === 'remotion' ? 'Remotion' : ($v->source === 'hyperframes' ? 'HyperFrames' : ($v->source === 'notebooklm' ? 'NotebookLM' : 'Subido'))) }}</span>
             <span class="admin-badge !text-[10px] !px-1.5 !py-0 {{ $v->stripped_at ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700' }}">{{ $v->stripped_at ? 'sin huellas' : 'sin limpiar' }}</span>
         </div>
         <div class="mt-1 flex flex-wrap items-center gap-1.5">

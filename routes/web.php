@@ -249,6 +249,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('notebooklm/generate', [MarketingNotebookLmController::class, 'generate'])->name('notebooklm.generate');
                     Route::post('notebooklm/poll', [MarketingNotebookLmController::class, 'poll'])->name('notebooklm.poll');
                     Route::post('notebooklm/cancel', [MarketingNotebookLmController::class, 'cancel'])->name('notebooklm.cancel');
+                    Route::post('notebooklm/retry', [MarketingNotebookLmController::class, 'retry'])->name('notebooklm.retry');
                     Route::get('sellercentral', [SellerCentralController::class, 'index'])->name('sellercentral.index');
                     Route::post('sellercentral/test', [SellerCentralController::class, 'test'])->name('sellercentral.test');
                     Route::post('sellercentral/settings', [SellerCentralController::class, 'saveSettings'])->name('sellercentral.settings');

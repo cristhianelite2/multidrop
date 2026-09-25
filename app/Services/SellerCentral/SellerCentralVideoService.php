@@ -90,6 +90,8 @@ class SellerCentralVideoService
                 'documents_count' => count($documents),
                 'mode' => $mode,
                 'product_url' => $productUrl,
+                'instructions' => $payload['instructions'],
+                'video_format' => $payload['video_format'],
             ],
             'video_log' => [[
                 'step' => 'multidrop',
@@ -147,6 +149,42 @@ class SellerCentralVideoService
         }
 
         return $job->fresh();
+    }
+
+    /**
+     * Reintenta una tarea fallida (status=error) creando una nueva en Seller Central
+     * con el mismo modo / instrucciones / formato.
+     */
+    public function retry(SellerCentralVideoJob $failed): SellerCentralVideoJob
+    {
+        if ($failed->status !== 'error') {
+            throw new SellerCentralException('Solo se pueden reintentar tareas en error.');
+        }
+
+        $store = $failed->store ?? Store::query()->find($failed->store_id);
+        $campaign = $failed->campaign ?? MarketingCampaign::query()->find($failed->campaign_id);
+        $product = $failed->product ?? Product::query()->find($failed->product_id);
+
+        if (! $store || ! $campaign || ! $product) {
+            throw new SellerCentralException('No se pudo resolver tienda/campaña/producto del job.');
+        }
+
+        $snap = is_array($failed->payload_snapshot) ? $failed->payload_snapshot : [];
+        $mode = (string) ($snap['mode'] ?? $failed->mode ?: 'assets');
+        $instructions = isset($snap['instructions']) ? (string) $snap['instructions'] : null;
+        $videoFormat = (string) ($snap['video_format'] ?? config('multidrop.marketing.sellercentral.video_format', 'short'));
+
+        $failed->fill([
+            'video_log' => $this->mergeLogs(
+                $failed->video_log,
+                [],
+                'Reintento solicitado desde Multidrop (job #'.$failed->id.')',
+                true
+            ),
+            'last_synced_at' => now(),
+        ])->save();
+
+        return $this->start($store, $campaign, $product, $mode, $instructions, $videoFormat);
     }
 
     public function syncFromRemote(SellerCentralVideoJob $job): SellerCentralVideoJob

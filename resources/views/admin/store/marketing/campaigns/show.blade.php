@@ -743,6 +743,7 @@
   var nlmPollUrl = @json(route('admin.store.marketing.notebooklm.poll', absolute: false));
   var nlmGenerateUrl = @json(route('admin.store.marketing.notebooklm.generate', absolute: false));
   var nlmCancelUrl = @json(route('admin.store.marketing.notebooklm.cancel', absolute: false));
+  var nlmRetryUrl = @json(route('admin.store.marketing.notebooklm.retry', absolute: false));
   var nlmDefaultPoll = {{ (int) data_get($notebooklm ?? [], 'poll_seconds', 8) }};
 
   function nlmCsrf() {
@@ -757,6 +758,7 @@
       badge: document.querySelector('.md-notebooklm-badge[data-product-id="' + productId + '"]'),
       steps: document.querySelector('.md-notebooklm-steps[data-product-id="' + productId + '"]'),
       go: document.querySelector('.md-notebooklm-go[data-product-id="' + productId + '"]'),
+      retry: document.querySelector('.md-notebooklm-retry[data-product-id="' + productId + '"]'),
       cancel: document.querySelector('.md-notebooklm-cancel[data-product-id="' + productId + '"]')
     };
   }
@@ -801,9 +803,15 @@
     }
     if (els.go) els.go.disabled = !job.is_terminal;
     if (els.cancel) els.cancel.disabled = !!job.is_terminal;
+    if (els.retry) {
+      var showRetry = job.status === 'error';
+      els.retry.classList.toggle('hidden', !showRetry);
+      els.retry.disabled = !showRetry;
+      if (showRetry && job.id) els.retry.setAttribute('data-job-id', String(job.id));
+    }
     if (els.msg) {
       if (job.status === 'completed') els.msg.textContent = 'Video recibido y guardado en el producto.';
-      else if (job.status === 'error') els.msg.textContent = job.error_message || 'Error en la generación.';
+      else if (job.status === 'error') els.msg.textContent = job.error_message || 'Error en la generación. Puedes reintentar.';
       else els.msg.textContent = job.status_label || 'Procesando…';
     }
   }
@@ -880,6 +888,7 @@
         if (!pack.okHttp || !pack.j || !pack.j.ok || !pack.j.job) {
           btn.disabled = false;
           if (els.cancel) els.cancel.disabled = true;
+          if (pack.j && pack.j.job) nlmRenderJob(productId, pack.j.job);
           if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo iniciar NotebookLM.';
           return;
         }
@@ -891,6 +900,51 @@
         if (els.cancel) els.cancel.disabled = true;
         if (els.msg) els.msg.textContent = 'Error de red al iniciar NotebookLM.';
         console.error('NotebookLM generate', err);
+      });
+  });
+  $(document).on('click', '.md-notebooklm-retry', function (e) {
+    e.preventDefault();
+    var btn = this;
+    if (btn.disabled) return;
+    var productId = btn.getAttribute('data-product-id');
+    var jobId = btn.getAttribute('data-job-id');
+    var els = nlmEls(productId);
+    if (!jobId) {
+      if (els.msg) els.msg.textContent = 'No hay job fallido para reintentar.';
+      return;
+    }
+    btn.disabled = true;
+    if (els.go) els.go.disabled = true;
+    if (els.cancel) els.cancel.disabled = false;
+    if (els.msg) els.msg.textContent = 'Reintentando en Seller Central…';
+    if (els.process) els.process.classList.remove('hidden');
+    fetch(nlmRetryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': nlmCsrf()
+      },
+      body: JSON.stringify({ job_id: parseInt(jobId, 10) })
+    }).then(nlmParseJson)
+      .then(function (pack) {
+        if (!pack.okHttp || !pack.j || !pack.j.ok || !pack.j.job) {
+          btn.disabled = false;
+          if (els.go) els.go.disabled = false;
+          if (els.cancel) els.cancel.disabled = true;
+          if (pack.j && pack.j.job) nlmRenderJob(productId, pack.j.job);
+          if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo reintentar.';
+          return;
+        }
+        btn.classList.add('hidden');
+        nlmRenderJob(productId, pack.j.job);
+        nlmPoll(productId, pack.j.job.id, pack.j.poll_seconds || nlmDefaultPoll);
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        if (els.go) els.go.disabled = false;
+        if (els.msg) els.msg.textContent = 'Error de red al reintentar.';
+        console.error('NotebookLM retry', err);
       });
   });
   $(document).on('click', '.md-notebooklm-cancel', function (e) {

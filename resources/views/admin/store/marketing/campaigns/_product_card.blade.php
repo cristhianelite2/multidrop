@@ -28,12 +28,14 @@
     $videoCount = $productVideos->count() + $promptVideoCount;
     $ffmpegOk = $ffmpeg ?? true;
     $notebooklm = $notebooklm ?? ['ok' => false];
-    $notebookJobs = collect($notebookJobs ?? []);
+    $notebookJobs = collect($notebookJobs ?? [])->sortByDesc(fn ($j) => $j->id ?? 0)->values();
     $activeNotebookJob = $notebookJobs->first(fn ($j) => $j instanceof \App\Models\SellerCentralVideoJob && $j->isActive());
+    $failedNotebookJob = $notebookJobs->first(fn ($j) => $j instanceof \App\Models\SellerCentralVideoJob && $j->status === 'error');
+    $displayNotebookJob = $activeNotebookJob ?: $failedNotebookJob;
     $collapseRemotion = $productPrompts->isEmpty() && $generatedLoose->isEmpty();
     $collapseUpload = $uploadedVideos->isEmpty();
     $collapseHyperframes = $hyperframesVideos->isEmpty();
-    $collapseNotebook = $notebooklmVideos->isEmpty() && ! $activeNotebookJob;
+    $collapseNotebook = $notebooklmVideos->isEmpty() && ! $displayNotebookJob;
 @endphp
 <div class="space-y-5" id="md-product-{{ $product->id }}">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -268,6 +270,14 @@
                     >Enviar a NotebookLM</button>
                     <button
                         type="button"
+                        class="admin-btn-secondary !px-3 !py-1.5 text-sm md-notebooklm-retry {{ $failedNotebookJob && ! $activeNotebookJob ? '' : 'hidden' }}"
+                        data-campaign-id="{{ $campaign->id }}"
+                        data-product-id="{{ $product->id }}"
+                        data-job-id="{{ $failedNotebookJob?->id }}"
+                        @disabled(! ($notebooklm['ok'] ?? false) || (bool) $activeNotebookJob)
+                    >Reintentar</button>
+                    <button
+                        type="button"
                         class="admin-btn-danger !px-2.5 !py-1 !text-[11px] md-notebooklm-cancel"
                         data-product-id="{{ $product->id }}"
                         @disabled(! $activeNotebookJob)
@@ -278,25 +288,25 @@
             <p class="text-xs text-ink-soft/55 md-notebooklm-msg" data-product-id="{{ $product->id }}" role="status" aria-live="polite"></p>
 
             <div
-                class="rounded-lg border border-line bg-mist/40 px-3 py-2 md-notebooklm-process {{ $activeNotebookJob ? '' : 'hidden' }}"
+                class="rounded-lg border border-line bg-mist/40 px-3 py-2 md-notebooklm-process {{ $displayNotebookJob ? '' : 'hidden' }}"
                 data-product-id="{{ $product->id }}"
-                data-job-id="{{ $activeNotebookJob?->id }}"
-                @if($activeNotebookJob) data-job-bootstrap="{{ e(json_encode($activeNotebookJob->toPollPayload(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}" @endif
+                data-job-id="{{ $displayNotebookJob?->id }}"
+                @if($displayNotebookJob) data-job-bootstrap="{{ e(json_encode($displayNotebookJob->toPollPayload(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}" @endif
             >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div>
                         <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Proceso</p>
                         <p class="mt-0.5 text-sm font-semibold text-ink md-notebooklm-status" data-product-id="{{ $product->id }}">
-                            {{ $activeNotebookJob?->statusLabel() ?: '—' }}
+                            {{ $displayNotebookJob?->statusLabel() ?: '—' }}
                         </p>
                     </div>
                     <span class="admin-badge bg-amber-100 text-amber-800 md-notebooklm-badge" data-product-id="{{ $product->id }}">
-                        {{ $activeNotebookJob?->status ?: 'idle' }}
+                        {{ $displayNotebookJob?->status ?: 'idle' }}
                     </span>
                 </div>
                 <ol class="mt-3 space-y-1.5 text-xs text-ink-soft/80 md-notebooklm-steps" data-product-id="{{ $product->id }}">
-                    @if($activeNotebookJob)
-                        @forelse($activeNotebookJob->steps() as $step)
+                    @if($displayNotebookJob)
+                        @forelse($displayNotebookJob->steps() as $step)
                             <li class="flex gap-2">
                                 <span class="shrink-0 {{ $step['ok'] === false ? 'text-coral' : ($step['ok'] === true ? 'text-teal' : 'text-ink-soft/40') }}">•</span>
                                 <span>

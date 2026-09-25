@@ -63,7 +63,19 @@ class NotebookLmController extends Controller
                 (string) ($data['video_format'] ?? config('multidrop.marketing.sellercentral.video_format', 'short'))
             );
         } catch (SellerCentralException $e) {
-            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+            $failed = SellerCentralVideoJob::query()
+                ->where('store_id', $store->id)
+                ->where('campaign_id', $campaign->id)
+                ->where('product_id', $product->id)
+                ->where('status', 'error')
+                ->orderByDesc('id')
+                ->first();
+
+            return response()->json([
+                'ok' => false,
+                'message' => $e->getMessage(),
+                'job' => $failed?->toPollPayload(),
+            ], 422);
         }
 
         return response()->json([
@@ -129,6 +141,53 @@ class NotebookLmController extends Controller
             'ok' => true,
             'message' => 'Generación detenida.',
             'job' => $job->toPollPayload(),
+        ]);
+    }
+
+    public function retry(
+        Request $request,
+        StoreContext $storeContext,
+        SellerCentralVideoService $videos
+    ): JsonResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        if (! $videos->hasConnection($store)) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'Configura Base URL + API key en Marketing → Publicaciones (Seller Central).',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'job_id' => ['required', 'integer'],
+        ]);
+
+        $failed = SellerCentralVideoJob::query()
+            ->where('store_id', $store->id)
+            ->where('id', $data['job_id'])
+            ->firstOrFail();
+
+        try {
+            $job = $videos->retry($failed);
+        } catch (SellerCentralException $e) {
+            $latest = SellerCentralVideoJob::query()
+                ->where('store_id', $store->id)
+                ->where('id', '>=', $failed->id)
+                ->where('status', 'error')
+                ->orderByDesc('id')
+                ->first() ?: $failed;
+
+            return response()->json([
+                'ok' => false,
+                'message' => $e->getMessage(),
+                'job' => $latest->toPollPayload(),
+            ], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Reintento enviado a Seller Central / NotebookLM.',
+            'job' => $job->toPollPayload(),
+            'poll_seconds' => (int) config('multidrop.marketing.sellercentral.video_poll_seconds', 8),
         ]);
     }
 }

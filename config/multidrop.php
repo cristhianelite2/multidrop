@@ -209,7 +209,8 @@ return [
             'python' => env('HYPERFRAMES_ADS_PYTHON', 'python3'),
             'timeout_seconds' => (int) env('HYPERFRAMES_ADS_TIMEOUT', 2400),
             'mode' => env('HYPERFRAMES_ADS_MODE', 'remote'),
-            'remote_url' => env('HYPERFRAMES_ADS_URL', 'https://hyperframes.ceballosleon.com'),
+            // Bridge local en la máquina host (Docker → host.docker.internal:9014).
+            'remote_url' => env('HYPERFRAMES_ADS_URL', 'http://host.docker.internal:9014'),
             'remote_token' => env('HYPERFRAMES_ADS_TOKEN', ''),
             'sync' => filter_var(
                 env('HYPERFRAMES_ADS_SYNC', true),

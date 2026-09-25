@@ -51,7 +51,7 @@ class HyperFramesAdsRenderService
 
     public function isRemote(): bool
     {
-        return $this->mode() === 'remote' && $this->remoteBaseUrl() !== '' && $this->remoteToken() !== '';
+        return $this->mode() === 'remote' && $this->remoteBaseUrl() !== '';
     }
 
     public function remoteBaseUrl(): string
@@ -67,7 +67,8 @@ class HyperFramesAdsRenderService
     public function configured(): bool
     {
         if ($this->mode() === 'remote') {
-            return $this->remoteBaseUrl() !== '' && $this->remoteToken() !== '';
+            // Bridge local :9014 puede correr sin token (token.txt vacío = abierto).
+            return $this->remoteBaseUrl() !== '';
         }
 
         $root = $this->root();

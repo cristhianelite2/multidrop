@@ -148,7 +148,10 @@
         <div class="p-4 space-y-4" data-md-fold-body @if($collapseHyperframes) hidden @endif>
             @unless($hyperframes['ok'] ?? false)
                 <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                    HyperFrames no está listo. Configura <code>HYPERFRAMES_ADS_URL</code> y <code>HYPERFRAMES_ADS_TOKEN</code>, arranca el bridge local y el túnel Cloudflare.
+                    HyperFrames no está listo. Arranca el bridge en el puerto <code>9014</code>
+                    (<code>tools/hyperframes-ads/bridge/start-bridge.cmd</code>) y define
+                    <code>HYPERFRAMES_ADS_URL=http://host.docker.internal:9014</code> (Docker) o
+                    <code>http://127.0.0.1:9014</code> (XAMPP).
                 </p>
             @endunless
             <div class="space-y-3">

@@ -738,6 +738,202 @@
   var token = csrf ? csrf.getAttribute('content') : '';
   var attachedProductIds = @json($campaign->products->pluck('id')->map(fn ($id) => (int) $id)->values());
 
+  // NotebookLM: registrar pronto para que un error JS posterior no deje el botón muerto.
+  var nlmPollers = {};
+  var nlmPollUrl = @json(route('admin.store.marketing.notebooklm.poll', absolute: false));
+  var nlmGenerateUrl = @json(route('admin.store.marketing.notebooklm.generate', absolute: false));
+  var nlmCancelUrl = @json(route('admin.store.marketing.notebooklm.cancel', absolute: false));
+  var nlmDefaultPoll = {{ (int) data_get($notebooklm ?? [], 'poll_seconds', 8) }};
+
+  function nlmCsrf() {
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : (token || '');
+  }
+  function nlmEls(productId) {
+    return {
+      msg: document.querySelector('.md-notebooklm-msg[data-product-id="' + productId + '"]'),
+      process: document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]'),
+      status: document.querySelector('.md-notebooklm-status[data-product-id="' + productId + '"]'),
+      badge: document.querySelector('.md-notebooklm-badge[data-product-id="' + productId + '"]'),
+      steps: document.querySelector('.md-notebooklm-steps[data-product-id="' + productId + '"]'),
+      go: document.querySelector('.md-notebooklm-go[data-product-id="' + productId + '"]'),
+      cancel: document.querySelector('.md-notebooklm-cancel[data-product-id="' + productId + '"]')
+    };
+  }
+  function nlmMode(productId) {
+    var el = document.querySelector('input.md-notebooklm-mode[data-product-id="' + productId + '"]:checked');
+    return el ? el.value : 'assets';
+  }
+  function nlmInstructions(productId) {
+    var el = document.querySelector('.md-notebooklm-instructions[data-product-id="' + productId + '"]');
+    return el ? String(el.value || '').trim() : '';
+  }
+  function nlmParseJson(r) {
+    return r.text().then(function (t) {
+      var j = null;
+      try { j = t ? JSON.parse(t) : null; } catch (e) {
+        j = { ok: false, message: 'Respuesta inválida del servidor (HTTP ' + r.status + ')' };
+      }
+      return { okHttp: r.ok, j: j || { ok: false, message: 'Sin respuesta' } };
+    });
+  }
+  function nlmRenderJob(productId, job) {
+    var els = nlmEls(productId);
+    if (!job) return;
+    if (els.process) {
+      els.process.classList.remove('hidden');
+      els.process.setAttribute('data-job-id', job.id || '');
+    }
+    if (els.status) els.status.textContent = job.status_label || job.status || '—';
+    if (els.badge) els.badge.textContent = job.status || '—';
+    if (els.steps) {
+      var steps = Array.isArray(job.steps) ? job.steps : [];
+      if (!steps.length) {
+        els.steps.innerHTML = '<li class="text-ink-soft/50">Esperando pasos del agente NotebookLM…</li>';
+      } else {
+        els.steps.innerHTML = steps.map(function (s) {
+          var color = s.ok === false ? 'text-coral' : (s.ok === true ? 'text-teal' : 'text-ink-soft/40');
+          var msg = s.message ? (' — ' + String(s.message).replace(/</g, '&lt;')) : '';
+          return '<li class="flex gap-2"><span class="shrink-0 ' + color + '">•</span><span><span class="font-medium text-ink-soft/70">' +
+            String(s.step || 'step').replace(/</g, '&lt;') + '</span>' + msg + '</span></li>';
+        }).join('');
+      }
+    }
+    if (els.go) els.go.disabled = !job.is_terminal;
+    if (els.cancel) els.cancel.disabled = !!job.is_terminal;
+    if (els.msg) {
+      if (job.status === 'completed') els.msg.textContent = 'Video recibido y guardado en el producto.';
+      else if (job.status === 'error') els.msg.textContent = job.error_message || 'Error en la generación.';
+      else els.msg.textContent = job.status_label || 'Procesando…';
+    }
+  }
+  function nlmStopPoll(productId) {
+    if (nlmPollers[productId]) {
+      clearTimeout(nlmPollers[productId]);
+      delete nlmPollers[productId];
+    }
+  }
+  function nlmPoll(productId, jobId, seconds) {
+    nlmStopPoll(productId);
+    var wait = Math.max(4, parseInt(seconds || nlmDefaultPoll, 10) || nlmDefaultPoll) * 1000;
+    nlmPollers[productId] = setTimeout(function () {
+      fetch(nlmPollUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-TOKEN': nlmCsrf()
+        },
+        body: JSON.stringify({ job_id: jobId })
+      }).then(nlmParseJson)
+        .then(function (pack) {
+          var job = pack.j && pack.j.job ? pack.j.job : null;
+          if (!job) {
+            var els = nlmEls(productId);
+            if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo consultar el estado.';
+            nlmPoll(productId, jobId, nlmDefaultPoll);
+            return;
+          }
+          nlmRenderJob(productId, job);
+          if (job.is_terminal) {
+            nlmStopPoll(productId);
+            if (job.status === 'completed') {
+              setTimeout(function () { window.location.reload(); }, 1200);
+            }
+            return;
+          }
+          nlmPoll(productId, jobId, nlmDefaultPoll);
+        })
+        .catch(function () {
+          var els = nlmEls(productId);
+          if (els.msg) els.msg.textContent = 'Error de red al consultar NotebookLM.';
+          nlmPoll(productId, jobId, nlmDefaultPoll);
+        });
+    }, wait);
+  }
+  $(document).on('click', '.md-notebooklm-go', function (e) {
+    e.preventDefault();
+    var btn = this;
+    if (btn.disabled) return;
+    var productId = btn.getAttribute('data-product-id');
+    var campId = btn.getAttribute('data-campaign-id') || campaignId;
+    var els = nlmEls(productId);
+    btn.disabled = true;
+    if (els.cancel) els.cancel.disabled = false;
+    if (els.msg) els.msg.textContent = 'Enviando a Seller Central…';
+    if (els.process) els.process.classList.remove('hidden');
+    fetch(nlmGenerateUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': nlmCsrf()
+      },
+      body: JSON.stringify({
+        campaign_id: parseInt(campId, 10),
+        product_id: parseInt(productId, 10),
+        mode: nlmMode(productId),
+        instructions: nlmInstructions(productId)
+      })
+    }).then(nlmParseJson)
+      .then(function (pack) {
+        if (!pack.okHttp || !pack.j || !pack.j.ok || !pack.j.job) {
+          btn.disabled = false;
+          if (els.cancel) els.cancel.disabled = true;
+          if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo iniciar NotebookLM.';
+          return;
+        }
+        nlmRenderJob(productId, pack.j.job);
+        nlmPoll(productId, pack.j.job.id, pack.j.poll_seconds || nlmDefaultPoll);
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        if (els.cancel) els.cancel.disabled = true;
+        if (els.msg) els.msg.textContent = 'Error de red al iniciar NotebookLM.';
+        console.error('NotebookLM generate', err);
+      });
+  });
+  $(document).on('click', '.md-notebooklm-cancel', function (e) {
+    e.preventDefault();
+    var productId = this.getAttribute('data-product-id');
+    var process = document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]');
+    var jobId = process ? process.getAttribute('data-job-id') : '';
+    if (!jobId) return;
+    var els = nlmEls(productId);
+    this.disabled = true;
+    if (els.msg) els.msg.textContent = 'Deteniendo…';
+    nlmStopPoll(productId);
+    fetch(nlmCancelUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': nlmCsrf()
+      },
+      body: JSON.stringify({ job_id: parseInt(jobId, 10) })
+    }).then(nlmParseJson)
+      .then(function (pack) {
+        if (pack.j && pack.j.job) nlmRenderJob(productId, pack.j.job);
+        if (els.go) els.go.disabled = false;
+        if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'Detenido.';
+      })
+      .catch(function () {
+        if (els.msg) els.msg.textContent = 'No se pudo detener.';
+      });
+  });
+  document.querySelectorAll('.md-notebooklm-process[data-job-bootstrap]').forEach(function (el) {
+    var productId = el.getAttribute('data-product-id');
+    var raw = el.getAttribute('data-job-bootstrap');
+    if (!productId || !raw) return;
+    try {
+      var job = JSON.parse(raw);
+      nlmRenderJob(productId, job);
+      if (job && job.id && !job.is_terminal) {
+        nlmPoll(productId, job.id, nlmDefaultPoll);
+      }
+    } catch (err) {}
+  });
+
   function productosUrl(productId) {
     var url = new URL(window.location.href);
     url.searchParams.set('tab', 'productos');
@@ -2102,194 +2298,7 @@
     });
   }
 
-  // ---- NotebookLM / Seller Central videos ----
-  var nlmPollers = {};
-  var nlmPollUrl = @json(route('admin.store.marketing.notebooklm.poll'));
-  var nlmGenerateUrl = @json(route('admin.store.marketing.notebooklm.generate'));
-  var nlmCancelUrl = @json(route('admin.store.marketing.notebooklm.cancel'));
-  var nlmDefaultPoll = {{ (int) (($notebooklm['poll_seconds'] ?? 8)) }};
-
-  function nlmCsrf() {
-    var m = document.querySelector('meta[name="csrf-token"]');
-    return m ? m.getAttribute('content') : '';
-  }
-
-  function nlmEls(productId) {
-    return {
-      msg: document.querySelector('.md-notebooklm-msg[data-product-id="' + productId + '"]'),
-      process: document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]'),
-      status: document.querySelector('.md-notebooklm-status[data-product-id="' + productId + '"]'),
-      badge: document.querySelector('.md-notebooklm-badge[data-product-id="' + productId + '"]'),
-      steps: document.querySelector('.md-notebooklm-steps[data-product-id="' + productId + '"]'),
-      go: document.querySelector('.md-notebooklm-go[data-product-id="' + productId + '"]'),
-      cancel: document.querySelector('.md-notebooklm-cancel[data-product-id="' + productId + '"]')
-    };
-  }
-
-  function nlmMode(productId) {
-    var el = document.querySelector('input.md-notebooklm-mode[data-product-id="' + productId + '"]:checked');
-    return el ? el.value : 'assets';
-  }
-
-  function nlmInstructions(productId) {
-    var el = document.querySelector('.md-notebooklm-instructions[data-product-id="' + productId + '"]');
-    return el ? String(el.value || '').trim() : '';
-  }
-
-  function nlmRenderJob(productId, job) {
-    var els = nlmEls(productId);
-    if (!job) return;
-    if (els.process) {
-      els.process.classList.remove('hidden');
-      els.process.setAttribute('data-job-id', job.id || '');
-    }
-    if (els.status) els.status.textContent = job.status_label || job.status || '—';
-    if (els.badge) els.badge.textContent = job.status || '—';
-    if (els.steps) {
-      var steps = Array.isArray(job.steps) ? job.steps : [];
-      if (!steps.length) {
-        els.steps.innerHTML = '<li class="text-ink-soft/50">Esperando pasos del agente NotebookLM…</li>';
-      } else {
-        els.steps.innerHTML = steps.map(function (s) {
-          var color = s.ok === false ? 'text-coral' : (s.ok === true ? 'text-teal' : 'text-ink-soft/40');
-          var msg = s.message ? (' — ' + String(s.message).replace(/</g, '&lt;')) : '';
-          return '<li class="flex gap-2"><span class="shrink-0 ' + color + '">•</span><span><span class="font-medium text-ink-soft/70">' +
-            String(s.step || 'step').replace(/</g, '&lt;') + '</span>' + msg + '</span></li>';
-        }).join('');
-      }
-    }
-    if (els.go) els.go.disabled = !job.is_terminal;
-    if (els.cancel) els.cancel.disabled = !!job.is_terminal;
-    if (els.msg) {
-      if (job.status === 'completed') els.msg.textContent = 'Video recibido y guardado en el producto.';
-      else if (job.status === 'error') els.msg.textContent = job.error_message || 'Error en la generación.';
-      else els.msg.textContent = job.status_label || 'Procesando…';
-    }
-  }
-
-  function nlmStopPoll(productId) {
-    if (nlmPollers[productId]) {
-      clearTimeout(nlmPollers[productId]);
-      delete nlmPollers[productId];
-    }
-  }
-
-  function nlmPoll(productId, jobId, seconds) {
-    nlmStopPoll(productId);
-    var wait = Math.max(4, parseInt(seconds || nlmDefaultPoll, 10) || nlmDefaultPoll) * 1000;
-    nlmPollers[productId] = setTimeout(function () {
-      fetch(nlmPollUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-CSRF-TOKEN': nlmCsrf()
-        },
-        body: JSON.stringify({ job_id: jobId })
-      }).then(function (r) { return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }); })
-        .then(function (pack) {
-          var job = pack.j && pack.j.job ? pack.j.job : null;
-          if (!job) {
-            var els = nlmEls(productId);
-            if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo consultar el estado.';
-            return;
-          }
-          nlmRenderJob(productId, job);
-          if (job.is_terminal) {
-            nlmStopPoll(productId);
-            if (job.status === 'completed') {
-              setTimeout(function () { window.location.reload(); }, 1200);
-            }
-            return;
-          }
-          nlmPoll(productId, job.id, pack.j.poll_seconds || nlmDefaultPoll);
-        })
-        .catch(function () {
-          var els = nlmEls(productId);
-          if (els.msg) els.msg.textContent = 'Error de red al consultar NotebookLM. Reintentando…';
-          nlmPoll(productId, jobId, nlmDefaultPoll);
-        });
-    }, wait);
-  }
-
-  $(document).on('click', '.md-notebooklm-go', function () {
-    var btn = this;
-    var productId = btn.getAttribute('data-product-id');
-    var campaignId = btn.getAttribute('data-campaign-id');
-    var els = nlmEls(productId);
-    btn.disabled = true;
-    if (els.cancel) els.cancel.disabled = false;
-    if (els.msg) els.msg.textContent = 'Enviando a Seller Central…';
-    fetch(nlmGenerateUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': nlmCsrf()
-      },
-      body: JSON.stringify({
-        campaign_id: parseInt(campaignId, 10),
-        product_id: parseInt(productId, 10),
-        mode: nlmMode(productId),
-        instructions: nlmInstructions(productId)
-      })
-    }).then(function (r) { return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }); })
-      .then(function (pack) {
-        if (!pack.okHttp || !pack.j || !pack.j.ok || !pack.j.job) {
-          btn.disabled = false;
-          if (els.cancel) els.cancel.disabled = true;
-          if (els.msg) els.msg.textContent = (pack.j && pack.j.message) || 'No se pudo iniciar NotebookLM.';
-          return;
-        }
-        nlmRenderJob(productId, pack.j.job);
-        nlmPoll(productId, pack.j.job.id, pack.j.poll_seconds || nlmDefaultPoll);
-      })
-      .catch(function () {
-        btn.disabled = false;
-        if (els.msg) els.msg.textContent = 'Error de red al iniciar NotebookLM.';
-      });
-  });
-
-  $(document).on('click', '.md-notebooklm-cancel', function () {
-    var productId = this.getAttribute('data-product-id');
-    var process = document.querySelector('.md-notebooklm-process[data-product-id="' + productId + '"]');
-    var jobId = process ? process.getAttribute('data-job-id') : '';
-    if (!jobId) return;
-    var els = nlmEls(productId);
-    this.disabled = true;
-    if (els.msg) els.msg.textContent = 'Deteniendo…';
-    nlmStopPoll(productId);
-    fetch(nlmCancelUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': nlmCsrf()
-      },
-      body: JSON.stringify({ job_id: parseInt(jobId, 10) })
-    }).then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j && j.job) nlmRenderJob(productId, j.job);
-        if (els.go) els.go.disabled = false;
-        if (els.msg) els.msg.textContent = (j && j.message) || 'Detenido.';
-      })
-      .catch(function () {
-        if (els.msg) els.msg.textContent = 'No se pudo detener.';
-      });
-  });
-
-  document.querySelectorAll('.md-notebooklm-process[data-job-bootstrap]').forEach(function (el) {
-    var productId = el.getAttribute('data-product-id');
-    var raw = el.getAttribute('data-job-bootstrap');
-    if (!productId || !raw) return;
-    try {
-      var job = JSON.parse(raw);
-      nlmRenderJob(productId, job);
-      if (job && job.id && !job.is_terminal) {
-        nlmPoll(productId, job.id, nlmDefaultPoll);
-      }
-    } catch (e) {}
-  });
+  // NotebookLM handlers ya registrados al inicio del script.
 })(jQuery);
 </script>
 @endpush

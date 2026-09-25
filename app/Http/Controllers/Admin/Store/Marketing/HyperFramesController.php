@@ -26,7 +26,7 @@ class HyperFramesController extends Controller
         if (! $hyperframes->configured()) {
             return response()->json([
                 'ok' => false,
-                'message' => 'Configura HYPERFRAMES_ADS_URL (https://hyperframes.ceballosleon.com) y HYPERFRAMES_ADS_TOKEN. Arranca el bridge local.',
+                'message' => 'Arranca el bridge HyperFrames en :9014 (start-bridge.cmd) y configura HYPERFRAMES_ADS_URL (p. ej. http://host.docker.internal:9014).',
             ], 422);
         }
 

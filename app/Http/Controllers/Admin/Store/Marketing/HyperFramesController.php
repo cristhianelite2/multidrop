@@ -52,6 +52,13 @@ class HyperFramesController extends Controller
             ->where('id', $data['product_id'])
             ->firstOrFail();
 
+        if (! $campaign->products()->whereKey($product->id)->exists()) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'El producto ya no pertenece a esta campaña. Actualiza la página e inténtalo de nuevo.',
+            ], 422);
+        }
+
         $useMiia = array_key_exists('use_miia', $data)
             ? (bool) $data['use_miia']
             : empty($data['prompt_id']);
@@ -66,8 +73,17 @@ class HyperFramesController extends Controller
             }
             $prompt = MarketingPrompt::query()
                 ->where('store_id', $store->id)
+                ->where('campaign_id', $campaign->id)
                 ->where('id', $data['prompt_id'])
                 ->firstOrFail();
+
+            $linkedProductIds = $prompt->linkedProductIds();
+            if ($linkedProductIds !== [] && ! in_array((int) $product->id, $linkedProductIds, true)) {
+                return response()->json([
+                    'ok' => false,
+                    'message' => 'El prompt seleccionado pertenece a otro producto de la campaña.',
+                ], 422);
+            }
         }
 
         $visualStyle = trim((string) ($data['visual_style'] ?? $defaultStyle)) ?: $defaultStyle;
@@ -154,6 +170,7 @@ class HyperFramesController extends Controller
             'texts' => ['nullable', 'array'],
             'texts.*' => ['nullable', 'string'],
             'visual_style' => ['nullable', 'string', 'max:40'],
+            'transition_style' => ['nullable', 'string', Rule::in(['editorial-wipe', 'kinetic-push', 'soft-dissolve'])],
             'exclude_images' => ['nullable', 'array'],
             'exclude_images.*' => ['nullable', 'string', 'max:120'],
             'exclude_videos' => ['nullable', 'array'],
@@ -168,6 +185,7 @@ class HyperFramesController extends Controller
         $applied = $hyperframes->applyReviewEdits($data['job_id'], array_filter([
             'texts' => $data['texts'] ?? null,
             'visual_style' => $data['visual_style'] ?? null,
+            'transition_style' => $data['transition_style'] ?? null,
             'exclude_images' => $data['exclude_images'] ?? null,
             'exclude_videos' => $data['exclude_videos'] ?? null,
         ], fn ($v) => $v !== null), (int) $store->id);
@@ -232,6 +250,7 @@ class HyperFramesController extends Controller
             'texts' => ['nullable', 'array'],
             'texts.*' => ['nullable', 'string'],
             'visual_style' => ['nullable', 'string', 'max:40', Rule::in($styleKeys !== [] ? $styleKeys : [$defaultStyle])],
+            'transition_style' => ['nullable', 'string', Rule::in(['editorial-wipe', 'kinetic-push', 'soft-dissolve'])],
         ]);
 
         $campaign = MarketingCampaign::query()
@@ -244,10 +263,18 @@ class HyperFramesController extends Controller
             ->where('id', $data['product_id'])
             ->firstOrFail();
 
+        if (! $campaign->products()->whereKey($product->id)->exists()) {
+            return response()->json([
+                'ok' => false,
+                'message' => 'El producto ya no pertenece a esta campaña. Actualiza la página e inténtalo de nuevo.',
+            ], 422);
+        }
+
         $visualStyle = trim((string) ($data['visual_style'] ?? $defaultStyle)) ?: $defaultStyle;
 
         $result = $hyperframes->regenerate($store, $campaign, $product, (int) $data['video_id'], [
             'texts' => $data['texts'] ?? [],
+            'transition_style' => $data['transition_style'] ?? 'editorial-wipe',
         ], $visualStyle);
 
         if (! ($result['ok'] ?? false)) {

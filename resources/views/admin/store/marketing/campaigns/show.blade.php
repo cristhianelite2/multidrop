@@ -496,6 +496,49 @@
     </div>
 
     {{-- Modal preview video: debe vivir en content (antes del JS) --}}
+    <div id="md-remotion-modal" class="fixed inset-0 z-[230] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+                <div>
+                    <h3 class="font-semibold text-ink">Estilo y música del video</h3>
+                    <p class="text-xs text-ink-soft/60">Cada video mezcla un estilo al azar y coloca las imágenes/videos del producto en un orden distinto. El audio se mezcla suavemente bajo la voz.</p>
+                </div>
+                <button type="button" class="admin-btn-secondary !px-2.5 !py-1 text-xs" data-md-remotion-close>Cancelar</button>
+            </div>
+            <div class="space-y-3 p-4">
+                <div class="rounded-lg bg-mist/50 p-3 text-[11px] text-ink-soft/70">
+                    Estilo en este prompt:
+                    <span class="font-medium text-ink" id="md-remotion-style-current">Aleatorio</span>
+                </div>
+                <label class="block text-xs font-medium text-ink">Melodía Creative Commons
+                    <select id="md-remotion-music" class="admin-input mt-1 w-full">
+                        <option value="random">Elegir una pista al azar en cada video</option>
+                        <option value="none">Sin música</option>
+                        @foreach($remotionMusic ?? [] as $track)
+                            <option value="{{ $track['id'] }}">{{ $track['title'] }} — {{ $track['mood'] }} ({{ $track['license'] }})</option>
+                        @endforeach
+                    </select>
+                </label>
+                <div class="rounded-lg bg-mist/50 p-3 text-[11px] text-ink-soft/70">
+                    {{ count($remotionMusic ?? []) }} pistas de Kevin MacLeod bajo CC BY 3.0, todas normalizadas al mismo volumen. El crédito de la canción elegida se guardará con el video para que puedas atribuirla al publicarlo.
+                    <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                        @foreach($remotionMusic ?? [] as $track)
+                            <a class="text-teal underline" href="{{ $track['source_url'] }}" target="_blank" rel="noopener">{{ $track['title'] }} · fuente</a>
+                        @endforeach
+                        <a class="text-teal underline" href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">Ver CC BY 3.0</a>
+                    </div>
+                </div>
+                <label class="block text-xs font-medium text-ink">Volumen de música <span id="md-remotion-volume-label">30%</span>
+                    <input id="md-remotion-volume" type="range" min="0" max="60" value="30" class="mt-2 w-full">
+                </label>
+            </div>
+            <div class="flex justify-end gap-2 border-t border-line bg-mist/30 px-4 py-3">
+                <button type="button" class="admin-btn-secondary" data-md-remotion-close>Cancelar</button>
+                <button type="button" class="admin-btn" id="md-remotion-submit">Crear video</button>
+            </div>
+        </div>
+    </div>
+
     <div id="md-video-modal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-ink/70 p-4" role="dialog" aria-modal="true" aria-hidden="true">
         <div class="relative flex w-full max-w-[220px] flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
             <div class="flex items-center justify-between gap-3 border-b border-line px-3 py-2">
@@ -589,6 +632,10 @@
     var url = this.getAttribute('data-url') || '';
     if (!url) return;
     copyTextToClipboard(url, this);
+  });
+  $(document).on('click', '.md-copy-video-credit', function () {
+    var credit = this.getAttribute('data-credit') || '';
+    if (credit) copyTextToClipboard(credit, this);
   });
 
   function mdVideoBulkRefresh(group) {
@@ -760,6 +807,13 @@
   var campaignId = @json($campaign->id);
   var csrf = document.querySelector('meta[name="csrf-token"]');
   var token = csrf ? csrf.getAttribute('content') : '';
+  function remotionCsrfToken() {
+    // XSRF-TOKEN es la cookie cifrada para el header X-XSRF-TOKEN.
+    // Como estas peticiones usan X-CSRF-TOKEN y _token, necesitan el token
+    // de sesión de la meta etiqueta.
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.getAttribute('content') : (token || '');
+  }
   var attachedProductIds = @json($campaign->products->pluck('id')->map(fn ($id) => (int) $id)->values());
 
   // NotebookLM: registrar pronto para que un error JS posterior no deje el botón muerto.
@@ -1056,14 +1110,17 @@
     var step = res && res.step != null ? parseInt(res.step, 10) : NaN;
     var steps = res && res.steps != null ? parseInt(res.steps, 10) : NaN;
     if (!isNaN(step) && !isNaN(steps) && steps > 0 && !/^\d+\s*\/\s*\d+/.test(msg)) {
-      return 'Paso ' + step + '/' + steps + ' — ' + msg;
+      msg = 'Paso ' + step + '/' + steps + ' — ' + msg;
+    }
+    if (res && res.style_label && msg.indexOf(res.style_label) === -1) {
+      msg = 'Estilo: ' + res.style_label + ' · ' + msg;
     }
     return msg;
   }
-  function pollRemotion(jobId, promptId, btn) {
-    fetch(@json(route('admin.store.marketing.remotion.poll')), {
+  function pollRemotion(jobId, promptId, productId, btn) {
+    fetch(@json(route('admin.store.marketing.remotion.poll', absolute: false)), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': remotionCsrfToken() },
       body: JSON.stringify({ job_id: jobId })
     }).then(function (r) { return r.json(); }).then(function (res) {
       var el = remotionMsgEl(promptId);
@@ -1074,7 +1131,7 @@
       }
       if (res.done || res.status === 'done') {
         if (el) el.textContent = 'Video listo. Recargando…';
-        window.location.href = productosUrl();
+        window.location.href = productosUrl(productId);
         return;
       }
       if (res.status === 'queued') {
@@ -1082,32 +1139,95 @@
       } else if (el) {
         el.textContent = remotionProgressLabel(res);
       }
-      setTimeout(function () { pollRemotion(jobId, promptId, btn); }, 2000);
+      setTimeout(function () { pollRemotion(jobId, promptId, productId, btn); }, 2000);
     }).catch(function () {
       var el = remotionMsgEl(promptId);
       if (el) el.textContent = 'Error de red al consultar Remotion';
       if (btn) btn.disabled = false;
     });
   }
+  function resumeRemotion(promptId, campaignId, productId, btn) {
+    fetch(@json(route('admin.store.marketing.remotion.active', absolute: false)), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': remotionCsrfToken() },
+      body: JSON.stringify({ campaign_id: campaignId, product_id: productId })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      var el = remotionMsgEl(promptId);
+      if (res.job_id) {
+        if (btn) btn.disabled = true;
+        if (el) el.textContent = remotionProgressLabel(res);
+        pollRemotion(res.job_id, promptId, productId, btn);
+      } else if (res.state === 'starting') {
+        if (btn) btn.disabled = true;
+        if (el) el.textContent = res.message || 'Iniciando generación…';
+        setTimeout(function () { resumeRemotion(promptId, campaignId, productId, btn); }, 1500);
+      }
+    }).catch(function () {});
+  }
+  document.querySelectorAll('.md-remotion-go').forEach(function (btn) {
+    resumeRemotion(
+      btn.getAttribute('data-prompt-id'),
+      btn.getAttribute('data-campaign-id'),
+      btn.getAttribute('data-product-id'),
+      btn
+    );
+  });
+  var pendingRemotionButton = null;
+  function closeRemotionModal() {
+    var modal = document.getElementById('md-remotion-modal');
+    if (!modal) return;
+    modal.classList.add('hidden'); modal.classList.remove('flex'); modal.setAttribute('aria-hidden', 'true');
+  }
+  $(document).on('click', '[data-md-remotion-close]', closeRemotionModal);
+  $(document).on('click', '#md-remotion-modal', function (e) { if (e.target === this) closeRemotionModal(); });
+  $(document).on('input', '#md-remotion-volume', function () {
+    var label = document.getElementById('md-remotion-volume-label');
+    if (label) label.textContent = this.value + '%';
+  });
   $(document).on('click', '.md-remotion-go', function () {
-    var btn = this;
+    pendingRemotionButton = this;
+    var label = document.getElementById('md-remotion-style-current');
+    if (label) {
+      var promptId = this.getAttribute('data-prompt-id');
+      var presetEl = document.querySelector('.md-remotion-preset[data-prompt-id="' + promptId + '"]');
+      var text = presetEl && presetEl.selectedOptions[0] ? presetEl.selectedOptions[0].textContent : 'Aleatorio';
+      label.textContent = text;
+    }
+    var modal = document.getElementById('md-remotion-modal');
+    if (modal) { modal.classList.remove('hidden'); modal.classList.add('flex'); modal.setAttribute('aria-hidden', 'false'); }
+  });
+  $(document).on('click', '#md-remotion-submit', function () {
+    var btn = pendingRemotionButton;
+    if (!btn) return;
+    closeRemotionModal();
+    var music = document.getElementById('md-remotion-music');
+    var volume = document.getElementById('md-remotion-volume');
+    sendRemotion(btn, music ? music.value : 'random', volume ? Number(volume.value) / 100 : 0.3);
+  });
+  function sendRemotion(btn, musicId, musicVolume) {
     var promptId = btn.getAttribute('data-prompt-id');
-    if (!promptId) return;
+    var selectedCampaignId = btn.getAttribute('data-campaign-id');
+    var productId = btn.getAttribute('data-product-id');
+    if (!promptId || !selectedCampaignId || !productId) return;
     var el = remotionMsgEl(promptId);
     var presetEl = document.querySelector('.md-remotion-preset[data-prompt-id="' + promptId + '"]');
     var voiceEl = document.querySelector('.md-remotion-voice[data-prompt-id="' + promptId + '"]');
     var fd = new FormData();
-    fd.append('campaign_id', campaignId);
+    fd.append('_token', remotionCsrfToken());
+    fd.append('campaign_id', selectedCampaignId);
     fd.append('prompt_id', promptId);
-    fd.append('preset', presetEl ? presetEl.value : 'product_presenter');
+    fd.append('product_id', productId);
+    fd.append('music_id', musicId || 'random');
+    fd.append('music_volume', String(musicVolume));
+    fd.append('preset', presetEl && presetEl.value ? presetEl.value : 'random');
     if (voiceEl && voiceEl.files && voiceEl.files[0]) {
       fd.append('voice', voiceEl.files[0]);
     }
     btn.disabled = true;
     if (el) el.textContent = '0/6 Enviando job…';
-    fetch(@json(route('admin.store.marketing.remotion.generate')), {
+    fetch(@json(route('admin.store.marketing.remotion.generate', absolute: false)), {
       method: 'POST',
-      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': remotionCsrfToken() },
       body: fd
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (pack) {
       if (!pack.j.ok) {
@@ -1125,13 +1245,13 @@
         btn.disabled = false;
         return;
       }
-      if (el) el.textContent = pack.j.message || '0/6 Arrancando pipeline…';
-      pollRemotion(pack.j.job_id, promptId, btn);
+      if (el) el.textContent = remotionProgressLabel(pack.j) || '0/6 Arrancando pipeline…';
+      pollRemotion(pack.j.job_id, promptId, productId, btn);
     }).catch(function () {
       if (el) el.textContent = 'Error de red';
       btn.disabled = false;
     });
-  });
+  }
 
   function hfMsgEl(productId) {
     return document.querySelector('.md-hyperframes-msg[data-product-id="' + productId + '"]');
@@ -1247,7 +1367,8 @@
               texts: rev.edits.texts,
               visual_style: rev.edits.visual_style,
               exclude_images: rev.edits.exclude_images,
-              exclude_videos: rev.edits.exclude_videos
+              exclude_videos: rev.edits.exclude_videos,
+              transition_style: rev.edits.transition_style
             })
           }).then(function (r) {
             return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () {
@@ -1490,6 +1611,7 @@
     var els = hfReviewEls();
     if (!els.modal || !els.body) return;
     hfReview = { productId: productId, btn: btn, payload: payload || {}, jobId: jobId };
+    if (els.hint) els.hint.textContent = 'Comprueba los datos del producto, revisa cada frase del guion y elige cómo cambiarán las escenas.';
 
     var prod = payload.product || {};
     var hasPlan = !!payload.has_plan;
@@ -1505,7 +1627,25 @@
     if (prod.compare_at_price != null) html += '<div>Antes: <s class="text-ink-soft/60">' + hfEsc(String(prod.compare_at_price)) + '</s></div>';
     if (prod.badge) html += '<div>Badge: ' + hfEsc(prod.badge) + '</div>';
     if (prod.product_url) html += '<div class="col-span-2 truncate"><a class="text-teal underline" href="' + hfEsc(prod.product_url) + '" target="_blank" rel="noopener">' + hfEsc(prod.product_url) + '</a></div>';
+    if (prod.description) html += '<div class="col-span-2 border-t border-line pt-2 mt-1"><strong class="text-ink">Descripción de ficha</strong><p class="mt-1 text-ink-soft/75">' + hfEsc(prod.description) + '</p></div>';
+    var productDetails = Array.isArray(prod.details) ? prod.details : [];
+    if (productDetails.length) {
+      html += '<div class="col-span-2 grid grid-cols-2 gap-1 border-t border-line pt-2 mt-1">';
+      productDetails.forEach(function (detail) {
+        var label = detail && typeof detail === 'object' ? (detail.label || detail.name || '') : '';
+        var value = detail && typeof detail === 'object' ? (detail.value || detail.text || '') : detail;
+        var line = [label, value].filter(Boolean).join(': ');
+        if (line) html += '<div>• ' + hfEsc(line) + '</div>';
+      });
+      html += '</div>';
+    }
     html += '</div>';
+
+    html += '<div class="space-y-1"><label class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Transición entre escenas</label><select id="md-hf-review-transition" class="admin-input w-full max-w-md text-sm">';
+    Object.keys(payload.transition_styles || {}).forEach(function (k) {
+      html += '<option value="' + hfEsc(k) + '"' + (k === (payload.options || {}).transition_style ? ' selected' : '') + '>' + hfEsc(payload.transition_styles[k]) + '</option>';
+    });
+    html += '</select><p class="text-xs text-ink-soft/60">El render aplicará este movimiento en los tres cambios de escena.</p></div>';
 
     html += '<div class="space-y-1"><label class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Estilo visual</label><select id="md-hf-review-style" class="admin-input w-full max-w-md text-sm">';
     Object.keys(payload.styles || {}).forEach(function (k) {
@@ -1522,6 +1662,19 @@
     html += hfReviewInput('CTA', ctaPath, brief.cta, {});
     html += hfReviewInput('Guion completo (texto)', 'prompt.script', brief.script, { rows: 6 });
     html += '</div>';
+
+    var scriptSegments = payload.script_segments || [];
+    if (scriptSegments.length) {
+      html += '<div class="space-y-2 rounded-xl border border-line p-3"><p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Copy generado por momento (' + scriptSegments.length + ')</p>';
+      scriptSegments.forEach(function (segment, i) {
+        html += '<article class="rounded-lg bg-mist/40 px-3 py-2"><p class="text-[10px] font-semibold uppercase tracking-wide text-teal">Momento ' + (i + 1) + ' · ' + hfEsc(segment.type || 'segmento') + '</p>';
+        if (segment.requires_review) html += '<p class="mt-1 text-[11px] font-semibold text-amber-800">Revisa este claim y confirma que tengas evidencia antes de usarlo.</p>';
+        if (segment.text_on_screen) html += '<p class="mt-1 text-sm font-semibold text-ink">' + hfEsc(segment.text_on_screen) + '</p>';
+        if (segment.voiceover) html += '<p class="mt-1 text-xs text-ink-soft/70">Voz: ' + hfEsc(segment.voiceover) + '</p>';
+        html += '</article>';
+      });
+      html += '</div>';
+    }
 
     var extra = (payload.creative || []).filter(function (c) {
       return c.path !== 'plan.creative.hook' && c.path !== 'plan.creative.cta';
@@ -1594,6 +1747,7 @@
       });
     }
     var styleSel = document.getElementById('md-hf-review-style');
+    var transitionSel = document.getElementById('md-hf-review-transition');
     var excludeImages = [];
     var excludeVideos = [];
     if (els.body) {
@@ -1611,6 +1765,7 @@
     return {
       texts: texts,
       visual_style: styleSel ? styleSel.value : (hfReview.payload.options || {}).visual_style,
+      transition_style: transitionSel ? transitionSel.value : (hfReview.payload.options || {}).transition_style,
       exclude_images: excludeImages,
       exclude_videos: excludeVideos
     };
@@ -1659,11 +1814,13 @@
       product_id: parseInt(state.payload.product_id, 10) || parseInt(productId, 10) || 0,
       video_id: parseInt(state.payload.video_id, 10) || 0,
       texts: edits.texts,
-      visual_style: edits.visual_style
+      visual_style: edits.visual_style,
+      transition_style: edits.transition_style
     } : {
       job_id: state.jobId,
       texts: edits.texts,
       visual_style: edits.visual_style,
+      transition_style: edits.transition_style,
       exclude_images: edits.exclude_images,
       exclude_videos: edits.exclude_videos
     };

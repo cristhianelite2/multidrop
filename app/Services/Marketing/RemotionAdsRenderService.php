@@ -22,6 +22,7 @@ class RemotionAdsRenderService
         protected PromptExportZipService $zipExport,
         protected VideoIngestService $ingest,
         protected RemotionEditPlanService $editPlan,
+        protected RemotionStyleCatalog $styles,
     ) {}
 
     public function root(): string
@@ -77,6 +78,11 @@ class RemotionAdsRenderService
      */
     protected function pythonProcessEnv(): array
     {
+        $hfCacheDir = storage_path('app/cache/huggingface');
+        if (! is_dir($hfCacheDir)) {
+            @mkdir($hfCacheDir, 0775, true);
+        }
+
         $env = [];
         foreach ($_ENV as $key => $value) {
             if (is_string($key) && is_scalar($value)) {
@@ -101,6 +107,11 @@ class RemotionAdsRenderService
             'PYTHONIOENCODING' => 'utf-8',
             'PYTHONUTF8' => '1',
             'HF_HUB_DISABLE_SYMLINKS_WARNING' => '1',
+            // PHP-FPM corre como www-data y no puede crear /var/www/.cache.
+            // Mantener los modelos descargados en storage, que sí pertenece a Laravel.
+            'HF_HOME' => $hfCacheDir,
+            'HF_HUB_CACHE' => $hfCacheDir.DIRECTORY_SEPARATOR.'hub',
+            'XDG_CACHE_HOME' => storage_path('app/cache'),
         ]);
     }
 
@@ -124,6 +135,41 @@ class RemotionAdsRenderService
         return 'remotion_ads:'.$jobId;
     }
 
+    public function activeProductKey(int $storeId, int $campaignId, int $productId): string
+    {
+        return "remotion_ads:active:{$storeId}:{$campaignId}:{$productId}";
+    }
+
+    /** @return array{job_id?: string, state: string, message?: string, style_label?: string} */
+    public function activeJob(int $storeId, int $campaignId, int $productId): array
+    {
+        $activeKey = $this->activeProductKey($storeId, $campaignId, $productId);
+        $jobId = (string) Cache::get($activeKey, '');
+        if ($jobId === '') {
+            return ['state' => 'idle'];
+        }
+        if ($jobId === 'starting') {
+            return ['state' => 'starting', 'message' => 'Iniciando generación…'];
+        }
+
+        $status = $this->status($jobId);
+        $state = (string) ($status['state'] ?? 'unknown');
+        if (! in_array($state, ['queued', 'running', 'prepared', 'props_ready'], true)) {
+            Cache::forget($activeKey);
+
+            return ['state' => 'idle'];
+        }
+
+        $label = trim((string) ($status['style_label'] ?? ''));
+
+        return [
+            'job_id' => $jobId,
+            'state' => $state,
+            'message' => (string) ($status['message'] ?? 'Generación en curso…'),
+            'style_label' => $label !== '' ? $label : null,
+        ];
+    }
+
     /**
      * @return array{ok: bool, job_id?: string, message?: string}
      */
@@ -132,15 +178,40 @@ class RemotionAdsRenderService
         MarketingCampaign $campaign,
         MarketingPrompt $prompt,
         ?UploadedFile $voice = null,
-        string $preset = 'product_presenter',
-        bool $sync = false
+        string $preset = 'random',
+        bool $sync = false,
+        ?int $productId = null,
+        string $musicId = 'random',
+        float $musicVolume = 0.3
     ): array {
         if (! $this->configured()) {
             return ['ok' => false, 'message' => 'Remotion Ads no está instalado (tools/remotion-ads).'];
         }
 
-        if (! in_array($preset, ['product_presenter', 'quick_transition'], true)) {
-            $preset = (string) config('multidrop.marketing.remotion.default_preset', 'product_presenter');
+        // "random" (o un preset desconocido) se resuelve a un estilo concreto
+        // del catálogo para que todo el pipeline use el mismo durante el job.
+        $estilo = $this->styles->resolve($preset);
+        $preset = $estilo['id'];
+
+        $productId = $productId ?: (int) $prompt->product_id;
+        if ($productId < 1 || (int) $prompt->product_id !== $productId || ! $campaign->products()->whereKey($productId)->exists()) {
+            return ['ok' => false, 'message' => 'El producto no pertenece al prompt y campaña seleccionados.'];
+        }
+
+        $activeKey = $this->activeProductKey((int) $store->id, (int) $campaign->id, $productId);
+        if (! Cache::add($activeKey, 'starting', now()->addHours(6))) {
+            $activeJobId = (string) Cache::get($activeKey, '');
+            $activeStatus = $activeJobId !== '' && $activeJobId !== 'starting' ? $this->status($activeJobId) : [];
+            if ($activeJobId !== '' && in_array($activeStatus['state'] ?? '', ['queued', 'running', 'prepared', 'props_ready'], true)) {
+                return ['ok' => true, 'job_id' => $activeJobId, 'existing' => true];
+            }
+            if ($activeJobId === 'starting') {
+                return ['ok' => false, 'message' => 'Ya se está iniciando una generación para este producto.'];
+            }
+            Cache::forget($activeKey);
+            if (! Cache::add($activeKey, 'starting', now()->addHours(6))) {
+                return ['ok' => false, 'message' => 'Ya se está iniciando una generación para este producto.'];
+            }
         }
 
         $jobId = (string) Str::uuid();
@@ -149,40 +220,56 @@ class RemotionAdsRenderService
         try {
             // Solo carpeta + voz: la descarga de medios va en el worker para no bloquear HTTP.
             $this->bootstrapJobDirectory($jobDir, $voice);
+            file_put_contents($jobDir.DIRECTORY_SEPARATOR.'music.json', json_encode([
+                'music_id' => $musicId,
+                'music_volume' => max(0.0, min(0.6, $musicVolume)),
+            ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
         } catch (\Throwable $e) {
+            Cache::forget($activeKey);
             return ['ok' => false, 'message' => $e->getMessage()];
         }
 
         Cache::put($this->cacheKey($jobId), [
             'state' => 'queued',
-            'message' => '0/6 Arrancando…',
+            'message' => '0/6 Arrancando… · Estilo: '.$estilo['label'],
             'store_id' => $store->id,
             'campaign_id' => $campaign->id,
             'prompt_id' => $prompt->id,
+            'product_id' => $productId,
             'preset' => $preset,
+            'style_id' => $estilo['id'],
+            'style_label' => $estilo['label'],
             'job_dir' => $jobDir,
             'video_id' => null,
             'error' => null,
             'step' => 0,
             'steps' => 6,
         ], now()->addHours(6));
-        $this->writeJobStatusFile($jobDir, 'queued', '0/6 Arrancando…', 0, 6);
+        $this->writeJobStatusFile($jobDir, 'queued', '0/6 Arrancando… · Estilo: '.$estilo['label'], 0, 6);
+        Cache::put($activeKey, $jobId, now()->addHours(6));
 
-        if ($sync) {
-            // artisan serve es single-thread: afterResponse bloquearía el poll.
-            // Lanzamos un PHP aparte para que el UI pueda consultar el progreso.
-            $this->spawnBackgroundProcess($jobId, $store->id, $campaign->id, $prompt->id, $preset);
-        } else {
-            \App\Jobs\RenderRemotionAdJob::dispatch(
-                $store->id,
-                $campaign->id,
-                $prompt->id,
-                $jobId,
-                $preset
-            );
+        try {
+            if ($sync) {
+                // artisan serve es single-thread: afterResponse bloquearía el poll.
+                // Lanzamos un PHP aparte para que el UI pueda consultar el progreso.
+                $this->spawnBackgroundProcess($jobId, $store->id, $campaign->id, $prompt->id, $preset, $productId);
+            } else {
+                \App\Jobs\RenderRemotionAdJob::dispatch(
+                    $store->id,
+                    $campaign->id,
+                    $prompt->id,
+                    $jobId,
+                    $preset,
+                    $productId
+                );
+            }
+        } catch (\Throwable $e) {
+            Cache::forget($activeKey);
+            Cache::forget($this->cacheKey($jobId));
+            return ['ok' => false, 'message' => 'No se pudo iniciar el render Remotion: '.$e->getMessage()];
         }
 
-        return ['ok' => true, 'job_id' => $jobId];
+        return ['ok' => true, 'job_id' => $jobId, 'style_id' => $estilo['id'], 'style_label' => $estilo['label']];
     }
 
     /**
@@ -402,6 +489,17 @@ class RemotionAdsRenderService
         };
 
         $add($jobDir.DIRECTORY_SEPARATOR.'prompt.json', 'prompt.json');
+        $add($jobDir.DIRECTORY_SEPARATOR.'music.json', 'music.json');
+        $add($this->root().DIRECTORY_SEPARATOR.'music_catalog.json', 'music_catalog.json');
+        // El pipeline remoto resuelve el estilo desde styles.json.
+        $add($this->styles->path(), 'styles.json');
+        $musicSelectionPath = $jobDir.DIRECTORY_SEPARATOR.'music.json';
+        $musicSelection = is_file($musicSelectionPath) ? json_decode((string) file_get_contents($musicSelectionPath), true) : null;
+        $musicId = is_array($musicSelection) ? (string) ($musicSelection['music_id'] ?? 'none') : 'none';
+        $musicTrack = app(RemotionMusicCatalog::class)->find($musicId);
+        if ($musicTrack && is_file($this->root().DIRECTORY_SEPARATOR.'public'.DIRECTORY_SEPARATOR.$musicTrack['file'])) {
+            $add($this->root().DIRECTORY_SEPARATOR.'public'.DIRECTORY_SEPARATOR.$musicTrack['file'], 'music.mp3');
+        }
         foreach (['images', 'videos'] as $folder) {
             $dir = $jobDir.DIRECTORY_SEPARATOR.$folder;
             if (! is_dir($dir)) {
@@ -527,7 +625,8 @@ class RemotionAdsRenderService
         MarketingCampaign $campaign,
         MarketingPrompt $prompt,
         string $jobId,
-        string $preset
+        string $preset,
+        ?int $productId = null
     ): MarketingVideo {
         ignore_user_abort(true);
         @set_time_limit(0);
@@ -539,7 +638,9 @@ class RemotionAdsRenderService
 
         $this->patchStatusCache($jobId, 'running', '0/6 Descargando imágenes y video del producto…', 0, 6);
         $this->writeJobStatusFile($jobDir, 'running', '0/6 Descargando imágenes y video del producto…', 0, 6);
-        $this->prepareJobDirectory($store, $prompt, $jobDir, null);
+        $productId = $productId ?: (int) $prompt->product_id;
+        $product = Product::query()->where('store_id', $store->id)->whereKey($productId)->firstOrFail();
+        $this->prepareJobDirectory($store, $prompt, $jobDir, null, $product);
 
         $mp4 = $jobDir.DIRECTORY_SEPARATOR.'out'.DIRECTORY_SEPARATOR.'final.mp4';
 
@@ -594,7 +695,9 @@ class RemotionAdsRenderService
                 $mp4,
                 $prompt,
                 'remotion',
-                $jobId
+                $jobId,
+                $productId,
+                $this->musicAttributionForJob($jobDir)
             );
         } finally {
             if ($this->isRemote()) {
@@ -604,6 +707,19 @@ class RemotionAdsRenderService
         }
     }
 
+    protected function musicAttributionForJob(string $jobDir): ?string
+    {
+        $selectionPath = $jobDir.DIRECTORY_SEPARATOR.'music.json';
+        if (! is_file($selectionPath)) {
+            return null;
+        }
+        $selection = json_decode((string) file_get_contents($selectionPath), true);
+        $catalog = app(RemotionMusicCatalog::class);
+        $track = is_array($selection) ? $catalog->find((string) ($selection['music_id'] ?? '')) : null;
+
+        return $track['credit'] ?? null;
+    }
+
     public function failJob(string $jobId, string $message): void
     {
         $this->patchStatusCache($jobId, 'failed', $message);
@@ -611,6 +727,9 @@ class RemotionAdsRenderService
         $jobDir = is_array($cached) ? (string) ($cached['job_dir'] ?? '') : '';
         if ($jobDir !== '') {
             $this->writeJobStatusFile($jobDir, 'failed', $message);
+        }
+        if (is_array($cached) && ! empty($cached['product_id'])) {
+            Cache::forget($this->activeProductKey((int) $cached['store_id'], (int) $cached['campaign_id'], (int) $cached['product_id']));
         }
     }
 
@@ -651,9 +770,16 @@ class RemotionAdsRenderService
         int $storeId,
         int $campaignId,
         int $promptId,
-        string $preset
+        string $preset,
+        int $productId
     ): void {
-        $php = PHP_BINARY ?: 'php';
+        // Bajo PHP-FPM, PHP_BINARY suele apuntar al binario php-fpm. Este
+        // proceso necesita el ejecutable CLI para correr Artisan.
+        $php = rtrim(PHP_BINDIR, DIRECTORY_SEPARATOR)
+            .DIRECTORY_SEPARATOR.(PHP_OS_FAMILY === 'Windows' ? 'php.exe' : 'php');
+        if (! is_file($php) || ! is_executable($php)) {
+            $php = PHP_BINARY ?: 'php';
+        }
         $artisan = base_path('artisan');
         $logDir = storage_path('logs');
         if (! is_dir($logDir)) {
@@ -669,6 +795,7 @@ class RemotionAdsRenderService
             '--store='.$storeId,
             '--campaign='.$campaignId,
             '--prompt='.$promptId,
+            '--product='.$productId,
             '--preset='.$preset,
         ];
 
@@ -701,7 +828,7 @@ class RemotionAdsRenderService
     /**
      * Usado por artisan marketing:remotion-edit-plan.
      */
-    public function writeEditPlanFromMiia(string $jobDir, string $preset = 'product_presenter'): array
+    public function writeEditPlanFromMiia(string $jobDir, string $preset = 'random'): array
     {
         $jobDir = rtrim($jobDir, DIRECTORY_SEPARATOR);
         $promptPath = $jobDir.DIRECTORY_SEPARATOR.'prompt.json';
@@ -723,6 +850,11 @@ class RemotionAdsRenderService
         }
 
         $plan = $result['plan'];
+        if (is_array($plan)) {
+            $estilo = $this->styles->resolve($preset);
+            $plan['preset'] = $estilo['id'];
+            $plan['style'] = $estilo['id'];
+        }
         $outDir = $jobDir.DIRECTORY_SEPARATOR.'trabajo';
         if (! is_dir($outDir)) {
             mkdir($outDir, 0775, true);
@@ -779,7 +911,8 @@ class RemotionAdsRenderService
         Store $store,
         MarketingPrompt $prompt,
         string $jobDir,
-        ?UploadedFile $voice
+        ?UploadedFile $voice,
+        ?Product $selectedProduct = null
     ): void {
         foreach (['', 'images', 'videos', 'trabajo', 'out'] as $sub) {
             $path = $sub === '' ? $jobDir : $jobDir.DIRECTORY_SEPARATOR.$sub;
@@ -799,6 +932,22 @@ class RemotionAdsRenderService
             'language' => $prompt->language ?: 'es',
             'style' => $prompt->style,
             'target_platform' => $prompt->target_platform,
+            'product' => $selectedProduct ? [
+                'id' => $selectedProduct->id,
+                'name' => $selectedProduct->name,
+                'description' => $selectedProduct->description,
+                'price' => $selectedProduct->price,
+                'compare_at_price' => $selectedProduct->compare_at_price,
+                'currency' => $selectedProduct->currency,
+                'sku' => $selectedProduct->sku,
+                'images' => $selectedProduct->galleryImages(),
+                'variants' => $selectedProduct->variants->map(fn ($variant) => [
+                    'name' => $variant->name,
+                    'sku' => $variant->sku,
+                    'price' => $variant->price,
+                    'options' => $variant->options,
+                ])->values()->all(),
+            ] : null,
         ];
         file_put_contents(
             $jobDir.DIRECTORY_SEPARATOR.'prompt.json',
@@ -806,7 +955,7 @@ class RemotionAdsRenderService
         );
         $this->writeJobStatusFile($jobDir, 'prepared', '0/6 Job preparado; esperando pipeline…', 0, 6);
 
-        $this->exportMediaToJob($store, $prompt, $jobDir);
+        $this->exportMediaToJob($store, $prompt, $jobDir, $selectedProduct);
 
         if ($voice instanceof UploadedFile && $voice->isValid()) {
             $dest = $jobDir.DIRECTORY_SEPARATOR.'voice.mp3';
@@ -816,14 +965,14 @@ class RemotionAdsRenderService
         }
 
         $media = $this->scanMedia($jobDir);
-        if ($media === []) {
-            throw new \RuntimeException('El prompt no tiene imágenes/videos de producto exportables.');
+        if (! array_filter($media, fn (array $item) => ($item['media_type'] ?? '') === 'image')) {
+            throw new \RuntimeException('El producto no tiene imágenes exportables para el video.');
         }
     }
 
-    protected function exportMediaToJob(Store $store, MarketingPrompt $prompt, string $jobDir): void
+    protected function exportMediaToJob(Store $store, MarketingPrompt $prompt, string $jobDir, ?Product $selectedProduct = null): void
     {
-        $ids = $prompt->linkedProductIds();
+        $ids = $selectedProduct ? [(int) $selectedProduct->id] : $prompt->linkedProductIds();
         if ($ids === []) {
             return;
         }

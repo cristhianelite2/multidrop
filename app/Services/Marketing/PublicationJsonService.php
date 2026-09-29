@@ -54,6 +54,7 @@ class PublicationJsonService
             'estado' => 'scheduled',
             'tema' => mb_substr($name, 0, 120),
             'media_urls' => [$video->publicUrl()],
+            'music_attribution' => $video->music_attribution,
         ];
     }
 

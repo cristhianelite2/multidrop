@@ -458,15 +458,19 @@ class ProductPageScrapeService
             $label = 'Innovador';
         }
 
-        $problem = $this->inferProblem($corpus, $type, $productName);
+        // A category keyword does not prove a customer pain point. Keep the
+        // fallback grounded in the product listing and let MIIA find a hook
+        // without inventing a problem scenario.
+        $problem = '';
         $value = $this->inferValueProp($product, $scrape, $type, $label);
-        $hook = $this->cleanLine($problem, 52);
-        $beats = [
+        $hook = $productName !== '' ? 'Conoce '.$this->cleanLine($productName, 42) : 'Descubre este producto';
+        $beats = array_values(array_unique(array_filter([
             $hook,
             $this->cleanLine($value, 52),
             $this->cleanLine($this->pickBenefit($scrape, $type, $product), 52),
-            $this->cleanLine('Pídelo hoy y nota la diferencia', 48),
-        ];
+            $product->price !== null ? 'Precio actual: '.$product->price.($product->currency ? ' '.$product->currency : '') : null,
+            'Descúbrelo en la tienda',
+        ])));
 
         return [
             'type' => $type,
@@ -493,20 +497,23 @@ class ProductPageScrapeService
         $angle = $this->lightCreativeAngle($product, $scrape);
         $hook = $angle['hook'];
         $value = $angle['value'];
-        $cta = 'Cómpralo ahora en la tienda';
+        $cta = 'Descúbrelo en la tienda';
         $beats = $angle['beats'];
 
         $segments = [];
         $t = 0;
-        $voiceovers = [
-            ['type' => 'hook', 'line' => $beats[0]],
-            ['type' => 'solution', 'line' => $this->cleanLine($name.' lo resuelve', 56)],
-            ['type' => 'value', 'line' => $beats[1]],
-            ['type' => 'proof', 'line' => $beats[2]],
-            ['type' => 'cta', 'line' => $cta],
-        ];
+        $voiceovers = [];
+        foreach ($beats as $i => $line) {
+            if ($line === '') {
+                continue;
+            }
+            $voiceovers[] = ['type' => $i === 0 ? 'hook' : ($i === array_key_last($beats) ? 'cta' : 'benefit'), 'line' => $line];
+        }
+        if ($voiceovers === [] || ($voiceovers[array_key_last($voiceovers)]['line'] ?? '') !== $cta) {
+            $voiceovers[] = ['type' => 'cta', 'line' => $cta];
+        }
         foreach ($voiceovers as $i => $row) {
-            $end = $t + ($row['type'] === 'cta' ? 4 : 5);
+            $end = $t + 3;
             $line = $row['line'];
             $segments[] = [
                 'index' => $i + 1,
@@ -639,11 +646,7 @@ class ProductPageScrapeService
             return $desc;
         }
 
-        return match ($type) {
-            'economico' => $name !== '' ? "{$name}: más por menos" : 'Más por menos, sin rodeos',
-            'bonito' => $name !== '' ? "{$name}: lindo y práctico" : 'Diseño que se nota de cerca',
-            default => $name !== '' ? "{$name} lo hace fácil" : 'Una solución más inteligente',
-        };
+        return $name;
     }
 
     /**
@@ -673,11 +676,7 @@ class ProductPageScrapeService
             }
         }
 
-        return match ($type) {
-            'economico' => 'Calidad real sin gastar de más',
-            'bonito' => 'Diseño que se nota de cerca',
-            default => 'Fácil de usar desde el día uno',
-        };
+        return $product ? $this->cleanLine((string) $product->localizedName(), 52) : '';
     }
 
     protected function metaContent(string $html, string $property): string

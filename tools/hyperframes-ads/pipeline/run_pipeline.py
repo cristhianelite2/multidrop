@@ -46,7 +46,7 @@ def npx_cmd() -> list[str]:
     npx = shutil.which("npx") or shutil.which("npx.cmd")
     if not npx:
         raise RuntimeError("npx no está en el PATH (Node.js 22+ requerido).")
-    return [npx, "--yes", "hyperframes@0.8.49"]
+    return [npx, "--yes", "hyperframes@0.8.78"]
 
 
 def run(cmd: list[str], cwd: Path, timeout: int = 1800, job_dir=None, step: int = 6) -> subprocess.CompletedProcess:

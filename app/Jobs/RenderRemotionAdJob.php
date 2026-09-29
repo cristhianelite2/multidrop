@@ -24,7 +24,8 @@ class RenderRemotionAdJob implements ShouldQueue
         public int $campaignId,
         public int $promptId,
         public string $jobId,
-        public string $preset = 'product_presenter',
+        public string $preset = 'random',
+        public int $productId = 0,
     ) {}
 
     public function handle(RemotionAdsRenderService $remotion): void
@@ -46,7 +47,7 @@ class RenderRemotionAdJob implements ShouldQueue
         }
 
         try {
-            $video = $remotion->runAndIngest($store, $campaign, $prompt, $this->jobId, $this->preset);
+            $video = $remotion->runAndIngest($store, $campaign, $prompt, $this->jobId, $this->preset, $this->productId);
             $key = $remotion->cacheKey($this->jobId);
             $cached = Cache::get($key);
             if (! is_array($cached)) {
@@ -59,6 +60,7 @@ class RenderRemotionAdJob implements ShouldQueue
             $cached['video_id'] = $video->id;
             $cached['error'] = null;
             Cache::put($key, $cached, now()->addHours(6));
+            Cache::forget($remotion->activeProductKey($this->storeId, $this->campaignId, $this->productId));
 
             $jobDir = (string) ($cached['job_dir'] ?? '');
             if ($jobDir !== '') {
@@ -94,5 +96,8 @@ class RenderRemotionAdJob implements ShouldQueue
         $cached['message'] = $message;
         $cached['error'] = $message;
         Cache::put($key, $cached, now()->addHours(6));
+        if (! empty($cached['store_id']) && ! empty($cached['campaign_id']) && ! empty($cached['product_id'])) {
+            Cache::forget('remotion_ads:active:'.(int) $cached['store_id'].':'.(int) $cached['campaign_id'].':'.(int) $cached['product_id']);
+        }
     }
 }

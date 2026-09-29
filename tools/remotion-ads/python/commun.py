@@ -124,6 +124,67 @@ def status_path(job_dir: Path) -> Path:
     return job_dir / "status.json"
 
 
+# Assets de public/ que la composición lee siempre (staticFile), no por job.
+ASSETS_PUBLICOS_COMPARTIDOS = ("elements",)
+
+
+def _puede_usar_public(carpeta: Path) -> bool:
+    jobs = carpeta / "_jobs"
+    try:
+        jobs.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+    return os.access(jobs, os.W_OK)
+
+
+def public_root(job_dir: Path) -> Path:
+    """Raíz de assets estáticos que Remotion usará para este job.
+
+    `tools/remotion-ads/public` puede pertenecer a otro usuario: en el servidor
+    Laravel corre como www-data y el código llega con un despliegue de otro
+    usuario, así que crear `public/_jobs/<job>` falla con PermissionError. Cuando
+    no es escribible, los assets del job van a una carpeta propia del job y allí
+    se replica lo que la composición comparte.
+    """
+    job_dir = Path(job_dir)
+    override = os.environ.get("REMOTION_PUBLIC_DIR", "").strip()
+    if override:
+        base = Path(override)
+        if _puede_usar_public(base):
+            return base
+        raise RuntimeError(
+            f"REMOTION_PUBLIC_DIR no es escribible para el usuario actual: {base}"
+        )
+    base = RAIZ / "public"
+    if _puede_usar_public(base):
+        return base
+    return _public_root_del_job(job_dir)
+
+
+def _public_root_del_job(job_dir: Path) -> Path:
+    raiz = job_dir / "_public"
+    (raiz / "_jobs").mkdir(parents=True, exist_ok=True)
+    for nombre in ASSETS_PUBLICOS_COMPARTIDOS:
+        origen = RAIZ / "public" / nombre
+        destino = raiz / nombre
+        if origen.is_dir() and not destino.is_dir():
+            shutil.copytree(origen, destino)
+    return raiz
+
+
+def public_job_dir(job_dir: Path) -> Path:
+    return public_root(job_dir) / "_jobs" / Path(job_dir).name
+
+
+def limpiar_public_job(job_dir: Path) -> None:
+    """Libera los assets estáticos del job y la raíz propia si se usó de reserva."""
+    job_dir = Path(job_dir)
+    raiz = public_root(job_dir)
+    shutil.rmtree(raiz / "_jobs" / job_dir.name, ignore_errors=True)
+    if raiz.parent == job_dir:
+        shutil.rmtree(raiz, ignore_errors=True)
+
+
 def set_status(job_dir: Path, state: str, message: str = "", step: int | None = None, steps: int | None = None, **extra) -> None:
     data = {"state": state, "message": message, **extra}
     if step is not None:

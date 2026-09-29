@@ -2,6 +2,32 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-09-28
+
+### Marketing · Remotion Ads
+- Catálogo de estilos de anuncio en `tools/remotion-ads/styles.json` (adaptado de https://github.com/maxtron777/remotion-business-templates a 9:16): `social_ad`, `product_showcase`, `testimonial_card`, `branded_intro` y `spec_cards`. Cada generación elige un estilo al azar desde el servidor (`RemotionStyleCatalog`), persistido en el cache/status del job y mostrado en la UI.
+- Orden de medios ahora aleatorio por generación (imágenes, videos, ratio de video y transiciones del estilo), con RNG sembrado por UUID: cada intento produce un montaje distinto y un reintento conserva el mismo corte.
+- Nuevos THEMEs de captions (karaoke, pill, light card, minimal line, mono) y 5 CTAs por estilo (`StyleChrome`), decorations (`badge`, `stat_chip`, `stat_cards`, `quote_mark`, `grid`, orbes, subrayado) y overlays.
+- El plan de MIIA recibe el estilo y su ritmo objetivo; el ZIP remoto incluye `styles.json`.
+- Corregido el pipeline en Docker: `public/_jobs` escribible por `www-data` con fallback a `jobs/<uuid>/_public` si `public/` no es escribible, y arreglado el `UnboundLocalError` del plan de cortes fallback.
+- **Audio audible**: la música se oía ~24 dB por debajo de la voz (inaudible en el móvil). Las 13 pistas de `tools/remotion-ads/music_catalog.json` (Kevin MacLeod, CC BY 3.0; 10 nuevas: Gymnopedie 2 y 3, Celtic Impulse, Earth Prelude, Gypsy Shoegazer, Himalayan Atmosphere, Miri's Magic Dance, Tea Roots, The Voices, Tectonic) están normalizadas a -18 LUFS con el nuevo `scripts/prepare_music.py`, el volumen por defecto subió de 7,5% a 30% (control hasta 60%), el loop de música cubre todo el video con fundidos, y el render ahora se masteriza a -14 LUFS. Medido en el video final: voz -19 LUFS, música -30 LUFS.
+
+## 2026-09-25
+
+### Marketing · HyperFrames / Remotion / NotebookLM
+- Restaurado el pipeline de anuncios HyperFrames y el flujo de NotebookLM en Seller Central; reactivados los handlers del bridge local `:9014` (`034042c`, `17480e5`).
+- Añadido retry para errores de Seller Central y restaurado `JsonObjectParser` (`711d151`).
+- Corregida la subida ZIP de Remotion/HyperFrames con un cuerpo rebobinable; arregladas las URLs de miniaturas para túneles, las imágenes locales del modal y la disponibilidad de FFmpeg en el bridge (`3a68189`, `2696f96`, `2bc0cef`, `debfee9`, `0adb076`).
+
+### Hunter AliExpress
+- Las capturas se sanitizan con MIIA e importan el resumen del artículo generado por IA (`2696f96`).
+- La importación de variantes AE admite imágenes grandes, filas editables y precios sugeridos por MIIA (`b7cd285`).
+- El popup restaura la última tienda inmediatamente y valida el token en segundo plano (`a3ffc29`).
+- Se conservan las extensiones originales de imágenes y se documentó el flujo de test-push silencioso (`6e3c59f`).
+
+### Entorno local
+- Añadido Compose y script para publicar la app en `:8086`, alineado con el túnel Cloudflare `multidrop2` (`d372daf`, `6dfc60a`).
+
 ## 2026-09-18
 
 ### Marketing · Seller Central

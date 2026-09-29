@@ -263,11 +263,56 @@ def esc(text: str) -> str:
     )
 
 
+def contrast_ratio(hex_a: str, hex_b: str) -> float:
+    def luminance(value: str) -> float:
+        channels = [int(value[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    high, low = sorted((luminance(hex_a), luminance(hex_b)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
+
+
+def dark_text_color(color: str, backgrounds: list[str], target: float = 4.7) -> str:
+    """Darken a palette accent until it has readable contrast on all light panels."""
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+        return color
+    if all(contrast_ratio(color, bg) >= target for bg in backgrounds):
+        return color
+    rgb = [int(color[i : i + 2], 16) for i in (1, 3, 5)]
+    low, high = 0.0, 1.0
+    for _ in range(18):
+        scale = (low + high) / 2
+        candidate = "#" + "".join(f"{int(channel * scale):02x}" for channel in rgb)
+        if all(contrast_ratio(candidate, bg) >= target for bg in backgrounds):
+            low = scale
+        else:
+            high = scale
+    return "#" + "".join(f"{int(channel * low):02x}" for channel in rgb)
+
+
 def clean_text(value: object, limit: int = 220) -> str:
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     if len(text) > limit:
         text = text[: limit - 1].rstrip() + "…"
     return text
+
+
+def compact_product_title(value: object, limit: int = 30) -> str:
+    """Short display name for titles; never leave a visible truncation ellipsis."""
+    text = re.sub(r"\s+", " ", str(value or "Producto")).strip()
+    if len(text) <= limit:
+        return text
+    words = text.split()
+    kept: list[str] = []
+    for word in words:
+        candidate = " ".join([*kept, word])
+        if len(candidate) > limit:
+            break
+        kept.append(word)
+    if kept:
+        return " ".join(kept).rstrip(" ,.;:—-")
+    return text[:limit].rstrip(" ,.;:—-")
 
 
 def punch_line(value: object, limit: int = 42) -> str:
@@ -284,6 +329,12 @@ NOISE_DETAIL_RE = re.compile(
     r"n[uú]mero de modelo|modelo\s*#|certificaci[oó]n|high concern)",
     re.I,
 )
+UNVERIFIED_CLAIM_RE = re.compile(
+    r"(certificad[oa]|certificaci[oó]n|\bce\b|\bfda\b|libre de (?:qu[ií]micos|sustancias)|"
+    r"sin t[oó]xicos|no t[oó]xico|apto(?:s|a)? para|mayores de\s+\d+|garantizad[oa]|"
+    r"cl[ií]nicamente|aprobado por|resultados garantizados|cura(?:r|ción)?)",
+    re.I,
+)
 WEAK_HOOK_RE = re.compile(
     r"^(video|nuevo|new|hot|sale|oferta|promo|bestseller|top)$",
     re.I,
@@ -291,7 +342,9 @@ WEAK_HOOK_RE = re.compile(
 JUNK_HOOK_RE = re.compile(
     r"(pierdes tiempo|inicio\s*[—\-|]|pasarela|carrito|checkout|"
     r"tambi[eé]n te puede|te estamos llevando|baza\s*$|cat[aá]logo\s*$|"
-    r"sin resultados|md-checkout|:root)",
+    r"sin resultados|md-checkout|:root|brief creativo|guion por segmentos|"
+    r"platform\s*:|market\s*:|audience\s*:|tone\s*:|profile\s*:|"
+    r"transici[oó]n\s*:|c[aá]mara\s*:|talento\s*:|iluminaci[oó]n\s*:)",
     re.I,
 )
 
@@ -305,6 +358,8 @@ def is_useful_line(text: str, min_len: int = 12) -> bool:
     if JUNK_HOOK_RE.search(t):
         return False
     if NOISE_DETAIL_RE.search(t):
+        return False
+    if UNVERIFIED_CLAIM_RE.search(t):
         return False
     return True
 
@@ -471,38 +526,24 @@ def pick_palette(product: dict, prompt: dict) -> tuple[str, dict[str, str]]:
     return best, STYLE_PALETTES.get(best, STYLE_PALETTES["signal"])
 
 
-def scene_labels(style_key: str, product: dict, prompt: dict) -> dict[str, str]:
-    """Etiquetas: SHOW → WHY → PROOF → BUY; captions MIIA pueden renombrar el cierre."""
+def scene_labels(style_key: str, product: dict, prompt: dict, lang: str = "es") -> dict[str, str]:
+    """Etiquetas de escena localizadas; captions MIIA pueden personalizar el cierre."""
     analysis = prompt.get("analysis") if isinstance(prompt.get("analysis"), dict) else {}
     cd = creative_direction(prompt)
     captions = cd.get("captions") if isinstance(cd.get("captions"), dict) else {}
     brand = cd.get("brand") if isinstance(cd.get("brand"), dict) else {}
 
     angle_label = punch_line(analysis.get("angle_label") or analysis.get("angle_type") or "", 14)
-    angle_map = {
-        "economico": "AHORRO",
-        "económico": "AHORRO",
-        "bonito": "ESTILO",
-        "innovador": "NUEVO",
+    # The creative angle is a visual direction, not evidence for savings,
+    # novelty, or product performance. Use neutral scene labels by default.
+    proof = angle_label.upper() if angle_label else "DETALLE"
+    language = str(lang or "es").lower().split("-")[0]
+    labels_by_language = {
+        "es": ("PRODUCTO", "EN DETALLE", proof or "CARACTERÍSTICAS", "DESCÚBRELO"),
+        "en": ("THE PRODUCT", "UP CLOSE", proof or "FEATURES", "DISCOVER IT"),
+        "pt": ("PRODUTO", "DE PERTO", proof or "DETALHES", "DESCUBRA"),
     }
-    proof = angle_map.get(angle_label.lower(), angle_label.upper() if angle_label else "PLUS")
-    defaults = {
-        "signal": ("SHOW", "WHY", proof or "PLUS", "BUY"),
-        "tech": ("SHOW", "WHY", proof or "TECH", "GO"),
-        "beauty": ("SHOW", "GLOW", proof or "LOOK", "TUYO"),
-        "home": ("SHOW", "HOME", proof or "PLUS", "PEDIR"),
-        "sport": ("SHOW", "GEAR", proof or "EDGE", "YA"),
-        "luxury": ("SHOW", "PIEZA", proof or "LUXE", "RESERVA"),
-        "candy": ("SHOW", "FUN", proof or "CUTE", "YA"),
-        "citrus": ("SHOW", "FRESH", proof or "ZING", "PEDIR"),
-        "ocean": ("SHOW", "FLOW", proof or "CALM", "GO"),
-        "ink": ("SHOW", "BOLD", proof or "INK", "BUY"),
-        "pastel": ("SHOW", "SOFT", proof or "DREAM", "TUYO"),
-        "neon": ("SHOW", "LIT", proof or "NEON", "GO"),
-        "editorial": ("SHOW", "LOOK", proof or "EDIT", "SHOP"),
-        "mono": ("SHOW", "FORM", proof or "PURE", "BUY"),
-    }
-    a, b, c, d = defaults.get(style_key, defaults["signal"])
+    a, b, c, d = labels_by_language.get(language, labels_by_language["es"])
 
     # Overlay emphasis de MIIA → etiqueta de proof más fiel al guion
     emphasis = captions.get("emphasis_words")
@@ -514,7 +555,7 @@ def scene_labels(style_key: str, product: dict, prompt: dict) -> dict[str, str]:
     if cap_style and is_useful_line(cap_style, 4):
         b = cap_style[:14]
     cta_chip = punch_line(brand.get("cta") or prompt.get("cta") or "", 10).upper()
-    if cta_chip and is_useful_line(cta_chip, 3):
+    if cta_chip and not cta_chip.endswith(("…", "...")) and is_useful_line(cta_chip, 3):
         d = cta_chip[:14]
 
     return {"open": a[:18], "hero": b[:14], "proof": c[:16], "close": d[:14]}
@@ -565,11 +606,19 @@ def bullets_from_product(product: dict, prompt: dict) -> list[str]:
             if len(items) >= 3:
                 break
 
-    for d in ("Solución simple al problema", "Se nota la diferencia", "Listo para pedir hoy"):
+    # Sparse catalog fallback: use the product's own name/description and
+    # neutral shopping guidance instead of fabricating benefits.
+    name = punch_line(product.get("name") or "", 42)
+    description = punch_line(product.get("description") or "", 42)
+    for raw in (name, description, "Consulta los detalles en tienda"):
+        push(raw)
         if len(items) >= 3:
             break
-        if d not in items:
-            items.append(d)
+    for neutral in ("Conoce el producto", "Mira sus detalles", "Descúbrelo en tienda"):
+        if len(items) >= 3:
+            break
+        if neutral not in items:
+            items.append(neutral)
     return items[:3]
 
 
@@ -624,36 +673,34 @@ def script_beats(prompt: dict, product: dict, hook: str) -> list[str]:
     push(analysis.get("value_prop") or analysis.get("product_angle") or "")
     push(analysis.get("summary") or "")
 
-    angle = (analysis.get("angle_type") or analysis.get("angle_label") or "").lower()
-    name_short = punch_line(product.get("name") or "esto", 28)
-    fillers = {
-        "economico": ["Más por menos, sin rodeos", "Calidad real a buen precio", "Pídelo hoy y ahorra"],
-        "bonito": ["Se ve premium al instante", "Diseño que se nota de cerca", "Dale ese upgrade visual"],
-        "innovador": [
-            f"{name_short} lo hace fácil" if len(name_short) > 6 else "Una solución más inteligente",
-            "Simple, rápido, al grano",
-            "Pruébalo hoy",
-        ],
-    }
-    for cand in fillers.get(angle, fillers["innovador"]):
-        if len(beats) >= 4:
-            break
-        push(cand)
+    # Fill from known catalog facts only; the final line is a neutral CTA.
+    details = product.get("details") or []
+    if isinstance(details, list):
+        for detail in details:
+            if isinstance(detail, dict):
+                label = clean_text(detail.get("label") or detail.get("name") or "", 24)
+                value = clean_text(detail.get("value") or detail.get("text") or "", 30)
+                push(f"{label}: {value}" if label and value else value or label)
+            else:
+                push(detail)
+            if len(beats) >= 3:
+                break
+    push(product.get("name") or "Conoce el producto")
+    description = punch_line(product.get("description") or "", 52)
+    push(description)
+    push("Descúbrelo en tienda")
     while len(beats) < 4:
-        beats.append(
-            ["Resuelve el problema", "Se siente innovador", "Fácil desde el día uno", "Cómpralo ahora"][len(beats)]
-        )
+        beats.append(("Mira el producto", "Consulta sus detalles", "Descúbrelo en tienda")[len(beats) % 3])
     return beats[:4]
 
 
 def script_sentences(prompt: dict, limit: int = 4) -> list[str]:
-    """Guion completo (prompt.script): líneas on-screen derivadas del guion.
-
-    Divide por saltos de línea o fin de frase y reparte hasta `limit` líneas
-    (una por beat: open / hero / proof / close). Vacío si no hay guion útil.
-    """
+    """Use plain text only; structured MIIA segments already drive on-screen beats."""
+    segments = prompt.get("segments")
+    if isinstance(segments, list) and any(isinstance(segment, dict) for segment in segments):
+        return []
     raw = str(prompt.get("script") or "").strip()
-    if not raw:
+    if not raw or re.search(r"(?im)^\s*(===|CANAL|CÁMARA|CAMARA|GUION POR SEGMENTOS|PLATFORM\s*:|MARKET\s*:)", raw):
         return []
     lines: list[str] = []
     for part in re.split(r"[\n.;]+", raw):
@@ -736,13 +783,19 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
         prompt = json.loads(prompt_path.read_text(encoding="utf-8"))
 
     options_path = job_dir / "options.json"
+    options = {}
     if options_path.is_file():
         try:
             options = json.loads(options_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             options = {}
-        if isinstance(options, dict) and options.get("visual_style") and not product.get("visual_style"):
+        if not isinstance(options, dict):
+            options = {}
+        if options.get("visual_style") and not product.get("visual_style"):
             product["visual_style"] = options["visual_style"]
+    transition_style = str(options.get("transition_style") or "editorial-wipe")
+    if transition_style not in {"editorial-wipe", "kinetic-push", "soft-dissolve"}:
+        transition_style = "editorial-wipe"
 
     images_src = job_dir / "images"
     assets = project_dir / "public" / "media"
@@ -800,10 +853,11 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
     video_files = uniq_videos[:2]
     force_video = bool(video_files) or bool(product.get("has_product_video"))
 
-    name = clean_text(product.get("name") or "Producto", 48)
+    name = compact_product_title(product.get("name") or "Producto")
     store = clean_text(product.get("store_name") or "Multidrop", 32)
     hook = hook_from_sources(prompt, product)
-    # Script de cierre: último overlay útil MIIA o script del brief
+    # Cierre breve: un beneficio/detalle, no el bloque de dirección creativa
+    # que versiones anteriores guardaban dentro de prompt.script.
     script_raw = ""
     segments = prompt.get("segments") or []
     if isinstance(segments, list):
@@ -811,25 +865,30 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
             if not isinstance(seg, dict):
                 continue
             stype = str(seg.get("type") or "").lower()
-            if stype in ("cta", "benefit", "value", "proof"):
+            if stype in ("detail", "benefit", "value", "proof"):
                 cand = punch_line(seg.get("text_on_screen") or seg.get("voiceover") or "", 56)
                 if is_useful_line(cand, 10):
                     script_raw = cand
                     break
     if not script_raw:
-        script_raw = punch_line(prompt.get("script") or product.get("description") or "", 56)
+        script_raw = punch_line(product.get("description") or "", 56)
     script = script_raw if is_useful_line(script_raw, 10) else hook
     price = price_label(product)
     compare = compare_price_label(product)
     cd = creative_direction(prompt)
     brand = cd.get("brand") if isinstance(cd.get("brand"), dict) else {}
-    cta = punch_line(
+    cta_source = (
         prompt.get("cta")
         or product.get("cta")
         or brand.get("cta")
-        or "Compra ahora",
-        22,
+        or "Compra ahora"
     )
+    cta = punch_line(cta_source, 20)
+    if cta.endswith("…") or re.search(r"\.\.\.$", cta):
+        cta = {"en": "Shop now", "pt": "Comprar agora"}.get(
+            str(prompt.get("language") or product.get("language") or "es").lower().split("-")[0],
+            "Compra ahora",
+        )
     bullets = bullets_from_product(product, prompt)
     beats = script_beats(prompt, product, hook)
 
@@ -879,7 +938,7 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
     if forced_key not in STYLE_PALETTES and plan and isinstance(plan.get("palette_key"), str) and plan["palette_key"] in STYLE_PALETTES:
         style_key = plan["palette_key"]
         palette = STYLE_PALETTES[style_key]
-    labels = scene_labels(style_key, product, prompt)
+    labels = scene_labels(style_key, product, prompt, lang)
     energy = miia_energy(prompt, palette)
 
     # Variación determinista por job: la semilla deriva del job dir, así cada
@@ -921,6 +980,7 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
         style_key=style_key,
         energy=energy,
         layout_variant=layout_variant,
+        transition_style=transition_style,
     )
 
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -942,7 +1002,7 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
             [
                 "---",
                 "workflow: product-launch-video",
-                "flow: companion",
+                "flow: automation",
                 "storyboard: no",
                 f"title: {name}",
                 "aspect: 9:16",
@@ -972,8 +1032,8 @@ def write_project(job_dir: Path, project_dir: Path) -> dict:
                 "name": "multidrop-product-ad",
                 "private": True,
                 "scripts": {
-                    "render": "npx hyperframes@0.8.49 render --quality looks --output ../out/final.mp4",
-                    "check": "npx hyperframes@0.8.49 check",
+                    "render": "npx hyperframes@0.8.78 render --quality looks --output ../out/final.mp4",
+                    "check": "npx hyperframes@0.8.78 check",
                 },
             },
             indent=2,
@@ -1044,14 +1104,14 @@ def product_visual(
     prefer_video: bool,
 ) -> str:
     """Si hay video de producto, SIEMPRE se usa (enmarcado). Si no, foto en tarjeta."""
-    cls = f"product-card product-card--{variant} product-card--video clip"
+    cls = f"product-card product-card--{variant} product-card--video"
     if prefer_video and video_src:
         return (
-            f'<div id="{el_id}-wrap" class="{cls}" '
-            f'data-start="{video_start}" data-duration="{video_duration}" data-track-index="2">'
+            f'<div id="{el_id}-wrap" class="{cls}">'
             f'<div class="product-card__shine" aria-hidden="true"></div>'
             f'<div class="product-card__rim" aria-hidden="true"></div>'
-            f'<video id="{el_id}" class="product-video" src="{esc(video_src)}" '
+            f'<video id="{el_id}" class="product-video clip" src="{esc(video_src)}" '
+            f'data-start="{video_start}" data-duration="{video_duration}" data-track-index="2" '
             f'muted playsinline></video>'
             f"</div>"
         )
@@ -1086,6 +1146,7 @@ def build_html(
     style_key: str,
     energy: str = "media",
     layout_variant: int = 0,
+    transition_style: str = "editorial-wipe",
 ) -> str:
     b0, b1, b2 = [esc(x) for x in bullets]
     t0, t1, t2, t3 = [esc(x) for x in beats]
@@ -1112,11 +1173,10 @@ def build_html(
         f'<div id="rating" class="rating-chip">★ {esc(rating)}</div>' if rating else ""
     )
 
-    # Timing ≤29s — 4 beats claros (sin galería repetitiva)
-    # open 0–4.0 | hero 3.7–13.8 | proof 13.5–21.2 | close 20.9–29.0
+    # Timing ≤29s — escenas consecutivas, con el wipe cubriendo cada cambio.
     T_OPEN, D_OPEN = 0.0, 4.0
-    T_HERO, D_HERO = 3.7, 10.1
-    T_PROOF, D_PROOF = 13.5, 7.7
+    T_HERO, D_HERO = 4.0, 9.5
+    T_PROOF, D_PROOF = 13.5, 7.4
     T_CLOSE, D_CLOSE = 20.9, 8.1
 
     # Intensidad de motion según talento.energy de MIIA
@@ -1148,6 +1208,13 @@ def build_html(
         video_duration=D_HERO,
         prefer_video=use_video,
     )
+    open_visual = product_card(
+        img1,
+        "open-photo",
+        "open",
+        start=T_OPEN,
+        duration=D_OPEN,
+    )
     proof_visual = product_card(
         img2 or img3 or img1,
         "proof-photo",
@@ -1163,16 +1230,36 @@ def build_html(
         duration=D_CLOSE,
     )
 
-    p = palette
+    p = dict(palette)
+    p["accent_contrast"] = dark_text_color(p["accent"], [p["bg0"], p["bg1"]])
+    p["accent2_contrast"] = dark_text_color(p["accent2"], [p["bg0"], p["bg1"]])
     lbl_open = esc(labels["open"])
     lbl_hero = esc(labels["hero"])
     lbl_proof = esc(labels["proof"])
     lbl_close = esc(labels["close"])
     style_tag = esc(p.get("label") or style_key.upper())
+    transition_duration = {
+        "editorial-wipe": 0.52 if energy != "alta" else 0.40,
+        "kinetic-push": 0.44 if energy != "baja" else 0.58,
+        "soft-dissolve": 0.72,
+    }[transition_style]
+    transitions = [
+        ("transition-one", max(0, T_HERO - 0.16), lbl_hero),
+        ("transition-two", max(0, T_PROOF - 0.16), lbl_proof),
+        ("transition-three", max(0, T_CLOSE - 0.16), lbl_close),
+    ]
+    transition_clips = "\n".join(
+        f'<div id="{transition_id}" class="clip transition-clip" data-start="{start:.2f}" '
+        f'data-duration="{transition_duration:.2f}" data-track-index="4">'
+        f'<div class="transition-panel transition-panel--{transition_style}" data-layout-allow-occlusion><span>{label}</span></div></div>'
+        for transition_id, start, label in transitions
+    )
 
     close_price = (
         f'<p id="close-price" class="price-now close-price">{esc(price)}</p>' if price else ""
     )
+    language = str(lang or "es").lower().split("-")[0]
+    intro_kicker = {"en": "Meet the product", "pt": "Conheça o produto"}.get(language, "Conoce el producto")
 
     return f"""<!doctype html>
 <html lang="{esc(lang)}">
@@ -1189,7 +1276,9 @@ def build_html(
         --ink: {p["ink"]};
         --muted: {p["muted"]};
         --accent: {p["accent"]};
+        --accent-contrast: {p["accent_contrast"]};
         --accent2: {p["accent2"]};
+        --accent2-contrast: {p["accent2_contrast"]};
         --panel: {p["panel"]};
         --panel-ink: {p["panel_ink"]};
         --line: {p["line"]};
@@ -1200,7 +1289,7 @@ def build_html(
         margin: 0;
         background: var(--bg0);
         color: var(--ink);
-        font-family: "Fraunces", "Georgia", serif;
+        font-family: Georgia, serif;
       }}
       #root {{
         position: relative;
@@ -1224,12 +1313,12 @@ def build_html(
       }}
       .slash {{
         position: absolute;
-        width: 140%;
+        width: 100%;
         height: 8px;
-        left: -20%;
+        left: 0;
         background: linear-gradient(90deg, transparent, var(--accent), transparent);
         opacity: 0.35;
-        transform: rotate(-12deg);
+        transform: none;
         z-index: 1;
       }}
       .slash-a {{ top: 28%; }}
@@ -1276,7 +1365,7 @@ def build_html(
         position: absolute;
         left: -2%;
         bottom: 16%;
-        font-family: "Archivo Black", sans-serif;
+        font-family: Arial, sans-serif;
         font-size: 200px;
         font-weight: 400;
         line-height: 0.8;
@@ -1307,7 +1396,7 @@ def build_html(
         z-index: 6;
       }}
       .brand {{
-        font-family: "Space Mono", monospace;
+        font-family: Consolas, monospace;
         font-size: 22px;
         letter-spacing: 0.18em;
         text-transform: uppercase;
@@ -1315,11 +1404,11 @@ def build_html(
         color: var(--ink);
       }}
       .tag {{
-        font-family: "Space Mono", monospace;
+        font-family: Consolas, monospace;
         font-size: 18px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
-        color: var(--accent);
+        color: var(--accent-contrast);
         border: 2px solid var(--accent);
         padding: 10px 16px;
         background: rgba(255,255,255,0.65);
@@ -1351,13 +1440,21 @@ def build_html(
         max-height: 40%;
         transform: rotate(1.2deg);
       }}
+      .product-card--open {{
+        left: 18%;
+        right: 18%;
+        top: 920px;
+        height: 650px;
+        max-height: 34%;
+        transform: rotate(-1deg);
+      }}
       .product-card--thumb {{
         top: auto;
-        bottom: 500px;
+        bottom: 800px;
         left: 26%;
         right: 26%;
-        height: 360px;
-        max-height: 20%;
+        height: 320px;
+        max-height: 18%;
         transform: rotate(-0.5deg);
       }}
       .product-card--hero--alt {{
@@ -1374,7 +1471,7 @@ def build_html(
       .product-card--thumb--alt {{
         left: 10%;
         right: 72%;
-        bottom: 560px;
+        bottom: 800px;
       }}
       .product-card__shine {{
         position: absolute;
@@ -1413,6 +1510,7 @@ def build_html(
       }}
       .product-card--video {{
         background: #fff;
+        opacity: 0;
       }}
       .product-fallback {{
         position: absolute;
@@ -1447,16 +1545,16 @@ def build_html(
       .kicker {{
         display: block;
         margin: 0 0 18px;
-        font-family: "Space Mono", monospace;
+        font-family: Consolas, monospace;
         font-size: 20px;
         letter-spacing: 0.22em;
         text-transform: uppercase;
-        color: var(--accent);
+        color: var(--accent-contrast);
       }}
       h1, h2 {{
         margin: 0;
-        font-family: "Archivo Black", sans-serif;
-        font-weight: 400;
+        font-family: Arial, sans-serif;
+        font-weight: 900;
         letter-spacing: -0.02em;
         text-transform: uppercase;
         color: var(--ink);
@@ -1474,9 +1572,9 @@ def build_html(
         margin-bottom: 16px;
       }}
       h2.close-title {{
-        font-size: 56px;
-        line-height: 0.95;
-        max-width: 12ch;
+        font-size: 48px;
+        line-height: 1;
+        max-width: 15ch;
       }}
       .lede {{
         margin: 0;
@@ -1485,7 +1583,7 @@ def build_html(
         font-weight: 500;
         color: var(--muted);
         max-width: 20ch;
-        font-family: "Montserrat", sans-serif;
+        font-family: Arial, sans-serif;
       }}
       .lede-lg {{
         font-size: 34px;
@@ -1499,25 +1597,25 @@ def build_html(
         margin-top: 22px;
       }}
       .price-now {{
-        font-family: "Archivo Black", sans-serif;
+        font-family: Arial, sans-serif;
         font-size: 54px;
-        font-weight: 400;
+        font-weight: 900;
         letter-spacing: -0.02em;
-        color: var(--accent2);
+        color: var(--accent2-contrast);
       }}
       .price-was {{
         font-size: 24px;
-        color: rgba(26,21,17,0.35);
+        color: var(--ink);
         text-decoration: line-through;
-        font-family: "Montserrat", sans-serif;
+        font-family: Arial, sans-serif;
       }}
       .rating-chip {{
         display: inline-flex;
         margin-top: 14px;
-        font-family: "Space Mono", monospace;
+        font-family: Consolas, monospace;
         font-size: 18px;
         letter-spacing: 0.08em;
-        color: var(--muted);
+        color: var(--ink);
       }}
       .features {{
         display: grid;
@@ -1535,9 +1633,9 @@ def build_html(
         border-bottom: 1px solid var(--line);
       }}
       .dot {{
-        font-family: "Archivo Black", sans-serif;
+        font-family: Arial, sans-serif;
         font-size: 28px;
-        color: var(--accent);
+        color: var(--accent-contrast);
         line-height: 1;
         flex: 0 0 auto;
         margin-top: 2px;
@@ -1547,12 +1645,12 @@ def build_html(
         font-size: 28px;
         line-height: 1.25;
         font-weight: 700;
-        font-family: "Montserrat", sans-serif;
+        font-family: Arial, sans-serif;
         color: var(--ink);
       }}
       .proof-caption {{
         margin: 0 0 8px;
-        font-family: "Archivo Black", sans-serif;
+        font-family: Arial, sans-serif;
         font-size: 44px;
         line-height: 1.05;
         text-transform: uppercase;
@@ -1580,11 +1678,11 @@ def build_html(
         margin-top: 10px;
         padding: 28px 48px;
         border-radius: 999px;
-        background: var(--accent);
+        background: var(--accent-contrast);
         color: #fff;
-        font-family: "Archivo Black", sans-serif;
+        font-family: Arial, sans-serif;
         font-size: 36px;
-        font-weight: 400;
+        font-weight: 800;
         letter-spacing: 0.04em;
         text-transform: uppercase;
         box-shadow: 0 16px 36px rgba(226,61,45,0.28);
@@ -1592,9 +1690,9 @@ def build_html(
       .end-sub {{
         margin: 0;
         font-size: 28px;
-        color: var(--muted);
+        color: var(--ink);
         max-width: 20ch;
-        font-family: "Montserrat", sans-serif;
+        font-family: Arial, sans-serif;
       }}
       .close-price {{
         margin: 0;
@@ -1602,7 +1700,7 @@ def build_html(
       }}
       .store-foot {{
         margin: 6px 0 0;
-        font-family: Space Mono, monospace;
+        font-family: Consolas, monospace;
         font-size: 16px;
         letter-spacing: 0.2em;
         text-transform: uppercase;
@@ -1612,12 +1710,48 @@ def build_html(
         position: absolute;
         top: 120px;
         right: 56px;
-        font-family: Space Mono, monospace;
+        font-family: Consolas, monospace;
         font-size: 14px;
         letter-spacing: 0.24em;
         text-transform: uppercase;
-        color: var(--muted);
+        color: var(--ink);
         z-index: 5;
+      }}
+      .transition-clip {{
+        z-index: 40;
+        pointer-events: none;
+      }}
+      .transition-panel {{
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: var(--accent-contrast);
+        color: #fff;
+        opacity: 0;
+        clip-path: polygon(0 0, 100% 0, 88% 100%, 0 100%);
+        font-family: Arial, sans-serif;
+        font-size: 84px;
+        letter-spacing: -0.02em;
+        text-transform: uppercase;
+        will-change: transform;
+      }}
+      .transition-panel span {{
+        display: block;
+        max-width: 9ch;
+        padding: 40px;
+        text-align: center;
+        text-wrap: balance;
+      }}
+      .transition-panel--kinetic-push {{
+        clip-path: none;
+        background: var(--ink);
+        color: var(--panel);
+      }}
+      .transition-panel--soft-dissolve {{
+        clip-path: none;
+        background: var(--panel-ink);
+        color: var(--panel);
       }}
     </style>
   </head>
@@ -1632,14 +1766,13 @@ def build_html(
     >
       <div class="grain" aria-hidden="true"></div>
 
-      <!-- 01 OPEN — hook punch, sin producto -->
+      <!-- 01 OPEN — hook punch + producto desde el primer plano -->
       <section id="open" class="clip" data-start="{T_OPEN}" data-duration="{D_OPEN}" data-track-index="1">
         <div class="atmosphere">
           <div class="accent-bar"></div>
           <div id="orb-a" class="orb orb-a"></div>
           <div class="grid-dots"></div>
           <div id="slash-a" class="slash slash-a"></div>
-          <div id="ghost-open" class="ghost-word">{style_tag}</div>
         </div>
         <div class="top-bar">
           <div id="brand" class="brand">{esc(store)}</div>
@@ -1647,11 +1780,12 @@ def build_html(
         </div>
         <div class="style-chip" id="style-chip">{style_tag}</div>
         <div class="copy-open">
-          <p id="kicker" class="kicker">Por qué importa</p>
+          <p id="kicker" class="kicker">{intro_kicker}</p>
           <h1 id="open-title" class="open-title">{esc(hook)}</h1>
           <p id="open-lede" class="lede lede-lg">{t0}</p>
         </div>
       </section>
+      {open_visual}
 
       <!-- 02 HERO — producto (video una vez) + nombre + precio -->
       <section id="hero" class="clip" data-start="{T_HERO}" data-duration="{D_HERO}" data-track-index="1">
@@ -1678,7 +1812,6 @@ def build_html(
         <div class="atmosphere">
           <div class="accent-bar"></div>
           <div class="grid-dots"></div>
-          <div id="ghost-proof" class="ghost-word" style="bottom:8%;font-size:180px;">WHY</div>
         </div>
         <div class="top-bar">
           <div class="brand">{esc(store)}</div>
@@ -1715,12 +1848,14 @@ def build_html(
         </div>
       </section>
       {close_visual}
+      {transition_clips}
     </div>
     <script>
       const tl = gsap.timeline({{ paused: true }});
       const hasMedia = {str(has_media).lower()};
       const useVideo = {str(use_video).lower()};
       const energy = "{esc(energy)}";
+      const transitionStyle = "{esc(transition_style)}";
 
       // Ambient decor (finite, seek-safe — no infinite repeats)
       tl.fromTo("#orb-a", {{ scale: 0.92, opacity: 0.7 }}, {{ scale: 1.05, opacity: 1, duration: {d(3.6)}, ease: "sine.inOut" }}, 0.0);
@@ -1733,10 +1868,14 @@ def build_html(
       tl.fromTo("#kicker", {{ y: 18, opacity: 0 }}, {{ y: 0, opacity: 1, duration: {d(0.4)}, ease: "power2.out" }}, 0.35);
       tl.fromTo("#open-title", {{ y: {y_big}, opacity: 0, rotate: {rot} }}, {{ y: 0, opacity: 1, rotate: 0, duration: {d(0.7)}, ease: "{ease_in}" }}, 0.45);
       tl.fromTo("#open-lede", {{ y: {y_mid}, opacity: 0 }}, {{ y: 0, opacity: 1, duration: {d(0.5)}, ease: "power2.out" }}, 0.85);
-      tl.fromTo("#ghost-open", {{ x: -40, opacity: 0 }}, {{ x: 0, opacity: 1, duration: {d(1.0)}, ease: "sine.out" }}, 0.2);
+      if (document.querySelector("#open-photo")) {{
+        tl.fromTo("#open-photo", {{ y: 54, opacity: 0, scale: 0.94 }}, {{ y: 0, opacity: 1, scale: 1, duration: {d(0.7)}, ease: "{ease_in}" }}, 0.65);
+      }}
 
       // Hero — product reveal + Ken Burns only on stills
-      tl.fromTo("#hero-photo-wrap", {{ y: {y_big}, opacity: 0, rotate: {round(rot * 2, 1)} }}, {{ y: 0, opacity: 1, rotate: -1.2, duration: {d(0.85)}, ease: "{ease_in}" }}, {t(T_HERO, 0.12)});
+      const heroMotionTarget = useVideo && document.querySelector("#hero-photo-wrap.product-card--video") ? "#hero-photo-wrap" : "#hero-photo";
+      tl.fromTo(heroMotionTarget, {{ y: {y_big}, opacity: 0, rotate: {round(rot * 2, 1)} }}, {{ y: 0, opacity: 1, rotate: -1.2, duration: {d(0.85)}, ease: "{ease_in}" }}, {t(T_HERO, 0.12)});
+      if (heroMotionTarget === "#hero-photo-wrap") tl.set(heroMotionTarget, {{ opacity: 0 }}, {t(T_HERO, D_HERO)});
       if (!useVideo && hasMedia && document.querySelector("#hero-photo") && document.querySelector("#hero-photo").tagName === "IMG") {{
         tl.fromTo("#hero-photo", {{ scale: 1.08 }}, {{ scale: 1, duration: {t(0, D_HERO - 0.4)}, ease: "none" }}, {t(T_HERO, 0.2)});
       }}
@@ -1751,15 +1890,14 @@ def build_html(
       tl.fromTo("#slash-b", {{ x: 60, opacity: 0 }}, {{ x: 0, opacity: 0.28, duration: {d(0.6)}, ease: "power2.out" }}, {t(T_HERO, 0.2)});
 
       // Proof — staggered benefits + card from right
-      tl.fromTo("#proof-photo-wrap", {{ x: {proof_from_x}, opacity: 0, rotate: {proof_rotate} }}, {{ x: 0, opacity: 1, rotate: {proof_rotate_to}, duration: {d(0.7)}, ease: "{ease_in}" }}, {t(T_PROOF, 0.1)});
+      tl.fromTo("#proof-photo", {{ x: {proof_from_x}, opacity: 0, rotate: {proof_rotate} }}, {{ x: 0, opacity: 1, rotate: {proof_rotate_to}, duration: {d(0.7)}, ease: "{ease_in}" }}, {t(T_PROOF, 0.1)});
       tl.fromTo("#proof-caption", {{ y: 24, opacity: 0 }}, {{ y: 0, opacity: 1, duration: {d(0.45)}, ease: "{ease_in}" }}, {t(T_PROOF, 0.35)});
       tl.fromTo("#f1", {{ x: -20, opacity: 0 }}, {{ x: 0, opacity: 1, duration: {d(0.4)}, ease: "power2.out" }}, {t(T_PROOF, 0.55)});
       tl.fromTo("#f2", {{ x: -20, opacity: 0 }}, {{ x: 0, opacity: 1, duration: {d(0.4)}, ease: "power2.out" }}, {t(T_PROOF, 0.75)});
       tl.fromTo("#f3", {{ x: -20, opacity: 0 }}, {{ x: 0, opacity: 1, duration: {d(0.4)}, ease: "power2.out" }}, {t(T_PROOF, 0.95)});
-      tl.fromTo("#ghost-proof", {{ opacity: 0 }}, {{ opacity: 1, duration: {d(0.8)}, ease: "sine.out" }}, {t(T_PROOF, 0.15)});
 
       // Close / CTA
-      tl.fromTo("#close-photo-wrap", {{ y: 36, opacity: 0, scale: 0.96 }}, {{ y: 0, opacity: 1, scale: 1, duration: {d(0.6)}, ease: "{ease_in}" }}, {t(T_CLOSE, 0.12)});
+      tl.fromTo("#close-photo", {{ y: 36, opacity: 0, scale: 0.96 }}, {{ y: 0, opacity: 1, scale: 1, duration: {d(0.6)}, ease: "{ease_in}" }}, {t(T_CLOSE, 0.12)});
       tl.fromTo("#close-script", {{ y: 18, opacity: 0 }}, {{ y: 0, opacity: 1, duration: {d(0.4)}, ease: "power2.out" }}, {t(T_CLOSE, 0.35)});
       tl.fromTo("#close-title", {{ y: 28, opacity: 0 }}, {{ y: 0, opacity: 1, duration: {d(0.5)}, ease: "{ease_in}" }}, {t(T_CLOSE, 0.55)});
       if (document.querySelector("#close-price")) {{
@@ -1768,6 +1906,28 @@ def build_html(
       tl.fromTo("#cta", {{ y: 24, opacity: 0, scale: 0.94 }}, {{ y: 0, opacity: 1, scale: 1, duration: {d(0.5)}, ease: "{ease_punch}" }}, {t(T_CLOSE, 1.05)});
       tl.fromTo("#close-store", {{ opacity: 0 }}, {{ opacity: 0.55, duration: {d(0.35)}, ease: "sine.out" }}, {t(T_CLOSE, 1.4)});
       tl.fromTo("#slash-c", {{ x: -50, opacity: 0 }}, {{ x: 0, opacity: 0.45, duration: {d(0.55)}, ease: "power2.out" }}, {t(T_CLOSE, 0.2)});
+
+      // A bold editorial wipe bridges every chapter; inner panels animate so
+      // HyperFrames remains in control of each timed .clip's visibility.
+      const wipeDuration = {transition_duration};
+      [
+        {{ id: "#transition-one .transition-panel", time: {transitions[0][1]:.2f} }},
+        {{ id: "#transition-two .transition-panel", time: {transitions[1][1]:.2f} }},
+        {{ id: "#transition-three .transition-panel", time: {transitions[2][1]:.2f} }},
+      ].forEach(function (wipe) {{
+        const panel = document.querySelector(wipe.id);
+        if (!panel) return;
+        if (transitionStyle === "soft-dissolve") {{
+          tl.to(panel, {{ keyframes: [
+            {{ opacity: 0.94, duration: wipeDuration * 0.5, ease: "sine.in" }},
+            {{ opacity: 0, duration: wipeDuration * 0.5, ease: "sine.out" }}
+          ] }}, wipe.time);
+        }} else {{
+          const fromX = transitionStyle === "kinetic-push" ? 1120 : -1120;
+          const toX = -fromX;
+          tl.fromTo(panel, {{ x: fromX, opacity: 1 }}, {{ x: toX, opacity: 1, duration: wipeDuration, ease: "power3.inOut", immediateRender: false }}, wipe.time);
+        }}
+      }});
 
       window.__timelines["product-ad"] = tl;
     </script>

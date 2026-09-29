@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import commun as c
+import styles as st
 
 
 def call_miia_edit_plan(job_dir: Path, preset: str) -> bool:
@@ -19,12 +20,13 @@ def call_miia_edit_plan(job_dir: Path, preset: str) -> bool:
         print("Artisan/php no disponible; se usará edit_plan fallback.")
         return False
 
+    estilo = st.resolver(preset)
     cmd = [
         php,
         str(artisan),
         "marketing:remotion-edit-plan",
         str(job_dir.resolve()),
-        f"--preset={preset}",
+        f"--preset={estilo['id']}",
     ]
     print("MIIA edit plan vía Artisan…")
     proc = subprocess.run(cmd, cwd=str(root), capture_output=True, text=True)
@@ -43,9 +45,15 @@ def call_miia_edit_plan(job_dir: Path, preset: str) -> bool:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("job_dir")
-    ap.add_argument("--preset", default="product_presenter")
+    ap.add_argument("--preset", default="random", choices=["random", *st.ids()])
     a = ap.parse_args()
-    ok = call_miia_edit_plan(Path(a.job_dir), a.preset)
+    job = Path(a.job_dir)
+    if a.preset == "random":
+        import build_props
+        preset = st.estilo_aleatorio(build_props.job_rng(job))["id"]
+    else:
+        preset = st.resolver(a.preset)["id"]
+    ok = call_miia_edit_plan(job, preset)
     return 0 if ok else 1
 
 

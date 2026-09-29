@@ -16,6 +16,9 @@
         <div class="mt-1 flex flex-wrap items-center gap-1.5">
             <input type="text" readonly value="{{ $v->publicUrl() }}" class="admin-input !py-1 !px-2 !text-[11px] font-mono flex-1 min-w-[10rem] max-w-md" title="{{ $v->publicUrl() }}">
             <button type="button" class="admin-btn-secondary !px-2 !py-1 !text-[11px] md-copy-video-url" data-url="{{ $v->publicUrl() }}">Copiar</button>
+            @if($v->music_attribution)
+                <button type="button" class="admin-btn-secondary !px-2 !py-1 !text-[11px] md-copy-video-credit" data-credit="{{ $v->music_attribution }}">Copiar crédito de música</button>
+            @endif
             <a class="admin-btn-secondary !px-2 !py-1 !text-[11px]" href="{{ route('admin.store.marketing.videos.download', $v) }}">Descargar</a>
             <button type="button" class="admin-btn-secondary !px-2 !py-1 !text-[11px] md-publication-json" data-url="{{ route('admin.store.marketing.videos.publication-json', $v) }}">Generar JSON de publicación</button>
             <form method="post" action="{{ route('admin.store.marketing.videos.destroy', $v) }}" onsubmit="return confirm('¿Eliminar este video?')" class="inline">

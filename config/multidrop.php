@@ -186,7 +186,9 @@ return [
             'root' => env('REMOTION_ADS_ROOT', base_path('tools/remotion-ads')),
             'python' => env('REMOTION_ADS_PYTHON', 'python'),
             'timeout_seconds' => (int) env('REMOTION_ADS_TIMEOUT', 1800),
-            'default_preset' => env('REMOTION_ADS_PRESET', 'product_presenter'),
+            // Estilo por defecto. "random" elige uno de styles.json en cada generación.
+            'default_preset' => env('REMOTION_ADS_PRESET', 'random'),
+            'default_style' => env('REMOTION_ADS_STYLE', ''),
             'mode' => env('REMOTION_ADS_MODE', 'local'),
             // Solo aplica con mode=remote: URL pública del bridge (túnel) y token compartido.
             'remote_url' => env('REMOTION_ADS_URL', ''),

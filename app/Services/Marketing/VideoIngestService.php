@@ -87,7 +87,9 @@ class VideoIngestService
         string $absolutePath,
         ?MarketingPrompt $prompt = null,
         string $source = 'remotion',
-        ?string $jobId = null
+        ?string $jobId = null,
+        ?int $productId = null,
+        ?string $musicAttribution = null
     ): MarketingVideo {
         if (! is_file($absolutePath) || filesize($absolutePath) < 64) {
             throw new \RuntimeException('Archivo de video local inválido.');
@@ -101,7 +103,7 @@ class VideoIngestService
             throw new \RuntimeException('No se pudo copiar el MP4 al storage público.');
         }
 
-        return $this->persistCleaned($store, $campaign, $rel, $this->neutralName(basename($absolutePath)), $source, $prompt, $jobId);
+        return $this->persistCleaned($store, $campaign, $rel, $this->neutralName(basename($absolutePath)), $source, $prompt, $jobId, $productId, $musicAttribution);
     }
 
     protected function persistCleaned(
@@ -112,7 +114,8 @@ class VideoIngestService
         string $source,
         ?MarketingPrompt $prompt,
         ?string $jobId,
-        ?int $productId = null
+        ?int $productId = null,
+        ?string $musicAttribution = null
     ): MarketingVideo {
         $abs = Storage::disk('public')->path($rel);
         $strippedAt = null;
@@ -145,6 +148,7 @@ class VideoIngestService
             'page_handles' => [],
             'stripped_at' => $strippedAt,
             'creatify_job_id' => $jobId,
+            'music_attribution' => $musicAttribution,
         ]);
     }
 

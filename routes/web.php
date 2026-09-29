@@ -240,6 +240,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('creatify/poll', [MarketingCreatifyController::class, 'poll'])->name('creatify.poll');
                     Route::post('remotion/generate', [MarketingRemotionController::class, 'generate'])->name('remotion.generate');
                     Route::post('remotion/poll', [MarketingRemotionController::class, 'poll'])->name('remotion.poll');
+                    Route::post('remotion/active', [MarketingRemotionController::class, 'active'])->name('remotion.active');
                     Route::post('hyperframes/generate', [MarketingHyperFramesController::class, 'generate'])->name('hyperframes.generate');
                     Route::post('hyperframes/poll', [MarketingHyperFramesController::class, 'poll'])->name('hyperframes.poll');
                     Route::post('hyperframes/confirm', [MarketingHyperFramesController::class, 'confirm'])->name('hyperframes.confirm');

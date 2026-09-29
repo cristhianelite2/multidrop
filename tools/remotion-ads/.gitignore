@@ -1,13 +1,15 @@
 public/_job/
+public/_jobs/
+public/_public/
 node_modules/
 .venv/
 jobs/*/
 !jobs/.gitkeep
 out/
 dist/
+build/
 .DS_Store
 *.log
-.remotion/
 __pycache__/
 *.pyc
 bridge/token.txt

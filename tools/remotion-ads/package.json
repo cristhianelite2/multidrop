@@ -4,6 +4,7 @@
   "private": true,
   "description": "Ads verticales 9:16 para Multidrop (Remotion + Whisper + MIIA)",
   "scripts": {
+    "postinstall": "node scripts/ensure-remotion-binaries.cjs",
     "studio": "remotion studio src/index.ts",
     "build": "remotion bundle src/index.ts",
     "render": "remotion render src/index.ts ProductAd",
@@ -12,6 +13,7 @@
   "dependencies": {
     "@remotion/cli": "4.0.286",
     "@remotion/media-utils": "4.0.286",
+    "@remotion/transitions": "4.0.286",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "remotion": "4.0.286"

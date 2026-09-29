@@ -12,7 +12,7 @@ class RemotionRenderPromptCommand extends Command
 {
     protected $signature = 'marketing:remotion-render
         {prompt : ID del marketing_prompt}
-        {--preset=product_presenter}
+        {--preset=random : random o un id de tools/remotion-ads/styles.json}
         {--sync : Ejecutar en este proceso (sin cola)}';
 
     protected $description = 'Prepara job Remotion para un prompt y encola (o --sync) el render';
@@ -50,7 +50,7 @@ class RemotionRenderPromptCommand extends Command
             return self::FAILURE;
         }
 
-        $this->info('job_id='.($result['job_id'] ?? ''));
+        $this->info('job_id='.($result['job_id'] ?? '').' estilo='.($result['style_label'] ?? ''));
 
         return self::SUCCESS;
     }

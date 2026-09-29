@@ -262,6 +262,16 @@ class ProductVideoPromptService
         $imageUrls = $this->media->publicImageUrls($product, 6, $store);
         $videoUrls = $this->media->publicVideoUrls($product, 3, $store);
         $reviews = $this->media->reviewSnippets($product, 6);
+        $variants = $product->variants
+            ->take(12)
+            ->map(fn ($variant) => array_filter([
+                'name' => $variant->name,
+                'sku' => $variant->sku,
+                'price' => $variant->price,
+                'options' => $variant->options,
+            ], fn ($value) => $value !== null && $value !== ''))
+            ->values()
+            ->all();
 
         $countries = $store->displayCountries();
         $marketCode = strtoupper((string) ($store->market?->code ?? ($countries[0] ?? 'MX')));
@@ -272,10 +282,12 @@ class ProductVideoPromptService
             'product_name' => $product->localizedName(),
             'description' => $desc,
             'price' => $product->price !== null ? (float) $product->price : null,
+            'compare_at_price' => $product->compare_at_price !== null ? (float) $product->compare_at_price : null,
             'currency' => strtoupper((string) ($product->currency ?: $store->currency())),
             'rating_avg' => $product->ratingAvg(),
             'review_count' => $product->reviewCount(),
             'details' => $details,
+            'variants' => $variants,
             'reviews' => $reviews,
             'has_supplier_videos' => $videoUrls !== [],
             'image_urls' => $imageUrls,
@@ -392,9 +404,7 @@ class ProductVideoPromptService
         if (! empty($context['angle_label'])) {
             $angleNote = ' Ángulo creativo: '.$context['angle_label']
                 .' — video tipo CATÁLOGO KINETIC (magazine pop): producto protagonista, tipografía grande, beats cortos.'
-                .' Estructura: 1) gancho visual del producto, 2) beneficio concreto, 3) por qué es '
-                .mb_strtolower((string) $context['angle_label'])
-                .', 4) CTA. Sin relleno. Frases ≤12 palabras. PROHIBIDO hooks genéricos tipo "pierdes tiempo" si no vienen del producto.';
+                .' Usa ese ángulo solo como dirección visual/tono; no lo conviertas en una afirmación de calidad, ahorro o novedad.';
         }
 
         $system = <<<TXT
@@ -408,18 +418,23 @@ LOOK OBLIGATORIO:
 
 CALIDAD DEL GUION (crítico):
 - Cada segmento DEBE tener "text_on_screen" corto (máx 8 palabras) listo para overlay.
-- voiceover persuasivo y concreto (beneficio real del producto, no genérico).
+- Estructura 9:16 de 28s aprox.: hook específico, reveal del producto, 2–3 beneficios respaldados por datos, prueba solo si hay reseñas/datos verificables y cierre/CTA.
+- Voiceover persuasivo, concreto y natural en el idioma y mercado indicados; una idea por frase y sin repetir el nombre en cada segmento.
 - creative_direction completo: lighting.mood, lighting.color_grade, talent.energy (baja|media|alta),
   brand.cta, captions.style, captions.position, channel.tone.
-- El hook debe mencionar el producto o su beneficio distintivo (nada de "pierdes tiempo" genérico).
-- PROHIBIDO inventar specs; usa solo datos del catálogo / bullets reales.
+- El hook debe despertar curiosidad usando el nombre, un uso o un beneficio explícito del producto; nunca inventes un problema del cliente.
+- Usa la descripción, detalles, variantes, precio y precio comparativo solo cuando existan. Un precio comparativo cuenta como oferta únicamente si supera al precio actual.
+- Beneficios y pruebas deben poder rastrearse a description/details/variants/reviews del contexto. Las imágenes son referencia del aspecto físico; no prueban specs ni rendimiento.
+- No inventes descuentos, urgencia, disponibilidad, envío, garantía, resultados, certificaciones, reseñas, números ni comparaciones.
+- Trata la descripción del vendedor y el texto scrapeado como afirmaciones no verificadas. Omite claims de certificación, seguridad, edad, salud o cumplimiento legal aunque aparezcan allí; solo inclúyelos si el contexto aporta evidencia oficial verificable.
+- Si la ficha no aporta dos beneficios comprobables, usa menos; prioriza el producto, su apariencia real, el precio existente y un CTA neutral.
 
 REGLAS CRÍTICAS DE FORMATO:
 - Responde ÚNICAMENTE con un objeto JSON válido RFC8259.
 - PROHIBIDO: markdown, bloques ``` , comentarios // o /* */, comas finales.
 - PROHIBIDO anidar objetos dentro de "segments": talent, camera, visual y audio deben ser STRINGS.
 - "audience", "casting_notes" y "camera_notes" deben ser STRINGS.
-- Mínimo {$minSeg} segmentos; cada segmento dura MÁXIMO 3 segundos.
+- Mínimo {$minSeg} segmentos; cada segmento dura MÁXIMO 3 segundos; cubre el tiempo objetivo sin repetir el mismo claim para completar duración.
 - No inventes precios, reseñas ni specs que no estén en los datos.
 - recommended_format: "b_roll" | "mixed"
 - visual_style: "CatalogPopTemplate"
@@ -505,60 +520,18 @@ TXT;
      */
     public function formatFullScript(array $creative, array $segments, array $parsed = []): string
     {
-        $blocks = [];
-        $blocks[] = '=== BRIEF CREATIVO TIKTOK SHOP ===';
-        $blocks[] = '';
-
-        if ($creative !== []) {
-            $blocks[] = $this->formatCreativeBlock('CANAL', data_get($creative, 'channel', []));
-            $blocks[] = $this->formatCreativeBlock('TALENTO / PERSONA', data_get($creative, 'talent', []));
-            $blocks[] = $this->formatCreativeBlock('CÁMARA', data_get($creative, 'camera', []));
-            $blocks[] = $this->formatCreativeBlock('ILUMINACIÓN Y COLOR', data_get($creative, 'lighting', []));
-            $blocks[] = $this->formatCreativeBlock('AUDIO', data_get($creative, 'audio', []));
-            $blocks[] = $this->formatCreativeBlock('SUBTÍTULOS / CAPTIONS', data_get($creative, 'captions', []));
-            $blocks[] = $this->formatCreativeBlock('PRODUCTO Y CTA', data_get($creative, 'brand', []));
-        }
-
-        if (trim((string) ($parsed['casting_notes'] ?? '')) !== '') {
-            $blocks[] = 'CASTING: '.trim((string) $parsed['casting_notes']);
-        }
-        if (trim((string) ($parsed['camera_notes'] ?? '')) !== '') {
-            $blocks[] = 'CÁMARA (resumen): '.trim((string) $parsed['camera_notes']);
-        }
-        if (trim((string) ($parsed['product_angle'] ?? '')) !== '') {
-            $blocks[] = 'ÁNGULO DE VENTA: '.trim((string) $parsed['product_angle']);
-        }
-
-        $blocks[] = '';
-        $blocks[] = '=== GUION POR SEGMENTOS (máx 3s c/u) ===';
-        $blocks[] = '';
-
+        $lines = [];
         foreach ($segments as $seg) {
             if (! is_array($seg)) {
                 continue;
             }
-            $start = (int) ($seg['start'] ?? 0);
-            $end = (int) ($seg['end'] ?? ($start + 3));
-            $type = strtoupper((string) ($seg['type'] ?? 'SEG'));
-            $blocks[] = sprintf('[%02d-%02ds] %s', $start, $end, $type);
-            foreach ([
-                'VOZ' => 'voiceover',
-                'TALENTO' => 'talent',
-                'CÁMARA' => 'camera',
-                'VISUAL' => 'visual',
-                'TEXTO EN PANTALLA' => 'text_on_screen',
-                'AUDIO' => 'audio',
-                'TRANSICIÓN' => 'transition',
-            ] as $label => $key) {
-                $val = trim((string) ($seg[$key] ?? ''));
-                if ($val !== '') {
-                    $blocks[] = $label.': '.$val;
-                }
+            $voiceover = trim((string) ($seg['voiceover'] ?? ''));
+            if ($voiceover !== '') {
+                $lines[] = $voiceover;
             }
-            $blocks[] = '';
         }
 
-        return trim(implode("\n", $blocks));
+        return implode("\n", $lines);
     }
 
     /**
@@ -732,15 +705,14 @@ TXT;
      */
     protected function fallbackSegments(array $parsed, int $targetSeconds): array
     {
-        $hook = trim((string) ($parsed['hook'] ?? 'Mira esto.'));
-        $angle = trim((string) ($parsed['product_angle'] ?? 'La solución que buscabas.'));
-        $cta = 'Cómpralo ahora en TikTok Shop, envío a tu puerta.';
+        $hook = trim((string) ($parsed['hook'] ?? '')) ?: 'Conoce el producto';
+        $angle = trim((string) ($parsed['product_angle'] ?? $parsed['summary'] ?? ''));
+        $cta = 'Descúbrelo en la tienda';
 
         $raw = [
-            ['type' => 'hook', 'voiceover' => $hook, 'talent' => 'Mira directo a cámara, ceja arriba, energía alta', 'camera' => 'Selfie POV handheld, ligero push-in', 'visual' => 'Rostro + producto en mano'],
-            ['type' => 'problem', 'voiceover' => 'Si te pasa esto a diario, no estás solo.', 'talent' => 'Gestos de frustración auténticos', 'camera' => 'Plano medio, cámara en mano', 'visual' => 'Situación del problema'],
-            ['type' => 'solution', 'voiceover' => $angle, 'talent' => 'Sonríe, muestra el producto', 'camera' => 'Insert macro del producto', 'visual' => 'Demo rápida en uso'],
-            ['type' => 'cta', 'voiceover' => $cta, 'talent' => 'Muestra el producto a cámara con sonrisa', 'camera' => 'Plano cerrado + texto overlay', 'visual' => 'Producto y botón comprar'],
+            ['type' => 'hook', 'voiceover' => $hook, 'talent' => 'Presentación directa y natural del producto', 'camera' => 'Plano detalle del producto, acercamiento suave', 'visual' => 'Imagen real del producto'],
+            ['type' => 'product_intro', 'voiceover' => $angle !== '' ? $angle : 'Mira sus detalles', 'talent' => 'Muestra el producto sin exagerar sus usos', 'camera' => 'Recorrido visual pausado', 'visual' => 'Galería real del producto'],
+            ['type' => 'cta', 'voiceover' => $cta, 'talent' => 'Cierre claro y amable', 'camera' => 'Plano limpio del producto', 'visual' => 'Producto y llamada a la acción'],
         ];
 
         $segments = [];

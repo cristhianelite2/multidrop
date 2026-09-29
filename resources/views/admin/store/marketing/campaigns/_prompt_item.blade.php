@@ -36,16 +36,18 @@
         <div class="border-t border-line bg-mist/20 px-4 py-3 space-y-2">
             <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Generar MP4 con Remotion</p>
             <div class="flex flex-wrap gap-2 items-center">
-                <button type="button" class="admin-btn !px-3 !py-1.5 text-xs md-remotion-go" data-prompt-id="{{ $p->id }}">
+                <button type="button" class="admin-btn !px-3 !py-1.5 text-xs md-remotion-go" data-prompt-id="{{ $p->id }}" data-campaign-id="{{ $campaign->id }}" data-product-id="{{ $p->product_id }}">
                     Generar con Remotion
                 </button>
                 <label class="text-xs text-ink-soft/60 inline-flex items-center gap-1">
                     VO
                     <input type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-m4a,.mp3,.wav,.m4a" class="md-remotion-voice text-xs max-w-[9rem]" data-prompt-id="{{ $p->id }}">
                 </label>
-                <select class="admin-input !py-1 !px-2 !text-xs !w-auto md-remotion-preset" data-prompt-id="{{ $p->id }}">
-                    <option value="product_presenter">Product Presenter</option>
-                    <option value="quick_transition">Quick Transition</option>
+                <select class="admin-input !py-1 !px-2 !text-xs !w-auto md-remotion-preset" data-prompt-id="{{ $p->id }}" title="Cada generación elige un estilo al azar del catálogo">
+                    <option value="random" selected>Aleatorio (estilo por generación)</option>
+                    @foreach($remotionStyles ?? [] as $remotionStyleId => $remotionStyleLabel)
+                        <option value="{{ $remotionStyleId }}">{{ $remotionStyleLabel }}</option>
+                    @endforeach
                 </select>
             </div>
             <p class="text-xs text-ink-soft/55 md-remotion-msg" data-prompt-id="{{ $p->id }}"></p>

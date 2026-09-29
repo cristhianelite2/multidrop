@@ -23,6 +23,7 @@ class MarketingVideo extends Model
         'page_handles',
         'stripped_at',
         'creatify_job_id',
+        'music_attribution',
     ];
 
     protected function casts(): array

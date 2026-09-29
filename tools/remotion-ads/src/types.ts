@@ -1,3 +1,5 @@
+import type {ProductStyle} from './styles';
+
 export type WordTiming = {
   inicio: number;
   fin: number;
@@ -10,15 +12,26 @@ export type ClipPlan = {
   media: string;
   media_type: 'image' | 'video';
   ken_burns?: 'in' | 'out' | 'none';
-  transition?: 'jump_cut' | 'fade' | 'zoom_in';
+  transition?:
+    | 'jump_cut'
+    | 'fade'
+    | 'zoom_in'
+    | 'slide_left'
+    | 'slide_right'
+    | 'wipe'
+    | 'random';
   text_on_screen?: string;
+  videoStartFrame?: number;
 };
 
 export type ProductAdProps = {
-  preset: 'product_presenter' | 'quick_transition';
+  preset: string;
+  styleId?: string;
+  style?: Partial<ProductStyle>;
   voiceSrc: string;
   musicSrc?: string | null;
   musicVolume?: number;
+  musicAttribution?: string | null;
   words: WordTiming[];
   clips: ClipPlan[];
   durationInSeconds: number;

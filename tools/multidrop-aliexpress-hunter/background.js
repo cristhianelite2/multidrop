@@ -184,6 +184,206 @@ async function readPagePayload(tabId, sections) {
         return { data: mods };
       }
 
+      // --- Lectura del payload real de la PDP ------------------------------
+      // La PDP actual (viewName=newDetail) se renderiza en cliente: window.runParams
+      // llega VACÍO y todo el producto llega por mtop en window._dida_config_._init_data_
+      // (respuesta de mtop.aliexpress.pdp.pc.query), cuyo árbol de datos útil cuelga de
+      // .data.result con GLOBAL_DATA/HEADER_IMAGE_PC/PRODUCT_TITLE/PRICE/FEEDBACK y el
+      // modelo de SKU en la raíz (skuPropertyList + skuList).
+      function collectAeRoots() {
+        var roots = [];
+        function push(v) {
+          if (v && typeof v === 'object' && roots.indexOf(v) < 0) roots.push(v);
+        }
+        try { var d = window._dida_config_; if (d) { push(d._init_data_); push(d); } } catch (e) {}
+        try { var r = window.runParams; if (r) { push(r); push(r.data); } } catch (e) {}
+        try { var c = window._d_c_; if (c) { push(c.DCData); push(c); } } catch (e) {}
+        try { if (window.__INIT_DATA__) push(window.__INIT_DATA__); } catch (e) {}
+        try { var p = window._page_config_; if (p) push(p); } catch (e) {}
+        return roots;
+      }
+      function looksLikeSkuModel(o) {
+        if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+        if (Array.isArray(o.skuList) || Array.isArray(o.productSKUPropertyList)) return true;
+        if (Array.isArray(o.linkSkuList) && o.linkSkuList.length) return true;
+        if (Array.isArray(o.skuPropertyList) && o.skuPropertyList.length) return true;
+        return !!(o.skuModule && typeof o.skuModule === 'object');
+      }
+      function deepFindSkuModel(root, depth) {
+        depth = depth || 0;
+        if (!root || typeof root !== 'object' || depth > 7) return null;
+        if (looksLikeSkuModel(root)) return root;
+        for (var k in root) {
+          if (!Object.prototype.hasOwnProperty.call(root, k)) continue;
+          var v;
+          try { v = root[k]; } catch (e) { continue; }
+          if (!v || typeof v !== 'object') continue;
+          var hit = deepFindSkuModel(v, depth + 1);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      // Nodo raíz del producto: el que cuelga de .data.result y trae PRICE/HEADER_IMAGE_PC.
+      function unwrapResultNode(root, depth) {
+        depth = depth || 0;
+        if (!root || typeof root !== 'object' || depth > 5) return null;
+        if (root.PRICE || root.GLOBAL_DATA || root.HEADER_IMAGE_PC || looksLikeSkuModel(root)) return root;
+        var nested = ['data', 'result', 'props'];
+        for (var i = 0; i < nested.length; i++) {
+          var child = root[nested[i]];
+          if (!child || typeof child !== 'object') continue;
+          if (nested[i] === 'props' && child.pageProps) child = child.pageProps;
+          var hit = unwrapResultNode(child, depth + 1);
+          if (hit) return hit;
+        }
+        return null;
+      }
+      function parsePriceLocal(v) {
+        // PRICE.targetSkuPriceInfo.salePriceLocal = "583.41|MXN.2"
+        var s = String(v || '');
+        if (!s) return null;
+        var parts = s.split('|');
+        var amount = parseFloat(parts[0]);
+        if (!isFinite(amount) || amount <= 0) return null;
+        return amount;
+      }
+      function currencyFromLocal(v) {
+        var parts = String(v || '').split('|');
+        if (parts.length < 2) return '';
+        var m = parts[1].match(/^([A-Za-z]{3})/);
+        return m ? m[1].toUpperCase() : '';
+      }
+      function trimList(list, max) {
+        if (!Array.isArray(list)) return null;
+        var out = [];
+        for (var i = 0; i < list.length && i < (max || 200); i++) {
+          if (typeof list[i] === 'string' && list[i].trim()) out.push(list[i]);
+          else if (list[i] && typeof list[i] === 'object') out.push(list[i]);
+        }
+        return out.length ? out : null;
+      }
+      function readAeData() {
+        var roots = collectAeRoots();
+        if (!roots.length) return null;
+        var node = null;
+        for (var i = 0; i < roots.length && !node; i++) {
+          node = unwrapResultNode(roots[i]);
+        }
+        var model = null;
+        if (node) model = looksLikeSkuModel(node) ? node : deepFindSkuModel(node);
+        if (!model) {
+          for (var j = 0; j < roots.length && !model; j++) {
+            model = deepFindSkuModel(roots[j]);
+          }
+        }
+        if (!node && model) node = model;
+
+        var legacy = null;
+        for (var k = 0; k < roots.length && !legacy; k++) {
+          var d = roots[k].data || roots[k];
+          if (d && typeof d === 'object' && d.skuModule && typeof d.skuModule === 'object') legacy = d;
+        }
+
+        var out = {
+          source: 'mtop',
+          productId: '',
+          title: '',
+          imagePathList: null,
+          summImagePathList: null,
+          videoPlayUrl: '',
+          skuPropertyList: null,
+          skuList: null,
+          linkSkuPropertyList: null,
+          linkSkuList: null,
+          skuIdStrPriceInfoMap: null,
+          price: null,
+          compareAtPrice: null,
+          currency: '',
+          totalAvailableInventory: null,
+          reviewCount: null,
+          averageStar: null,
+          feedback: null,
+          descriptionUrl: '',
+          legacySkuModule: null
+        };
+        if (!node && !legacy) return null;
+
+        var g = (node && node.GLOBAL_DATA && node.GLOBAL_DATA.globalData) || {};
+        var price = (node && node.PRICE) || {};
+        var header = (node && node.HEADER_IMAGE_PC) || {};
+        var titleM = (node && node.PRODUCT_TITLE) || {};
+        var feedback = (node && node.FEEDBACK) || {};
+
+        out.productId = String(g.productId || (node && node.productId) || '');
+        out.title = String(titleM.subject || (node && node.subject) || g.subject || '');
+        out.imagePathList = trimList(header.imagePathList || (node && node.imagePathList) || g.imagePathList) || null;
+        out.summImagePathList = trimList(header.summImagePathList || (node && node.summImagePathList) || g.summImagePathList) || null;
+        try {
+          var pv = node && node.PRODUCT_VIDEO && node.PRODUCT_VIDEO.videoPlayInfo;
+          out.videoPlayUrl = absUrl(pv && (pv.webUrl || pv.playUrl)) || '';
+        } catch (eVid) {}
+
+        if (model) {
+          out.skuPropertyList = trimList(model.skuPropertyList, 40);
+          out.skuList = trimList(model.skuList, 400);
+          out.linkSkuPropertyList = trimList(model.linkSkuPropertyList, 40);
+          out.linkSkuList = trimList(model.linkSkuList, 400);
+        }
+        if (!out.skuPropertyList && legacy) out.skuPropertyList = trimList(legacy.skuModule.productSKUPropertyList, 40);
+        if (!out.skuList && legacy) out.skuList = trimList(legacy.skuModule.skuPriceList, 400);
+        out.legacySkuModule = legacy ? legacy.skuModule : null;
+
+        var priceMap = price.skuIdStrPriceInfoMap;
+        if (priceMap && typeof priceMap === 'object') {
+          var pm = {};
+          for (var pk in priceMap) {
+            if (!Object.prototype.hasOwnProperty.call(priceMap, pk)) continue;
+            var row = priceMap[pk] || {};
+            var cur = row.salePrice || row.currentPrice || null;
+            var orig = (row.originalPrice && (row.originalPrice.value != null ? row.originalPrice.value : null));
+            if (cur == null && row.salePriceString) cur = parsePriceLocal(row.salePriceString);
+            if (cur == null && orig == null) continue;
+            pm[pk] = { price: cur, compare_at_price: orig };
+          }
+          if (Object.keys(pm).length) out.skuIdStrPriceInfoMap = pm;
+        }
+        if (out.currency === '') out.currency = currencyFromLocal(price.targetSkuPriceInfo && price.targetSkuPriceInfo.salePriceLocal);
+        if (out.price == null) out.price = parsePriceLocal(price.targetSkuPriceInfo && price.targetSkuPriceInfo.salePriceLocal);
+        if (out.compareAtPrice == null && price.formatedPrice) out.compareAtPrice = parsePriceLocal(price.formatedPrice);
+        if (out.compareAtPrice == null && price.maxPrice && price.minPrice) {
+          var mn = parsePriceLocal(price.minPrice), mx = parsePriceLocal(price.maxPrice);
+          if (mn != null && mx != null && mx > mn) out.compareAtPrice = mx;
+        }
+        // La PDP nueva no manda formatedPrice: el precio de referencia es el maximo
+        // originalPrice del mapa por SKU (583.41 en la URL de referencia).
+        if (out.compareAtPrice == null && out.skuIdStrPriceInfoMap) {
+          var maxOrig = 0;
+          for (var sk in out.skuIdStrPriceInfoMap) {
+            if (!Object.prototype.hasOwnProperty.call(out.skuIdStrPriceInfoMap, sk)) continue;
+            var ov = parseFloat(out.skuIdStrPriceInfoMap[sk].compare_at_price);
+            if (isFinite(ov) && ov > maxOrig) maxOrig = ov;
+          }
+          if (maxOrig > 0) out.compareAtPrice = maxOrig;
+        }
+        if (out.compareAtPrice != null && out.price != null && out.compareAtPrice <= out.price) {
+          out.compareAtPrice = null;
+        }
+
+        var qty = node && node.allSkuQuantityView;
+        if (qty && qty.totalAvailableInventory != null) out.totalAvailableInventory = qty.totalAvailableInventory;
+        if (feedback.totalValidNum != null) out.reviewCount = feedback.totalValidNum;
+        if (feedback.evarageStar != null) out.averageStar = feedback.evarageStar;
+        if (sections.indexOf('reviews') >= 0 || sections.length === 0) out.feedback = feedback;
+        var desc = (node && (node.PRODUCT_DESCRIPTION || node.DESCRIPTION)) || null;
+        out.descriptionUrl = absUrl(
+          (desc && (desc.descriptionUrl || desc.descUrl)) || g.descriptionUrl || (node && node.descriptionUrl) || ''
+        ) || '';
+
+        var hasAny = !!(out.skuList || out.skuPropertyList || out.imagePathList || out.title
+          || out.price != null || out.legacySkuModule || out.videoPlayUrl || out.descriptionUrl);
+        return hasAny ? out : null;
+      }
+
       var isCj = /cjdropshipping\.com/i.test(location.href);
       var videoOnly = sections.length === 1 && sections[0] === 'videos';
       var mediaOnly = sections.length > 0
@@ -223,7 +423,17 @@ async function readPagePayload(tabId, sections) {
       var rp = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
       var rpData = rp && (rp.data || rp);
       var compactRp = (!isCj && rpData) ? compactRunModules(rpData) : null;
-      var hasVideoData = pageVideos.length > 0 || (compactRp && compactRp.data && compactRp.data.imageModule);
+      var aeData = null;
+      if (!isCj) {
+        try { aeData = readAeData(); } catch (eAe) { aeData = null; }
+        // compactRp vacío en la PDP actual: substitutes por el payload mtop.
+        if (aeData && (!compactRp || !compactRp.data || !compactRp.data.skuModule)) {
+          compactRp = { data: { skuModule: { productSKUPropertyList: aeData.skuPropertyList, skuPriceList: aeData.skuList } } };
+        }
+        if (aeData && aeData.videoPlayUrl) pushVideo(pageVideos, aeData.videoPlayUrl, '');
+      }
+      var hasVideoData = pageVideos.length > 0 || (compactRp && compactRp.data && compactRp.data.imageModule)
+        || (aeData && aeData.imagePathList);
 
       var descriptionHtml = '';
       if (!isCj && !videoOnly) {
@@ -238,6 +448,7 @@ async function readPagePayload(tabId, sections) {
         var dm = rpData && (rpData.descriptionModule || rpData.productDescModule || {});
         descriptionUrl = String((dm && (dm.descriptionUrl || dm.descUrl || dm.productDescUrl || dm.descriptionPCUrl)) || (rpData && rpData.descriptionUrl) || '');
       } catch (eUrl) {}
+      if ((!descriptionUrl || aeData) && aeData && aeData.descriptionUrl) descriptionUrl = aeData.descriptionUrl;
       var aiSummary = (!isCj && !videoOnly) ? extractAiSummary() : '';
 
       var html = '';
@@ -266,6 +477,7 @@ async function readPagePayload(tabId, sections) {
         snapshot: {
           productId: productId,
           runParams: compactRp,
+          aeData: aeData,
           h1: h1el ? String(h1el.innerText || '').trim() : '',
           ogTitle: mt ? (mt.getAttribute('content') || '') : '',
           ogImage: mi ? (mi.getAttribute('content') || '') : '',

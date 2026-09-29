@@ -1,0 +1,148 @@
+{
+  "note": "Todas las pistas están normalizadas a -18 LUFS con scripts/prepare_music.py. Para agregar una: deja el mp3 en una carpeta y ejecuta `python scripts/prepare_music.py --incoming <carpeta>`.",
+  "tracks": [
+    {
+      "id": "local_forecast",
+      "title": "Local Forecast - Elevator",
+      "artist": "Kevin MacLeod",
+      "mood": "Jazz ligero",
+      "file": "music/local-forecast-elevator.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Local_Forecast_-_Elevator_(ISRC_USUAN1300012).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Local Forecast - Elevator” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Local_Forecast_-_Elevator_(ISRC_USUAN1300012).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "gymnopedie_no_1",
+      "title": "Gymnopedie No. 1",
+      "artist": "Erik Satie (arreglo de Kevin MacLeod)",
+      "mood": "Piano tranquilo",
+      "file": "music/gymnopedie-no-1.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1_(ISRC_USUAN1100787).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Gymnopedie No. 1” — composición de Erik Satie, arreglo e interpretación de Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._1_(ISRC_USUAN1100787).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "gymnopedie_no_2",
+      "title": "Gymnopedie No. 2",
+      "artist": "Erik Satie (arreglo de Kevin MacLeod)",
+      "mood": "Piano melancólico",
+      "file": "music/gymnopedie-no-2.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Gymnopedie_No._2_(ISRC_USUAN1100786).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Gymnopedie No. 2” — composición de Erik Satie, arreglo e interpretación de Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._2_(ISRC_USUAN1100786).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "gymnopedie_no_3",
+      "title": "Gymnopedie No. 3",
+      "artist": "Erik Satie (arreglo de Kevin MacLeod)",
+      "mood": "Piano meditativo",
+      "file": "music/gymnopedie-no-3.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Gymnopedie_No._3_(ISRC_USUAN1100785).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Gymnopedie No. 3” — composición de Erik Satie, arreglo e interpretación de Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Gymnopedie_No._3_(ISRC_USUAN1100785).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "canon_in_d_major",
+      "title": "Canon in D Major",
+      "artist": "Kevin MacLeod",
+      "mood": "Clásica suave",
+      "file": "music/canon-in-d-major.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Canon_in_D_Major_(ISRC_USUAN1100301).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Canon in D Major” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Canon_in_D_Major_(ISRC_USUAN1100301).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "celtic_impulse",
+      "title": "Celtic Impulse",
+      "artist": "Kevin MacLeod",
+      "mood": "Épica celta",
+      "file": "music/celtic-impulse.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Celtic_Impulse_(ISRC_USUAN1100297).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Celtic Impulse” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Celtic_Impulse_(ISRC_USUAN1100297).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "earth_prelude",
+      "title": "Earth Prelude",
+      "artist": "Kevin MacLeod",
+      "mood": "Preludio ambiental",
+      "file": "music/earth-prelude.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Earth_Prelude_(ISRC_USUAN1100247).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Earth Prelude” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Earth_Prelude_(ISRC_USUAN1100247).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "gypsy_shoegazer",
+      "title": "Gypsy Shoegazer (No Voices)",
+      "artist": "Kevin MacLeod",
+      "mood": "Gitano acústico",
+      "file": "music/gypsy-shoegazer-no-voices.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Gypsy_Shoegazer_No_Voices_(ISRC_USUAN1200074).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Gypsy Shoegazer (No Voices)” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Gypsy_Shoegazer_No_Voices_(ISRC_USUAN1200074).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "himalayan_atmosphere",
+      "title": "Himalayan Atmosphere",
+      "artist": "Kevin MacLeod",
+      "mood": "Ambiente oriental",
+      "file": "music/himalayan-atmosphere.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Himalayan_Atmosphere_(ISRC_USUAN1100204).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Himalayan Atmosphere” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Himalayan_Atmosphere_(ISRC_USUAN1100204).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "miris_magic_dance",
+      "title": "Miri's Magic Dance",
+      "artist": "Kevin MacLeod",
+      "mood": "Magia suave",
+      "file": "music/miri-s-magic-dance.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Miri%27s_Magic_Dance_(ISRC_USUAN1100157).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Miri's Magic Dance” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Miri%27s_Magic_Dance_(ISRC_USUAN1100157).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "tea_roots",
+      "title": "Tea Roots",
+      "artist": "Kevin MacLeod",
+      "mood": "Acústica serena",
+      "file": "music/tea-roots.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Tea_Roots_(ISRC_USUAN1100472).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Tea Roots” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Tea_Roots_(ISRC_USUAN1100472).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "the_voices",
+      "title": "The Voices",
+      "artist": "Kevin MacLeod",
+      "mood": "Coro etéreo",
+      "file": "music/the-voices.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:The_Voices_(ISRC_USUAN1100046).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “The Voices” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:The_Voices_(ISRC_USUAN1100046).mp3. Recorte y normalización de volumen realizados para este video."
+    },
+    {
+      "id": "tectonic",
+      "title": "Tectonic",
+      "artist": "Kevin MacLeod",
+      "mood": "Épica tensa",
+      "file": "music/tectonic.mp3",
+      "source_url": "https://commons.wikimedia.org/wiki/File:Tectonic_(ISRC_USUAN1100054).mp3",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "credit": "Música: “Tectonic” — Kevin MacLeod (incompetech.com), CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/). Fuente: https://commons.wikimedia.org/wiki/File:Tectonic_(ISRC_USUAN1100054).mp3. Recorte y normalización de volumen realizados para este video."
+    }
+  ]
+}

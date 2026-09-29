@@ -3,16 +3,86 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import random
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import commun as c
+import styles as st
 
 
-TRANSITIONS = ("jump_cut", "fade", "zoom_in")
+TRANSITIONS = ("fade", "slide_left", "wipe", "zoom_in", "slide_right")
+
+
+def job_rng(job_dir: Path) -> random.Random:
+    # A job keeps its edit stable on retry; UUID job folders vary between generations.
+    return random.Random(Path(job_dir).name)
+
+
+LEDGER_MUSICA = c.RAIZ / "public" / "music" / "library.json"
+
+
+def copiar_musica(src: Path, dest: Path) -> None:
+    """Copia la pista al public del job, siempre como mp3.
+
+    Las pistas de `public/music` ya están normalizadas a -18 LUFS por
+    `scripts/prepare_music.py`; cualquier otra (por ejemplo el `music.mp3`
+    empaquetado en el zip remoto) se normaliza aquí para que el mix se
+    escuche igual en local y en el bridge.
+    """
+    ledger = json.loads(LEDGER_MUSICA.read_text(encoding="utf-8")) if LEDGER_MUSICA.is_file() else {}
+    if src.name in ledger.get("tracks", {}):
+        shutil.copy2(src, dest)
+        return
+    ffmpeg = c.buscar_binario("ffmpeg")
+    if not ffmpeg:
+        shutil.copy2(src, dest)
+        return
+    subprocess.run(
+        [ffmpeg, "-y", "-v", "error", "-i", str(src),
+         "-af", "loudnorm=I=-18:TP=-1.5:LRA=11",
+         "-c:a", "libmp3lame", "-b:a", "128k", str(dest)],
+        check=True,
+    )
+
+
+def sortear_slots_video(rng: random.Random, total: int, cuantos: int, abrir_con_foto: bool) -> set[int]:
+    """Elige al azar dónde caen los clips de video, sin dos videos seguidos."""
+    if cuantos <= 0 or total <= 0:
+        return set()
+    cuantos = min(cuantos, total)
+    candidatos = list(range(1, total)) if abrir_con_foto else list(range(total))
+    if not candidatos:
+        return {0}
+
+    for _ in range(40):
+        elegidos = set(rng.sample(candidatos, min(cuantos, len(candidatos))))
+        if len(elegidos) == cuantos and all(i + 1 not in elegidos for i in elegidos):
+            return elegidos
+
+    # Fallback determinista: repartir de forma dispersa desde una posición al azar.
+    elegidos = set()
+    for i in rng.sample(candidatos, len(candidatos)):
+        if len(elegidos) >= cuantos:
+            break
+        if i - 1 not in elegidos and i + 1 not in elegidos:
+            elegidos.add(i)
+    return elegidos
+
+
+def sortear_pool(rng: random.Random, pool: list[dict], anterior: str) -> dict:
+    """Saca un medio del pool evitando repetir el que se acaba de mostrar."""
+    if not pool:
+        raise RuntimeError("No quedan medios para el plan de cortes.")
+    if len(pool) > 1 and Path(pool[0]["path"]).name.lower() == anterior:
+        pool.append(pool.pop(0))
+    elegido = pool.pop(0)
+    return elegido
 
 
 def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
@@ -23,36 +93,31 @@ def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
     duration = max(1.0, float(duration))
     images = [m for m in media if m.get("media_type") == "image"]
     videos = [m for m in media if m.get("media_type") == "video"]
+    rng = job_rng(job_dir)
+    rng.shuffle(images)
+    rng.shuffle(videos)
 
-    # Intercalar: priorizar videos de producto (deben verse en el anuncio final).
-    ordered: list[dict] = []
+    estilo = st.resolver(preset)
+    seg_por_clip, ratio_min, ratio_max = st.ritmo(estilo)
+    transiciones = [t for t in (estilo.get("transitions") or TRANSITIONS) if t != "jump_cut"] or list(TRANSITIONS)
+
+    # Ritmo: el estilo marca clips más cortos/agresivos o más largos/sobrios.
+    objetivo = max(3, min(14, int(math.ceil(duration / seg_por_clip))))
+    pool = list(images) + list(videos)
+    rng.shuffle(pool)
+    for _ in range(objetivo + 4):
+        if len(pool) >= objetivo:
+            break
+        pool.extend(videos or images)
+        rng.shuffle(pool)
+
+    total = max(objetivo, 3)
     if videos:
-        # Abrir con 1–2 fotos, luego video, luego resto intercalado.
-        if images:
-            ordered.append(images[0])
-        if len(images) > 1:
-            ordered.append(images[1])
-        for v in videos:
-            ordered.append(v)
-        for img in images[2:]:
-            ordered.append(img)
-            if videos:
-                ordered.append(videos[0])
+        ratio = rng.uniform(ratio_min, ratio_max)
+        cuantos = max(1, int(round(total * ratio)))
+        slots = sortear_slots_video(rng, total, min(cuantos, max(1, (total - 1) // 2 or 1)), bool(images))
     else:
-        ordered = list(images) if images else list(media)
-
-    n = max(1, len(ordered))
-    target_clips = max(n, min(12, max(3, int(math.ceil(duration / 2.5)))))
-    picks = [ordered[i % n] for i in range(target_clips)]
-
-    # Garantizar al menos ~30% del tiempo en videos si hay alguno.
-    if videos:
-        vid_slots = max(1, int(math.ceil(len(picks) * 0.35)))
-        for i in range(vid_slots):
-            idx = min(len(picks) - 1, 2 + i) if len(picks) > 2 else i % len(picks)
-            picks[idx] = videos[i % len(videos)]
-
-    slot = duration / len(picks)
+        slots = set()
 
     prompt = {}
     pp = job_dir / "prompt.json"
@@ -61,6 +126,23 @@ def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
         if isinstance(raw, dict):
             prompt = raw
     segments = prompt.get("segments") if isinstance(prompt.get("segments"), list) else []
+    if segments:
+        rng.shuffle(segments)
+
+    cola = list(pool)
+    medio_anterior = ""
+    picks: list[dict] = []
+    for i in range(total):
+        if i in slots and videos:
+            elegida = sortear_pool(rng, videos, medio_anterior)
+        elif images and cola:
+            elegida = sortear_pool(rng, images, medio_anterior)
+        else:
+            elegida = sortear_pool(rng, cola or videos or images, medio_anterior)
+        medio_anterior = Path(elegida["path"]).name.lower()
+        picks.append(elegida)
+
+    slot = duration / len(picks)
 
     clips = []
     t = 0.0
@@ -70,10 +152,16 @@ def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
         tr_raw = str(seg.get("transition") or "").lower()
         if "fade" in tr_raw:
             transition = "fade"
+        elif "slide_left" in tr_raw:
+            transition = "slide_left"
+        elif "slide_right" in tr_raw:
+            transition = "slide_right"
+        elif "wipe" in tr_raw:
+            transition = "wipe"
         elif "zoom" in tr_raw:
             transition = "zoom_in"
         else:
-            transition = TRANSITIONS[i % len(TRANSITIONS)] if preset == "quick_transition" else "jump_cut"
+            transition = rng.choice(transiciones)
         ken = "none" if m.get("media_type") == "video" else ("in" if i % 2 == 0 else "out")
         if m.get("media_type") == "video":
             transition = "jump_cut"
@@ -90,6 +178,7 @@ def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
 
     return {
         "preset": preset,
+        "style": estilo["id"],
         "duration_s": round(duration, 3),
         "clips": clips,
         "cta_text": str(
@@ -103,9 +192,9 @@ def fallback_edit_plan(job_dir: Path, duration: float, preset: str) -> dict:
 
 
 def build_composition_props(job_dir: Path, edit_plan: dict) -> dict:
-    """Copia assets a tools/remotion-ads/public/_job para staticFile()."""
+    """Copia assets a un directorio aislado por job para staticFile()."""
     job_dir = Path(job_dir)
-    pub = c.RAIZ / "public" / "_job"
+    pub = c.public_job_dir(job_dir)
     if pub.exists():
         shutil.rmtree(pub, ignore_errors=True)
     pub.mkdir(parents=True, exist_ok=True)
@@ -119,31 +208,46 @@ def build_composition_props(job_dir: Path, edit_plan: dict) -> dict:
     if voice:
         dest = pub / "voice.mp3"
         shutil.copy2(voice, dest)
-        voice_src = "_job/voice.mp3"
-    if music:
-        dest = pub / ("music" + music.suffix.lower())
-        shutil.copy2(music, dest)
-        music_src = "_job/" + dest.name
+        voice_src = f"_jobs/{job_dir.name}/voice.mp3"
+    catalog_path = job_dir / "music_catalog.json"
+    if not catalog_path.is_file():
+        catalog_path = c.RAIZ / "music_catalog.json"
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8")) if catalog_path.is_file() else {"tracks": []}
+    selection_path = job_dir / "music.json"
+    selection = c.leer_json(selection_path) if selection_path.is_file() else {}
+    selected_id = str(selection.get("music_id") or "random")
+    music = None
+    attribution = None
+    if selected_id == "random" and catalog.get("tracks"):
+        selected = job_rng(job_dir).choice(catalog["tracks"])
+    else:
+        selected = next((track for track in catalog.get("tracks", []) if track.get("id") == selected_id), None)
+    if selected:
+        packaged_music = job_dir / "music.mp3"
+        music = packaged_music if packaged_music.is_file() else c.RAIZ / "public" / selected["file"]
+        attribution = selected.get("credit")
+    if selected_id == "none":
+        music = None
+    if music and music.is_file():
+        dest = pub / "music.mp3"
+        copiar_musica(music, dest)
+        music_src = f"_jobs/{job_dir.name}/music.mp3"
+    else:
+        music = None
 
     path_to_url: dict[str, str] = {}
     for m in c.list_media(job_dir):
         src = Path(m["path"])
         if m["media_type"] == "image":
             dest = pub / "images" / src.name
-            rel_url = "_job/images/" + src.name
+            rel_url = f"_jobs/{job_dir.name}/images/" + src.name
         else:
             dest = pub / "videos" / src.name
-            rel_url = "_job/videos/" + src.name
+            rel_url = f"_jobs/{job_dir.name}/videos/" + src.name
         if not dest.exists():
             shutil.copy2(src, dest)
         path_to_url[str(src.resolve())] = rel_url
         path_to_url[str(src)] = rel_url
-
-    # También dejar copia en job/remotion-public (debug)
-    job_pub = job_dir / "remotion-public"
-    if job_pub.exists():
-        shutil.rmtree(job_pub, ignore_errors=True)
-    shutil.copytree(pub, job_pub)
 
     trans = c.trabajo(job_dir, "transcripcion.json")
     words = []
@@ -162,7 +266,7 @@ def build_composition_props(job_dir: Path, edit_plan: dict) -> dict:
             dest.parent.mkdir(parents=True, exist_ok=True)
             if media_path.is_file():
                 shutil.copy2(media_path, dest)
-            url = f"_job/{folder}/{name}"
+            url = f"_jobs/{job_dir.name}/{folder}/{name}"
         clips.append({
             "start_s": float(clip["start_s"]),
             "end_s": float(clip["end_s"]),
@@ -171,6 +275,7 @@ def build_composition_props(job_dir: Path, edit_plan: dict) -> dict:
             "ken_burns": clip.get("ken_burns") or "in",
             "transition": clip.get("transition") or "jump_cut",
             "text_on_screen": clip.get("text_on_screen") or "",
+            "videoStartFrame": int(round(float(clip.get("video_start_s") or 0) * 30)),
         })
 
     duration = float(edit_plan.get("duration_s") or 5)
@@ -179,11 +284,16 @@ def build_composition_props(job_dir: Path, edit_plan: dict) -> dict:
         if d > 0:
             duration = d
 
+    estilo = st.resolver(edit_plan.get("style") or edit_plan.get("preset") or "product_presenter")
+
     return {
-        "preset": edit_plan.get("preset") or "product_presenter",
+        "preset": estilo["id"],
+        "styleId": estilo["id"],
+        "style": estilo,
         "voiceSrc": voice_src,
         "musicSrc": music_src,
-        "musicVolume": 0.12,
+        "musicVolume": float(selection.get("music_volume", 0.3)),
+        "musicAttribution": attribution,
         "words": words,
         "clips": clips,
         "durationInSeconds": round(duration, 3),
@@ -197,6 +307,11 @@ def ensure_edit_plan(job_dir: Path, preset: str, force_fallback: bool = False) -
     if out.is_file() and not force_fallback:
         plan = c.leer_json(out)
         if isinstance(plan, dict) and plan.get("clips"):
+            estilo = st.resolver(plan.get("style") or plan.get("preset") or preset)
+            if not plan.get("style") or not st.existe(str(plan.get("style") or "")):
+                plan["style"] = estilo["id"]
+                plan["preset"] = estilo["id"]
+                c.escribir_json(out, plan)
             return plan
 
     trans = c.trabajo(job_dir, "transcripcion.json")
@@ -216,20 +331,22 @@ def ensure_edit_plan(job_dir: Path, preset: str, force_fallback: bool = False) -
 
 def write_props(job_dir: Path, preset: str = "product_presenter") -> Path:
     job_dir = Path(job_dir)
-    plan = ensure_edit_plan(job_dir, preset)
+    estilo = st.resolver(preset)
+    plan = ensure_edit_plan(job_dir, estilo["id"])
     plan = ensure_all_media_in_plan(job_dir, plan)
-    plan["preset"] = preset
+    plan["preset"] = estilo["id"]
+    plan["style"] = estilo["id"]
     props = build_composition_props(job_dir, plan)
     out = c.trabajo(job_dir, "composition-props.json")
     c.escribir_json(out, props)
     # Persistir plan ya corregido (con videos forzados si faltaban)
     c.escribir_json(c.trabajo(job_dir, "edit_plan.json"), plan)
-    print(f"Props → {out}")
+    print(f"Props [{estilo['id']}] → {out}")
     return out
 
 
 def ensure_all_media_in_plan(job_dir: Path, plan: dict) -> dict:
-    """Garantiza que cada imagen/video del job aparezca ≥1 vez y que los videos no usen fade."""
+    """Coloca los medios al azar en cada generación: orden, tipo y tiempos."""
     if not isinstance(plan, dict):
         return plan
     clips = plan.get("clips")
@@ -243,40 +360,72 @@ def ensure_all_media_in_plan(job_dir: Path, plan: dict) -> dict:
         float(clips[-1].get("end_s") or 0), 1.0
     )
 
-    def basename_of(clip: dict) -> str:
-        return Path(str(clip.get("media") or "")).name.lower()
+    estilo = st.resolver(plan.get("style") or plan.get("preset") or "product_presenter")
+    _, ratio_min, ratio_max = st.ritmo(estilo)
 
-    used_names = {basename_of(cl) for cl in clips}
+    rng = job_rng(job_dir)
+    images = list(images)
+    videos = list(videos)
+    rng.shuffle(images)
+    rng.shuffle(videos)
 
-    # Insertar medios faltantes reemplazando slots (sin tocar el primero si es hook).
-    missing = [m for m in images + videos if Path(m["path"]).name.lower() not in used_names]
-    if missing and clips:
-        start = 1 if len(clips) > 1 else 0
-        for i, m in enumerate(missing):
-            idx = min(len(clips) - 1, start + i)
-            clips[idx]["media"] = m["path"]
-            clips[idx]["media_type"] = m["media_type"]
-            clips[idx]["ken_burns"] = "none" if m["media_type"] == "video" else clips[idx].get("ken_burns") or "in"
-            clips[idx]["transition"] = "jump_cut" if m["media_type"] == "video" else clips[idx].get("transition") or "jump_cut"
+    total = len(clips)
+    duracion_slots: dict[int, float] = {
+        i: max(0.0, float(clip.get("end_s") or 0) - float(clip.get("start_s") or 0))
+        for i, clip in enumerate(clips)
+    }
 
-    # Tiempo mínimo en video de producto
-    used_video = 0.0
-    for clip in clips:
-        if clip.get("media_type") == "video":
-            used_video += max(0.0, float(clip.get("end_s") or 0) - float(clip.get("start_s") or 0))
-    if videos and used_video < max(3.0, duration * 0.28) - 0.05:
-        v = videos[0]
-        n = len(clips)
-        replace = max(1, int(math.ceil(n * 0.35)))
-        start_idx = max(0, n // 4)
-        for i in range(replace):
-            idx = min(n - 1, start_idx + i)
-            clips[idx]["media"] = v["path"]
-            clips[idx]["media_type"] = "video"
-            clips[idx]["ken_burns"] = "none"
-            clips[idx]["transition"] = "jump_cut"
+    chosen_video_slots: set[int] = set()
+    if videos:
+        ratio = rng.uniform(ratio_min, ratio_max)
+        objetivo = min(duration * ratio, duration * 0.6)
+        maximo = max(1, (total - 1) // 2) if images else total
+        cuantos = min(maximo, max(1, int(round(total * ratio))))
+        for _ in range(24):
+            elegido = sortear_slots_video(rng, total, cuantos, bool(images))
+            if not elegido:
+                break
+            if sum(duracion_slots[i] for i in elegido) >= objetivo or len(elegido) >= maximo:
+                chosen_video_slots = elegido
+                break
+            chosen_video_slots = elegido
+            cuantos = min(maximo, cuantos + 1)
+        if not chosen_video_slots:
+            chosen_video_slots = {rng.randrange(total)}
 
-    # Remotion: fade/zoom en OffthreadVideo suele salir negro → jump_cut en videos
+    image_cycle = images.copy()
+    video_cycle = videos.copy()
+    previous = ""
+    video_ranges: dict[str, list[tuple[float, float]]] = {}
+    for idx, clip in enumerate(clips):
+        use_video = bool(videos) and (idx in chosen_video_slots or not images)
+        pool = videos if use_video else images
+        if not pool:
+            pool = media
+        cycle = video_cycle if use_video else image_cycle
+        if not cycle:
+            cycle.extend(pool)
+            rng.shuffle(cycle)
+        m = sortear_pool(rng, cycle, previous)
+        previous = Path(m["path"]).name.lower()
+        clip["media"] = m["path"]
+        clip["media_type"] = m["media_type"]
+        if m["media_type"] == "video":
+            clip["ken_burns"] = "none"
+            clip["transition"] = "jump_cut"
+            clip_span = max(0.1, duracion_slots[idx])
+            source_duration = c.duracion_audio(Path(m["path"]))
+            max_start = max(0.0, source_duration - clip_span - 0.08)
+            ranges = video_ranges.setdefault(str(m["path"]), [])
+            candidates = [rng.uniform(0, max_start) for _ in range(20)] if max_start > 0 else [0.0]
+            valid = [start for start in candidates if all(start + clip_span <= begin or start >= end for begin, end in ranges)]
+            start = rng.choice(valid) if valid else (rng.uniform(0, max_start) if max_start > 0 else 0.0)
+            clip["video_start_s"] = round(start, 3)
+            ranges.append((start, start + clip_span))
+        else:
+            clip["ken_burns"] = clip.get("ken_burns") or ("in" if idx % 2 == 0 else "out")
+
+    # Remotion: transforms/transiciones en OffthreadVideo pueden renderizar negro → corte directo.
     for clip in clips:
         if clip.get("media_type") == "video":
             clip["transition"] = "jump_cut"
@@ -293,15 +442,17 @@ def ensure_videos_in_plan(job_dir: Path, plan: dict) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("job_dir")
-    ap.add_argument("--preset", default="product_presenter",
-                    choices=["product_presenter", "quick_transition"])
+    ap.add_argument("--preset", default="social_ad",
+                    choices=["random", *st.ids()])
     ap.add_argument("--force-fallback", action="store_true")
     a = ap.parse_args()
     job = Path(a.job_dir)
+    rng = job_rng(job)
+    preset = st.estilo_aleatorio(rng)["id"] if a.preset == "random" else st.resolver(a.preset)["id"]
     try:
         if a.force_fallback:
-            ensure_edit_plan(job, a.preset, force_fallback=True)
-        write_props(job, a.preset)
+            ensure_edit_plan(job, preset, force_fallback=True)
+        write_props(job, preset)
     except Exception as e:
         print(str(e), file=sys.stderr)
         return 1

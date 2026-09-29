@@ -128,6 +128,10 @@ class HyperFramesAdsRenderService
         if ($styleKeys !== [] && ! in_array($visualStyle, $styleKeys, true)) {
             $visualStyle = $defaultStyle;
         }
+        $transitionStyle = (string) ($options['transition_style'] ?? 'editorial-wipe');
+        if (! in_array($transitionStyle, ['editorial-wipe', 'kinetic-push', 'soft-dissolve'], true)) {
+            $transitionStyle = 'editorial-wipe';
+        }
 
         $bootMsg = $prompt
             ? '0/8 Arrancando HyperFrames (estilo '.$visualStyle.')…'
@@ -135,6 +139,7 @@ class HyperFramesAdsRenderService
 
         $optionsPayload = [
             'visual_style' => $visualStyle,
+            'transition_style' => $transitionStyle,
             'use_miia' => $prompt === null || ! empty($options['use_miia']),
         ];
         file_put_contents(
@@ -150,6 +155,7 @@ class HyperFramesAdsRenderService
             'product_id' => $product->id,
             'prompt_id' => $prompt?->id,
             'visual_style' => $visualStyle,
+            'transition_style' => $optionsPayload['transition_style'],
             'job_dir' => $jobDir,
             'video_id' => null,
             'error' => null,
@@ -514,6 +520,15 @@ class HyperFramesAdsRenderService
         if ($styleKeys !== [] && ! in_array($curStyle, $styleKeys, true)) {
             $curStyle = $defaultStyle;
         }
+        $transitionStyles = [
+            'editorial-wipe' => 'Barrido editorial',
+            'kinetic-push' => 'Empuje dinámico',
+            'soft-dissolve' => 'Fundido suave',
+        ];
+        $curTransitionStyle = (string) ($options['transition_style'] ?? $cached['transition_style'] ?? 'editorial-wipe');
+        if (! array_key_exists($curTransitionStyle, $transitionStyles)) {
+            $curTransitionStyle = 'editorial-wipe';
+        }
 
         $creative = $hasPlan && is_array($plan['creative'] ?? null) ? $plan['creative'] : [];
 
@@ -579,6 +594,25 @@ class HyperFramesAdsRenderService
             }
         }
 
+        $scriptSegments = [];
+        foreach ((is_array($prompt['segments'] ?? null) ? $prompt['segments'] : []) as $index => $segment) {
+            if (! is_array($segment)) {
+                continue;
+            }
+            $overlay = trim((string) ($segment['text_on_screen'] ?? ''));
+            $voiceover = trim((string) ($segment['voiceover'] ?? ''));
+            if ($overlay === '' && $voiceover === '') {
+                continue;
+            }
+            $scriptSegments[] = [
+                'index' => (int) $index,
+                'type' => trim((string) ($segment['type'] ?? 'segment')) ?: 'segment',
+                'text_on_screen' => $overlay,
+                'voiceover' => $voiceover,
+                'requires_review' => preg_match('/certificad[oa]|certificaci[oó]n|\\bCE\\b|\\bFDA\\b|libre de qu[ií]micos|sin t[oó]xicos|apto para|mayores de\\s+\\d+|garantizad[oa]|cl[ií]nicamente/iu', $overlay.' '.$voiceover) === 1,
+            ];
+        }
+
         $extraCreative = [];
         if ($hasPlan) {
             foreach (['hook', 'mainBenefit', 'cta', 'tone', 'audience'] as $key) {
@@ -611,6 +645,7 @@ class HyperFramesAdsRenderService
                 'sku' => (string) ($product['sku'] ?? ''),
                 'badge' => (string) ($product['badge'] ?? ''),
                 'description' => (string) ($product['description'] ?? ''),
+                'details' => array_slice(is_array($product['details'] ?? null) ? $product['details'] : [], 0, 8),
                 'image_url' => (string) ($product['image_url'] ?? ''),
                 'product_url' => (string) ($product['product_url'] ?? ''),
             ],
@@ -619,6 +654,7 @@ class HyperFramesAdsRenderService
             'has_plan' => $hasPlan,
             'scenes' => $scenes,
             'dialogue' => $dialogue,
+            'script_segments' => $scriptSegments,
             'files' => [
                 'images' => $this->listDirFiles($jobDir.DIRECTORY_SEPARATOR.'images'),
                 'videos' => $this->listDirFiles($jobDir.DIRECTORY_SEPARATOR.'videos'),
@@ -626,8 +662,10 @@ class HyperFramesAdsRenderService
             'styles' => $niceStyles,
             'options' => [
                 'visual_style' => $curStyle,
+                'transition_style' => $curTransitionStyle,
                 'use_miia' => ! empty($cached['auto_prompt']),
             ],
+            'transition_styles' => $transitionStyles,
         ];
 
         // Si el job no bajó archivos (CDN bloqueó / Docker), usar galería del producto
@@ -861,6 +899,12 @@ class HyperFramesAdsRenderService
             ];
         }
 
+        $transitionStyles = [
+            'editorial-wipe' => 'Barrido editorial',
+            'kinetic-push' => 'Empuje dinámico',
+            'soft-dissolve' => 'Fundido suave',
+        ];
+
         return [
             'job_id' => null,
             'video_id' => (int) $video->id,
@@ -870,13 +914,14 @@ class HyperFramesAdsRenderService
             'product' => [
                 'name' => $product->localizedName() ?: $product->name,
                 'description' => $product->localizedDescription() ?: (string) $product->description,
+                'details' => method_exists($product, 'details') ? array_slice((array) $product->details(), 0, 8) : [],
                 'price' => $product->price,
                 'compare_at_price' => $product->compare_at_price,
                 'currency' => $product->currency ?: 'USD',
                 'sku' => $product->sku,
                 'badge' => $product->badge,
                 'image_url' => $product->image_url,
-                'product_url' => rtrim((string) ($campaign->store?->publicUrl() ?? ''), '/').'/pages/'.$product->slug,
+                'product_url' => $this->media->productPageUrl($campaign->store, $product),
             ],
             'brief' => $brief,
             'creative' => $extraCreative,
@@ -884,12 +929,23 @@ class HyperFramesAdsRenderService
             'has_plan' => false,
             'scenes' => [],
             'dialogue' => [],
+            'script_segments' => array_values(array_map(function ($segment, $index) {
+                return [
+                    'index' => $index,
+                    'type' => (string) data_get($segment, 'type', 'segment'),
+                    'text_on_screen' => (string) data_get($segment, 'text_on_screen', ''),
+                    'voiceover' => (string) data_get($segment, 'voiceover', ''),
+                    'requires_review' => preg_match('/certificad[oa]|certificaci[oó]n|\\bCE\\b|\\bFDA\\b|libre de qu[ií]micos|sin t[oó]xicos|apto para|mayores de\\s+\\d+|garantizad[oa]|cl[ií]nicamente/iu', (string) data_get($segment, 'text_on_screen', '').' '.(string) data_get($segment, 'voiceover', '')) === 1,
+                ];
+            }, is_array($prompt->segments) ? $prompt->segments : [], array_keys(is_array($prompt->segments) ? $prompt->segments : []))),
             'files' => ['images' => $images, 'videos' => $videos],
             'styles' => $niceStyles,
             'options' => [
                 'visual_style' => $defaultStyle,
+                'transition_style' => 'editorial-wipe',
                 'use_miia' => false,
             ],
+            'transition_styles' => $transitionStyles,
         ];
     }
 
@@ -898,7 +954,7 @@ class HyperFramesAdsRenderService
      * clona el prompt (sin tocar el original), aplica las ediciones de texto
      * top-level y encola un nuevo job en modo preview (revisión → confirm).
      *
-     * @param  array{texts?: array<string, string>}  $edits
+     * @param  array{texts?: array<string, string>, transition_style?: string}  $edits
      * @return array{ok: bool, job_id?: string, message?: string}
      */
     public function regenerate(
@@ -948,8 +1004,13 @@ class HyperFramesAdsRenderService
         }
 
         $sync = (bool) config('multidrop.marketing.hyperframes.sync', true);
+        $transitionStyle = (string) ($edits['transition_style'] ?? 'editorial-wipe');
+        if (! in_array($transitionStyle, ['editorial-wipe', 'kinetic-push', 'soft-dissolve'], true)) {
+            $transitionStyle = 'editorial-wipe';
+        }
         $result = $this->enqueue($store, $campaign, $product, $clone, $sync, [
             'visual_style' => trim((string) $visualStyle) ?: (string) config('multidrop.marketing.hyperframes.default_visual_style', 'signal'),
+            'transition_style' => $transitionStyle,
             'use_miia' => false,
             'preview' => true,
         ]);
@@ -961,7 +1022,7 @@ class HyperFramesAdsRenderService
      * Aplica las ediciones del modal al workspace del job y guarda un snapshot
      * (preview_edits.json) que la reanudación aplica sobre los JSON finales.
      *
-     * @param  array{texts?: array<string, string>, visual_style?: string, exclude_images?: array<int, string>, exclude_videos?: array<int, string>}  $edits
+     * @param  array{texts?: array<string, string>, visual_style?: string, transition_style?: string, exclude_images?: array<int, string>, exclude_videos?: array<int, string>}  $edits
      * @return array{ok: bool, message?: string}
      */
     public function applyReviewEdits(string $jobId, array $edits, int $storeId): array
@@ -991,11 +1052,15 @@ class HyperFramesAdsRenderService
         if ($styleKeys !== [] && $style !== '' && ! in_array($style, $styleKeys, true)) {
             $style = '';
         }
+        $transitionStyle = trim((string) ($edits['transition_style'] ?? ''));
+        if (! in_array($transitionStyle, ['editorial-wipe', 'kinetic-push', 'soft-dissolve'], true)) {
+            $transitionStyle = '';
+        }
 
         $excludeImages = $this->sanitizeAssetNames($edits['exclude_images'] ?? null);
         $excludeVideos = $this->sanitizeAssetNames($edits['exclude_videos'] ?? null);
 
-        if ($cleanTexts === [] && $style === '' && $excludeImages === [] && $excludeVideos === []) {
+        if ($cleanTexts === [] && $style === '' && $transitionStyle === '' && $excludeImages === [] && $excludeVideos === []) {
             return ['ok' => true, 'message' => 'Sin cambios'];
         }
 
@@ -1027,15 +1092,22 @@ class HyperFramesAdsRenderService
             }
         }
 
-        if ($style !== '') {
+        if ($style !== '' || $transitionStyle !== '') {
+            $optionsPath = $jobDir.DIRECTORY_SEPARATOR.'options.json';
+            $options = is_file($optionsPath) ? json_decode((string) file_get_contents($optionsPath), true) : [];
+            $options = is_array($options) ? $options : [];
+            if ($style !== '') {
+                $options['visual_style'] = $style;
+                $cached['visual_style'] = $style;
+            }
+            if ($transitionStyle !== '') {
+                $options['transition_style'] = $transitionStyle;
+                $cached['transition_style'] = $transitionStyle;
+            }
             file_put_contents(
-                $jobDir.DIRECTORY_SEPARATOR.'options.json',
-                json_encode([
-                    'visual_style' => $style,
-                    'use_miia' => true,
-                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n"
+                $optionsPath,
+                json_encode($options, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)."\n"
             );
-            $cached['visual_style'] = $style;
             Cache::put($this->cacheKey($jobId), $cached, now()->addHours(8));
         }
 
@@ -1043,6 +1115,7 @@ class HyperFramesAdsRenderService
             $jobDir.DIRECTORY_SEPARATOR.'preview_edits.json',
             json_encode([
                 'visual_style' => $style,
+                'transition_style' => $transitionStyle,
                 'texts' => $cleanTexts,
                 'exclude_images' => $excludeImages,
                 'exclude_videos' => $excludeVideos,
@@ -1712,7 +1785,7 @@ class HyperFramesAdsRenderService
             'rating' => method_exists($product, 'ratingAvg') ? $product->ratingAvg() : null,
             'store_name' => $store->name,
             'store_slug' => $store->slug,
-            'product_url' => rtrim((string) $store->publicUrl(), '/').'/pages/'.$product->slug,
+            'product_url' => $this->media->productPageUrl($store, $product),
             'cta' => trim((string) (
                 data_get($prompt?->analysis, 'cta')
                 ?: data_get($prompt?->analysis, 'creative_direction.brand.cta')

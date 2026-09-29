@@ -15,6 +15,8 @@ use App\Services\Admin\StoreContext;
 use App\Services\Marketing\CampaignOptimizerService;
 use App\Services\Marketing\CampaignService;
 use App\Services\Marketing\HyperFramesAdsRenderService;
+use App\Services\Marketing\RemotionMusicCatalog;
+use App\Services\Marketing\RemotionStyleCatalog;
 use App\Services\Marketing\VideoIngestService;
 use App\Services\SellerCentral\SellerCentralApi;
 use App\Services\SellerCentral\SellerCentralVideoService;
@@ -98,6 +100,8 @@ class CampaignController extends Controller
         SellerCentralApi $sellerCentral,
         SellerCentralVideoService $notebookLm,
         HyperFramesAdsRenderService $hyperframes,
+        RemotionMusicCatalog $remotionMusic,
+        RemotionStyleCatalog $remotionStyles,
         MarketingCampaign $campaign
     ) {
         $store = $this->currentStoreOrFail($storeContext);
@@ -135,6 +139,8 @@ class CampaignController extends Controller
                 'visual_styles' => config('multidrop.marketing.hyperframes.visual_styles', []),
                 'default_visual_style' => (string) config('multidrop.marketing.hyperframes.default_visual_style', 'signal'),
             ],
+            'remotionMusic' => $remotionMusic->all(),
+            'remotionStyles' => $remotionStyles->labels(),
             'notebooklm' => [
                 'ok' => $notebookLm->hasConnection($store),
                 'poll_seconds' => (int) config('multidrop.marketing.sellercentral.video_poll_seconds', 8),

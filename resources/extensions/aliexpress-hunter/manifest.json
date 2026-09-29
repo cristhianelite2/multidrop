@@ -1,8 +1,8 @@
 {
     "manifest_version": 3,
     "name": "Multidrop AliExpress Hunter",
-    "version": "1.3.0",
-    "description": "Captura fichas AE/CJ, sanitiza con MIIA (sin AliExpress/China), importa Resumen de IA y extrae media por SKU.",
+    "version": "1.4.0",
+    "description": "Captura fichas AE/CJ, lee el payload mtop de la PDP (variaciones, precio por SKU, stock), sanitiza con MIIA (sin AliExpress/China), importa Resumen de IA y extrae media por SKU.",
     "action": {
         "default_title": "Multidrop Hunter",
         "default_popup": "popup.html",

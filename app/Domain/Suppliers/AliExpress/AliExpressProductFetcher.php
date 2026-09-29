@@ -521,8 +521,26 @@ class AliExpressProductFetcher
     {
         $chunks = '';
         $run = $snapshot['runParams'] ?? $snapshot['run_params'] ?? null;
-        if (is_array($run) && $run !== []) {
-            $chunks .= '<script>window.runParams = '.json_encode($run, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE).';</script>';
+        $runData = is_array($run) ? (is_array($run['data'] ?? null) ? $run['data'] : $run) : [];
+        $ae = $snapshot['aeData'] ?? $snapshot['ae_data'] ?? null;
+        $aeNode = $this->aeSnapshotToNode(is_array($ae) ? $ae : null);
+
+        if ($aeNode !== []) {
+            // Un solo chunk: si se inyectaran runParams y _dida_config_ por separado, el
+            // primero en aparecer gana en extractRunParams() y el payload mtop (que trae
+            // precio por SKU y título) quedaría sombreado.
+            foreach ($runData as $key => $value) {
+                if (is_array($value) && $value !== [] && ! isset($aeNode[$key])) {
+                    $aeNode[$key] = $value;
+                }
+            }
+            // Se serializa el objeto entero (sin `||{}`) para que extractBalancedJson()
+            // no se quede con las llaves vacías de la guarda previa.
+            $chunks .= '<script>window._dida_config_={"_init_data_":{"data":{"result":'
+                .json_encode($aeNode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE)
+                .'}}};</script>';
+        } elseif ($runData !== []) {
+            $chunks .= '<script>window.runParams = '.json_encode($runData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE).';</script>';
         }
         $dc = $snapshot['dcData'] ?? $snapshot['DCData'] ?? null;
         if (is_array($dc) && $dc !== []) {
@@ -534,6 +552,96 @@ class AliExpressProductFetcher
         }
 
         return $chunks.$html;
+    }
+
+    /**
+     * Normaliza el `aeData` que manda el plugin al shape de nodo que espera extractRunParams().
+     *
+     * @param  array<string, mixed>|null  $ae
+     * @return array<string, mixed>
+     */
+    protected function aeSnapshotToNode(?array $ae): array
+    {
+        if ($ae === null || $ae === []) {
+            return [];
+        }
+
+        $node = [];
+        if (isset($ae['skuPropertyList']) && is_array($ae['skuPropertyList'])) {
+            $node['skuPropertyList'] = $ae['skuPropertyList'];
+        }
+        if (isset($ae['skuList']) && is_array($ae['skuList'])) {
+            $node['skuList'] = $ae['skuList'];
+        }
+        if (isset($ae['linkSkuPropertyList']) && is_array($ae['linkSkuPropertyList']) && $ae['linkSkuPropertyList'] !== []) {
+            $node['linkSkuPropertyList'] = $ae['linkSkuPropertyList'];
+        }
+        if (isset($ae['linkSkuList']) && is_array($ae['linkSkuList']) && $ae['linkSkuList'] !== []) {
+            $node['linkSkuList'] = $ae['linkSkuList'];
+        }
+        if (isset($ae['legacySkuModule']) && is_array($ae['legacySkuModule']) && $ae['legacySkuModule'] !== []) {
+            $node['skuModule'] = $ae['legacySkuModule'];
+        }
+        if (isset($ae['skuIdStrPriceInfoMap']) && is_array($ae['skuIdStrPriceInfoMap']) && $ae['skuIdStrPriceInfoMap'] !== []) {
+            $node['PRICE'] = ['skuIdStrPriceInfoMap' => $ae['skuIdStrPriceInfoMap']];
+        }
+
+        $global = [];
+        if (($ae['productId'] ?? '') !== '') {
+            $global['productId'] = (string) $ae['productId'];
+        }
+        if (($ae['title'] ?? '') !== '') {
+            $global['subject'] = (string) $ae['title'];
+        }
+        if (($ae['descriptionUrl'] ?? '') !== '') {
+            $global['descriptionUrl'] = (string) $ae['descriptionUrl'];
+        }
+        if ($global !== []) {
+            $node['GLOBAL_DATA'] = ['globalData' => $global];
+        }
+        if (($ae['totalAvailableInventory'] ?? null) !== null) {
+            $node['allSkuQuantityView'] = ['totalAvailableInventory' => $ae['totalAvailableInventory']];
+        }
+        if (($ae['feedback'] ?? null) !== null || ($ae['reviewCount'] ?? null) !== null) {
+            $feedback = is_array($ae['feedback'] ?? null) ? $ae['feedback'] : [];
+            if (($ae['reviewCount'] ?? null) !== null && ! isset($feedback['totalValidNum'])) {
+                $feedback['totalValidNum'] = $ae['reviewCount'];
+            }
+            if (($ae['averageStar'] ?? null) !== null && ! isset($feedback['evarageStar'])) {
+                $feedback['evarageStar'] = $ae['averageStar'];
+            }
+            $node['FEEDBACK'] = $feedback;
+        }
+        if (($ae['videoPlayUrl'] ?? '') !== '') {
+            $node['PRODUCT_VIDEO'] = ['videoPlayInfo' => ['webUrl' => (string) $ae['videoPlayUrl']]];
+        }
+
+        $images = is_array($ae['imagePathList'] ?? null) ? $ae['imagePathList'] : [];
+        $thumbs = is_array($ae['summImagePathList'] ?? null) ? $ae['summImagePathList'] : [];
+        if ($images !== [] || $thumbs !== []) {
+            $node['HEADER_IMAGE_PC'] = array_filter([
+                'imagePathList' => $images !== [] ? $images : null,
+                'summImagePathList' => $thumbs !== [] ? $thumbs : null,
+            ]);
+        }
+
+        $price = [];
+        if (($ae['price'] ?? null) !== null) {
+            $price['minPrice'] = (string) $ae['price'];
+        }
+        if (($ae['compareAtPrice'] ?? null) !== null) {
+            $price['formatedPrice'] = (string) $ae['compareAtPrice'];
+        }
+        if (($ae['currency'] ?? '') !== '') {
+            $price['currencyCode'] = (string) $ae['currency'];
+        }
+        if ($price !== [] && ! isset($node['PRICE'])) {
+            $node['PRICE'] = $price;
+        } elseif ($price !== [] && isset($node['PRICE'])) {
+            $node['PRICE'] += $price;
+        }
+
+        return $node;
     }
 
     protected function resolveInput(string $input): string
@@ -1064,8 +1172,8 @@ class AliExpressProductFetcher
         }
 
         if ($variants === []) {
-            $skuModule = $this->extractJsonObjectAfterKey($html, 'skuModule');
-            if (is_array($skuModule) && $skuModule !== []) {
+            $skuModule = $this->extractSkuModuleFromHtml($html);
+            if ($skuModule !== []) {
                 $variants = $this->filterRealVariants($this->variantsFromSkuModule($skuModule));
             }
         }
@@ -1074,8 +1182,11 @@ class AliExpressProductFetcher
         if ($domVariants !== []) {
             if ($variants === [] || (count($variants) === 1 && ! empty($variants[0]['is_product_option']))) {
                 $variants = $this->filterRealVariants($domVariants);
-            } elseif (count($domVariants) > count($variants)) {
-                // El JSON vino incompleto (p. ej. HTML pegado sin skuPriceList completo)
+            } elseif (count($domVariants) > count($variants) && ! $this->hasComboSkuAttrs($variants)) {
+                // El JSON vino incompleto (p. ej. HTML pegado sin la lista de SKUs completa).
+                // El DOM solo aporta combinaciones sueltas, así que no se mezcla con
+                // combinaciones reales de `skuAttr` (p. ej. 2 colores x 3 tallas con una
+                // agotada: 4 SKUs reales frente a 5 swatches).
                 $variants = $this->mergeVariantLists($variants, $domVariants);
             }
         }
@@ -1273,6 +1384,26 @@ class AliExpressProductFetcher
     }
 
     /**
+     * ¿Alguna variante viene de una fila de `skuAttr` real (`pid:vid#nombre;…`)?
+     *
+     * @param  list<array<string, mixed>>  $variants
+     */
+    protected function hasComboSkuAttrs(array $variants): bool
+    {
+        foreach ($variants as $v) {
+            if (! is_array($v)) {
+                continue;
+            }
+            $key = (string) ($v['key'] ?? '');
+            if ($key !== '' && preg_match('/^\d+:[^;]+(;\d+:[^;]+)+$/', $key)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $primary
      * @param  list<array<string, mixed>>  $extra
      * @return list<array<string, mixed>>
@@ -1369,6 +1500,40 @@ class AliExpressProductFetcher
         $decoded = $this->decodeBalancedJson($html, $brace, '{', '}');
 
         return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * Modelo de SKU embebido en el HTML, en cualquiera de sus dos formas.
+     *
+     * La PDP nueva (CSR por mtop) no serializa un objeto `skuModule`: deja las listas
+     * `skuPropertyList` y `skuList` colgando de la raíz de la respuesta, así que se
+     * reconstruye el módulo a partir de ellas.
+     *
+     * @return array<string, mixed>
+     */
+    protected function extractSkuModuleFromHtml(string $html): array
+    {
+        $legacy = $this->extractJsonObjectAfterKey($html, 'skuModule');
+        if (is_array($legacy) && $legacy !== []) {
+            return $legacy;
+        }
+
+        $pairs = [
+            'productSKUPropertyList' => ['skuPropertyList', 'productSKUPropertyList'],
+            'skuPriceList' => ['skuList', 'skuPriceList', 'productSKUPriceList'],
+        ];
+        $module = [];
+        foreach ($pairs as $target => $keys) {
+            foreach ($keys as $key) {
+                $list = $this->extractJsonArrayAfterKey($html, $key);
+                if (is_array($list) && $list !== []) {
+                    $module[$target] = $list;
+                    break;
+                }
+            }
+        }
+
+        return $module;
     }
 
     /**
@@ -2056,6 +2221,11 @@ class AliExpressProductFetcher
             return [];
         }
 
+        // Inyección del plugin: window._dida_config_ = {"_init_data_": {…}}
+        if (isset($blob['_init_data_']) && is_array($blob['_init_data_']) && $blob['_init_data_'] !== []) {
+            $blob = $blob['_init_data_'];
+        }
+
         $data = is_array($blob['data'] ?? null) ? $blob['data'] : $blob;
         if (isset($data['props']['pageProps']) && is_array($data['props']['pageProps'])) {
             $data = $data['props']['pageProps'];
@@ -2063,10 +2233,16 @@ class AliExpressProductFetcher
                 $data = $data['data'];
             }
         }
+        if (isset($data['result']) && is_array($data['result']) && $data['result'] !== []) {
+            $data = $data['result'];
+        }
+        $node = $this->findProductNode($blob);
+        $globalData = is_array($node['GLOBAL_DATA']['globalData'] ?? null) ? $node['GLOBAL_DATA']['globalData'] : [];
+        $priceBlock = is_array($node['PRICE'] ?? null) ? $node['PRICE'] : [];
+
         $titleModule = $this->findAssoc($data, 'titleModule');
         $imageModule = $this->findAssoc($data, 'imageModule');
         $priceModule = $this->findAssoc($data, 'priceModule');
-        $skuModule = $this->findAssoc($data, 'skuModule');
         $feedbackModule = $this->findAssoc($data, 'feedbackModule');
         $descModule = $this->findAssoc($data, 'descriptionModule')
             ?: $this->findAssoc($data, 'productDescModule');
@@ -2074,39 +2250,86 @@ class AliExpressProductFetcher
             ?: $this->findAssoc($data, 'shippingModule')
             ?: $this->findAssoc($data, 'freightInfo');
 
-        $title = (string) ($titleModule['subject'] ?? $data['subject'] ?? $data['title'] ?? '');
+        $title = (string) (
+            $titleModule['subject']
+            ?? $node['PRODUCT_TITLE']['subject']
+            ?? $globalData['subject']
+            ?? $data['subject']
+            ?? $data['title']
+            ?? ''
+        );
         if (preg_match('/Resp$|Module$|^ItemDetail/i', $title)) {
             $title = '';
         }
         $images = [];
-        foreach (['imagePathList', 'summImagePathList'] as $key) {
-            $list = $imageModule[$key] ?? $data[$key] ?? [];
-            if (is_array($list)) {
-                foreach ($list as $img) {
-                    $u = $this->normalizeGalleryImageUrl($this->absUrl(is_string($img) ? $img : ''));
-                    if ($u !== '') {
-                        $images[] = $u;
-                    }
+        $imageKeys = [];
+        $imageSources = [
+            $imageModule['imagePathList'] ?? null,
+            $node['HEADER_IMAGE_PC']['imagePathList'] ?? null,
+            $globalData['imagePathList'] ?? null,
+            $data['imagePathList'] ?? null,
+            $imageModule['summImagePathList'] ?? null,
+            $node['HEADER_IMAGE_PC']['summImagePathList'] ?? null,
+            $globalData['summImagePathList'] ?? null,
+            $data['summImagePathList'] ?? null,
+        ];
+        foreach ($imageSources as $list) {
+            if (! is_array($list)) {
+                continue;
+            }
+            foreach ($list as $img) {
+                $u = $this->normalizeGalleryImageUrl($this->absUrl(is_string($img) ? $img : ''));
+                if ($u === '') {
+                    continue;
                 }
+                // El 80x80 de summImagePathList es el mismo asset: no lo dupliques.
+                $key = $this->galleryImageKey($u);
+                if (isset($imageKeys[$key])) {
+                    continue;
+                }
+                $imageKeys[$key] = true;
+                $images[] = $u;
             }
         }
 
-        $formattedActivity = (string) ($priceModule['formatedActivityPrice'] ?? $priceModule['formattedActivityPrice'] ?? '');
+        $formattedActivity = (string) (
+            $priceModule['formatedActivityPrice']
+            ?? $priceModule['formattedActivityPrice']
+            ?? $priceBlock['formatedActivityPrice']
+            ?? ''
+        );
+        $saleLocal = (string) ($priceBlock['targetSkuPriceInfo']['salePriceLocal'] ?? '');
         $price = $this->toFloat(
             $formattedActivity !== '' ? $formattedActivity : (
                 $priceModule['minActivityAmount']['value']
                 ?? $priceModule['minPrice']
+                ?? $priceBlock['minActivityAmount']['value']
+                ?? $priceBlock['minPrice']
                 ?? $data['minPrice']
+                ?? ($saleLocal !== '' ? explode('|', $saleLocal)[0] : null)
                 ?? null
             )
         );
-        $compare = $this->toFloat($priceModule['formatedPrice'] ?? $priceModule['maxPrice'] ?? null);
+        $compare = $this->toFloat(
+            $priceModule['formatedPrice']
+            ?? $priceModule['maxPrice']
+            ?? $priceBlock['formatedPrice']
+            ?? $priceBlock['maxPrice']
+            ?? null
+        );
+        if ($compare !== null && $price !== null && $compare <= $price) {
+            $compare = null;
+        }
         $currency = $this->detectCurrencyFromText($formattedActivity)
             ?: $this->detectCurrencyFromText((string) ($priceModule['formatedPrice'] ?? ''))
-            ?: (string) ($priceModule['currencyCode'] ?? '');
+            ?: $this->detectCurrencyFromText((string) ($priceBlock['formatedPrice'] ?? ''))
+            ?: $this->detectCurrencyFromText($saleLocal)
+            ?: (string) ($priceModule['currencyCode'] ?? '')
+            ?: (string) ($priceBlock['currencyCode'] ?? '');
 
+        $skuPayload = $this->findSkuPayload($blob);
         $variants = $this->assignLargeVariantImages(
-            $this->variantsFromSkuModule(is_array($skuModule) ? $skuModule : []),
+            $this->variantsFromSkuModule($skuPayload['module'], $skuPayload['priceMap']),
             $images
         );
 
@@ -2137,6 +2360,9 @@ class AliExpressProductFetcher
         }
 
         $videos = $this->videosFromImageModule(is_array($imageModule) ? $imageModule : null);
+        if ($videos === [] && $this->firstString([(string) ($node['PRODUCT_VIDEO']['videoPlayInfo']['webUrl'] ?? '')]) !== '') {
+            $videos[] = ['url' => $this->absUrl((string) $node['PRODUCT_VIDEO']['videoPlayInfo']['webUrl'])];
+        }
 
         $descHtml = (string) ($descModule['description'] ?? $descModule['productDesc'] ?? $descModule['detailDesc'] ?? '');
         if ($descHtml !== '' && ! str_contains($descHtml, '<')) {
@@ -2147,6 +2373,8 @@ class AliExpressProductFetcher
             ?? $descModule['descUrl']
             ?? $descModule['productDescUrl']
             ?? $descModule['descriptionPCUrl']
+            ?? $node['PRODUCT_DESCRIPTION']['descriptionUrl']
+            ?? $globalData['descriptionUrl']
             ?? $data['descriptionUrl']
             ?? ''
         ));
@@ -2156,6 +2384,11 @@ class AliExpressProductFetcher
         if ($shipNote === '' && isset($freightModule['deliveryLayoutInfo']) && is_string($freightModule['deliveryLayoutInfo'])) {
             $shipNote = $freightModule['deliveryLayoutInfo'];
         }
+
+        $feedback = is_array($node['FEEDBACK'] ?? null) ? $node['FEEDBACK'] : [];
+        $stock = isset($node['allSkuQuantityView']['totalAvailableInventory'])
+            ? (int) $node['allSkuQuantityView']['totalAvailableInventory']
+            : null;
 
         return array_filter([
             'title' => $title !== '' ? html_entity_decode($title, ENT_QUOTES, 'UTF-8') : null,
@@ -2167,10 +2400,24 @@ class AliExpressProductFetcher
             'videos' => $videos !== [] ? $videos : null,
             'description_html' => $descHtml !== '' ? $descHtml : null,
             'description_url' => $descUrl !== '' ? $descUrl : null,
-            'rating' => $this->toFloat($feedbackModule['evarageStar'] ?? $feedbackModule['averageStar'] ?? $titleModule['feedbackRating']['averageStar'] ?? null),
-            'review_count' => isset($feedbackModule['totalValidNum']) ? (int) $feedbackModule['totalValidNum'] : (isset($titleModule['feedbackRating']['totalValidNum']) ? (int) $titleModule['feedbackRating']['totalValidNum'] : null),
-            'orders' => isset($titleModule['tradeCount']) ? (int) preg_replace('/\D+/', '', (string) $titleModule['tradeCount']) : null,
+            'rating' => $this->toFloat(
+                $feedbackModule['evarageStar']
+                ?? $feedbackModule['averageStar']
+                ?? $feedback['evarageStar']
+                ?? $feedback['averageStar']
+                ?? $titleModule['feedbackRating']['averageStar']
+                ?? null
+            ),
+            'review_count' => isset($feedbackModule['totalValidNum'])
+                ? (int) $feedbackModule['totalValidNum']
+                : (isset($feedback['totalValidNum'])
+                    ? (int) $feedback['totalValidNum']
+                    : (isset($titleModule['feedbackRating']['totalValidNum']) ? (int) $titleModule['feedbackRating']['totalValidNum'] : null)),
+            'orders' => isset($titleModule['tradeCount'])
+                ? (int) preg_replace('/\D+/', '', (string) $titleModule['tradeCount'])
+                : (isset($globalData['tradeCount']) ? (int) preg_replace('/\D+/', '', (string) $globalData['tradeCount']) : null),
             'reviews' => $reviews !== [] ? $reviews : null,
+            'stock' => $stock,
             'shipping_price' => $this->toFloat(
                 $freightModule['freightAmount']['value']
                 ?? $freightModule['displayAmount']
@@ -2231,6 +2478,195 @@ class AliExpressProductFetcher
         }
 
         return [];
+    }
+
+    /**
+     * Nodo raíz del producto dentro de la respuesta mtop de la PDP actual.
+     *
+     * La ficha se renderiza en cliente (`viewName=newDetail`), así que la respuesta de
+     * `mtop.aliexpress.pdp.pc.query` llega como `{data:{result:{…}}}` y dentro cuelgan
+     * `GLOBAL_DATA`, `HEADER_IMAGE_PC`, `PRODUCT_TITLE`, `PRICE`, `FEEDBACK` y el modelo
+     * de SKU en la raíz (`skuPropertyList` + `skuList`).
+     *
+     * @param  array<string, mixed>  $blob
+     * @return array<string, mixed>
+     */
+    protected function findProductNode(array $blob, int $depth = 0): array
+    {
+        if ($depth >= 6) {
+            return [];
+        }
+        if (isset($blob['GLOBAL_DATA']) || isset($blob['HEADER_IMAGE_PC'])
+            || isset($blob['PRODUCT_TITLE']) || isset($blob['PRICE'])
+            || $this->looksLikeSkuModel($blob)) {
+            return $blob;
+        }
+        foreach (['data', 'result', 'props'] as $key) {
+            $child = $blob[$key] ?? null;
+            if ($key === 'props' && is_array($child) && isset($child['pageProps'])) {
+                $child = $child['pageProps'];
+            }
+            if (! is_array($child)) {
+                continue;
+            }
+            $found = $this->findProductNode($child, $depth + 1);
+            if ($found !== []) {
+                return $found;
+            }
+        }
+        foreach ($blob as $value) {
+            if (! is_array($value) || $value === []) {
+                continue;
+            }
+            $found = $this->findProductNode($value, $depth + 1);
+            if ($found !== []) {
+                return $found;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    protected function looksLikeSkuModel(array $node): bool
+    {
+        if (isset($node['skuList']) && is_array($node['skuList'])) {
+            return true;
+        }
+        if (isset($node['productSKUPropertyList']) && is_array($node['productSKUPropertyList'])) {
+            return true;
+        }
+        if (isset($node['skuPropertyList']) && is_array($node['skuPropertyList']) && $node['skuPropertyList'] !== []) {
+            return true;
+        }
+
+        return isset($node['skuModule']) && is_array($node['skuModule']);
+    }
+
+    /**
+     * Localiza el modelo de SKU (nuevo o legacy) dentro de cualquier blob de la PDP.
+     *
+     * @param  array<string, mixed>  $blob
+     * @return array{module: array<string, mixed>, priceMap: array<string, array{price?: mixed, compare_at_price?: mixed}>}
+     */
+    protected function findSkuPayload(array $blob): array
+    {
+        $empty = ['module' => [], 'priceMap' => []];
+        if ($blob === []) {
+            return $empty;
+        }
+
+        $nodes = [];
+        $node = $this->findProductNode($blob);
+        if ($node !== []) {
+            $nodes[] = $node;
+        }
+        if ($blob !== $node) {
+            $nodes[] = $blob;
+        }
+        foreach ($blob as $value) {
+            if (is_array($value) && $value !== [] && $value !== $node) {
+                $nodes[] = $value;
+            }
+        }
+
+        $module = [];
+        $priceMap = [];
+        foreach ($nodes as $candidate) {
+            if ($module === []) {
+                $module = $this->skuModelFromNode($candidate);
+            }
+            if ($priceMap === []) {
+                $priceMap = $this->priceMapFromNode($candidate);
+            }
+            if ($module !== [] && $priceMap !== []) {
+                break;
+            }
+        }
+
+        if ($module === []) {
+            $legacy = $this->findAssoc($blob, 'skuModule');
+            if ($legacy !== []) {
+                $module = $legacy;
+            }
+        }
+
+        return ['module' => $module, 'priceMap' => $priceMap];
+    }
+
+    /**
+     * Normaliza el modelo de SKU de un nodo al shape que entiende variantsFromSkuModule().
+     *
+     * @param  array<string, mixed>  $node
+     * @return array<string, mixed>
+     */
+    protected function skuModelFromNode(array $node): array
+    {
+        if (isset($node['skuModule']) && is_array($node['skuModule']) && $node['skuModule'] !== []) {
+            return $node['skuModule'];
+        }
+        if (! $this->looksLikeSkuModel($node)) {
+            return [];
+        }
+        $model = [
+            'productSKUPropertyList' => $node['skuPropertyList'] ?? ($node['productSKUPropertyList'] ?? []),
+            'skuPriceList' => $node['skuList'] ?? ($node['productSKUPriceList'] ?? []),
+        ];
+        // SKUs enlazados ("otro producto"): combinations válidas adicionales.
+        if (isset($node['linkSkuList']) && is_array($node['linkSkuList']) && $node['linkSkuList'] !== []) {
+            $model['productSKUPropertyList'] = array_merge(
+                is_array($model['productSKUPropertyList']) ? $model['productSKUPropertyList'] : [],
+                $node['linkSkuPropertyList'] ?? []
+            );
+            $model['skuPriceList'] = array_merge(
+                is_array($model['skuPriceList']) ? $model['skuPriceList'] : [],
+                $node['linkSkuList']
+            );
+        }
+
+        return ($model['skuPriceList'] ?? []) === [] && ($model['productSKUPropertyList'] ?? []) === []
+            ? []
+            : $model;
+    }
+
+    /**
+     * `PRICE.skuIdStrPriceInfoMap` → precio por SKU (la PDP nueva no lo trae en cada fila).
+     *
+     * @param  array<string, mixed>  $node
+     * @return array<string, array{price?: mixed, compare_at_price?: mixed}>
+     */
+    protected function priceMapFromNode(array $node): array
+    {
+        $map = $node['PRICE']['skuIdStrPriceInfoMap'] ?? ($node['skuIdStrPriceInfoMap'] ?? null);
+        if (! is_array($map) || $map === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($map as $skuId => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $price = $row['salePrice'] ?? $row['currentPrice'] ?? $row['price'] ?? null;
+            $compare = $row['compare_at_price'] ?? null;
+            if ($compare === null && isset($row['originalPrice'])) {
+                $compare = is_array($row['originalPrice'])
+                    ? ($row['originalPrice']['value'] ?? null)
+                    : $row['originalPrice'];
+            }
+            if ($price === null && isset($row['salePriceString'])) {
+                $price = $this->toFloat(explode('|', (string) $row['salePriceString'])[0]);
+            }
+            $price = $this->toFloat($price);
+            $compare = $this->toFloat($compare);
+            if ($price === null && $compare === null) {
+                continue;
+            }
+            $out[(string) $skuId] = ['price' => $price, 'compare_at_price' => $compare];
+        }
+
+        return $out;
     }
 
     protected function logUnparseable(string $url, string $html): void
@@ -3210,42 +3646,87 @@ class AliExpressProductFetcher
     }
 
     /**
+     * Variantes desde el modelo de SKU de AliExpress.
+     *
+     * Soporta las dos formas que devuelve la PDP:
+     *  - nueva (`newDetail`, CSR por mtop): `skuPropertyList` + `skuList` con
+     *    `skuIdStr` / `skuAttr` / `skuStock` / `salable` y `propertyValueIdLong`.
+     *  - antigua (`choiceDetail`): `productSKUPropertyList` + `skuPriceList` con
+     *    `skuId` / `skuAttr` / `skuVal.actSkuCalPrice`.
+     *
      * @param  array<string, mixed>  $skuModule
+     * @param  array<string, array{price?: mixed, compare_at_price?: mixed}>  $priceMap
      * @return list<array<string, mixed>>
      */
-    protected function variantsFromSkuModule(array $skuModule): array
+    protected function variantsFromSkuModule(array $skuModule, array $priceMap = []): array
     {
         $propMap = [];
-        foreach ($skuModule['productSKUPropertyList'] ?? [] as $prop) {
+        $properties = $skuModule['productSKUPropertyList'] ?? $skuModule['skuPropertyList'] ?? [];
+        if (! is_array($properties)) {
+            $properties = [];
+        }
+        foreach ($properties as $prop) {
             if (! is_array($prop)) {
                 continue;
             }
-            $pid = (string) ($prop['skuPropertyId'] ?? '');
-            $pname = (string) ($prop['skuPropertyName'] ?? '');
-            foreach ($prop['skuPropertyValues'] ?? [] as $val) {
+            $pid = (string) ($prop['skuPropertyId'] ?? $prop['propertyId'] ?? '');
+            $pname = trim((string) ($prop['skuPropertyName'] ?? $prop['name'] ?? ''));
+            $values = $prop['skuPropertyValues'] ?? $prop['propertyValues'] ?? [];
+            if (! is_array($values)) {
+                continue;
+            }
+            foreach ($values as $val) {
                 if (! is_array($val)) {
                     continue;
                 }
-                $vid = (string) ($val['propertyValueId'] ?? $val['propertyValueIdLong'] ?? '');
-                $label = (string) ($val['propertyValueDisplayName'] ?? $val['propertyValueName'] ?? $val['skuPropertyTips'] ?? '');
-                $key = ($pid !== '' && $vid !== '') ? $pid.':'.$vid : $vid;
-                $rawImg = (string) (
-                    $val['skuPropertyImagePath']
-                    ?? $val['skuPropertyImagePathOriginal']
-                    ?? $val['skuPropertyImageSummPath']
-                    ?? $val['imagePath']
-                    ?? $val['image']
+                $vShort = (string) ($val['propertyValueId'] ?? '');
+                $vLong = (string) ($val['propertyValueIdLong'] ?? '');
+                $label = trim((string) (
+                    $val['propertyValueDisplayName']
+                    ?? $val['propertyValueDefinitionName']
+                    ?? $val['propertyValueName']
+                    ?? $val['skuPropertyTips']
                     ?? ''
-                );
-                $propMap[$key] = [
+                ));
+                $rawImg = $this->firstString([
+                    $val['skuPropertyImagePath'] ?? null,
+                    $val['skuPropertyImagePathOriginal'] ?? null,
+                    $val['skuPropertyImageSummPath'] ?? null,
+                    $val['imagePath'] ?? null,
+                    $val['image'] ?? null,
+                ]);
+                if ($rawImg === '' && isset($val['propertyImages']) && is_array($val['propertyImages'])) {
+                    foreach ($val['propertyImages'] as $img) {
+                        $rawImg = $this->firstString([
+                            is_array($img) ? ($img['url'] ?? $img['imagePath'] ?? null) : $img,
+                        ]);
+                        if ($rawImg !== '') {
+                            break;
+                        }
+                    }
+                }
+                $meta = [
                     'name' => ($pname !== '' && $label !== '') ? ($pname.': '.$label) : $label,
                     'image' => $this->normalizeGalleryImageUrl($this->absUrl($rawImg)),
                 ];
+                // `skuAttr` referencia el valor por cualquiera de los dos ids (corto o largo).
+                $ids = array_values(array_unique(array_filter([$vShort, $vLong])));
+                foreach ($ids as $vid) {
+                    $propMap[($pid !== '' ? $pid.':' : '').$vid] = $meta;
+                }
+                // Algunos `skuAttr` traen solo el id del valor, sin el de la propiedad.
+                if (count($ids) === 1) {
+                    $propMap[$ids[0]] ??= $meta;
+                }
             }
         }
 
         $variants = [];
-        foreach ($skuModule['skuPriceList'] ?? [] as $row) {
+        $rows = $skuModule['skuPriceList'] ?? $skuModule['skuList'] ?? [];
+        if (! is_array($rows)) {
+            $rows = [];
+        }
+        foreach ($rows as $row) {
             if (! is_array($row)) {
                 continue;
             }
@@ -3273,24 +3754,40 @@ class AliExpressProductFetcher
                     $name = mb_substr(implode(' / ', $parts), 0, 190);
                 }
             }
+            $mapRow = $priceMap[$skuId] ?? [];
+            $price = $this->toFloat(
+                $skuVal['skuActivityAmount']['value']
+                ?? $skuVal['actSkuCalPrice']
+                ?? $skuVal['skuAmount']['value']
+                ?? $mapRow['price']
+                ?? null
+            );
+            $compare = $this->toFloat($mapRow['compare_at_price'] ?? null);
+            if ($compare !== null && $price !== null && $compare <= $price) {
+                $compare = null;
+            }
+            $stock = null;
+            if (isset($skuVal['availQuantity'])) {
+                $stock = (int) $skuVal['availQuantity'];
+            } elseif (array_key_exists('salable', $row) && ! $row['salable']) {
+                $stock = 0;
+            } elseif (isset($row['skuStock'])) {
+                $stock = (int) $row['skuStock'];
+            }
             $variants[] = [
                 'vid' => $skuId,
                 'sku' => $skuId !== '' ? $skuId : $skuAttr,
                 'name' => $name !== '' ? $name : ('SKU '.$skuId),
                 'key' => $skuAttr,
-                'price' => $this->toFloat(
-                    $skuVal['skuActivityAmount']['value']
-                    ?? $skuVal['actSkuCalPrice']
-                    ?? $skuVal['skuAmount']['value']
-                    ?? null
-                ),
+                'price' => $price,
+                'compare_at_price' => $compare,
                 'image' => $image,
-                'stock' => isset($skuVal['availQuantity']) ? (int) $skuVal['availQuantity'] : null,
+                'stock' => $stock,
                 'weight' => null,
             ];
         }
 
-        // Sin skuPriceList: expandir cada valor de propiedad (útil en HTML pegado incompleto)
+        // Sin lista de SKUs: expandir cada valor de propiedad (útil en HTML pegado incompleto)
         if ($variants === [] && $propMap !== []) {
             foreach ($propMap as $key => $meta) {
                 $name = trim((string) ($meta['name'] ?? ''));
@@ -3311,6 +3808,22 @@ class AliExpressProductFetcher
         }
 
         return $variants;
+    }
+
+    /**
+     * Primer string no vacío de una lista de candidatos.
+     *
+     * @param  list<mixed>  $candidates
+     */
+    protected function firstString(array $candidates): string
+    {
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return '';
     }
 
     /**

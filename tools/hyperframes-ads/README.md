@@ -42,4 +42,4 @@ El archivo `bridge/token.txt` (gitignored) debe coincidir con `HYPERFRAMES_ADS_T
 
 - Node.js 22+
 - FFmpeg en PATH
-- `npx hyperframes@0.8.49`
+- `npx hyperframes@0.8.78`

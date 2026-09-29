@@ -1,0 +1,100 @@
+{
+  "tracks": {
+    "celtic-impulse.mp3": {
+      "segundos": 120,
+      "lufs_origen": -17.31,
+      "mean_db": -19.6,
+      "peak_db": -1.8,
+      "kb": 2119
+    },
+    "earth-prelude.mp3": {
+      "segundos": 120,
+      "lufs_origen": -26.57,
+      "mean_db": -17.8,
+      "peak_db": -2.7,
+      "kb": 2081
+    },
+    "gymnopedie-no-2.mp3": {
+      "segundos": 120,
+      "lufs_origen": -19.63,
+      "mean_db": -20.2,
+      "peak_db": -1.8,
+      "kb": 1876
+    },
+    "gymnopedie-no-3.mp3": {
+      "segundos": 120,
+      "lufs_origen": -18.1,
+      "mean_db": -21.1,
+      "peak_db": -1.9,
+      "kb": 1876
+    },
+    "gypsy-shoegazer-no-voices.mp3": {
+      "segundos": 120,
+      "lufs_origen": -15.61,
+      "mean_db": -20.9,
+      "peak_db": -3.4,
+      "kb": 1876
+    },
+    "himalayan-atmosphere.mp3": {
+      "segundos": 120,
+      "lufs_origen": -23.41,
+      "mean_db": -23.4,
+      "peak_db": -1.6,
+      "kb": 2161
+    },
+    "miri-s-magic-dance.mp3": {
+      "segundos": 94,
+      "lufs_origen": -15.82,
+      "mean_db": -21.1,
+      "peak_db": -2.5,
+      "kb": 1723
+    },
+    "tea-roots.mp3": {
+      "segundos": 120,
+      "lufs_origen": -18.12,
+      "mean_db": -19.4,
+      "peak_db": -1.9,
+      "kb": 2134
+    },
+    "tectonic.mp3": {
+      "segundos": 82,
+      "lufs_origen": -19.09,
+      "mean_db": -20.6,
+      "peak_db": -1.8,
+      "kb": 1425
+    },
+    "the-voices.mp3": {
+      "segundos": 120,
+      "lufs_origen": -18.92,
+      "mean_db": -20.7,
+      "peak_db": -3.5,
+      "kb": 2019
+    },
+    "canon-in-d-major.mp3": {
+      "segundos": 120,
+      "lufs_origen": -16.29,
+      "mean_db": -21.0,
+      "peak_db": -4.6,
+      "kb": 1876
+    },
+    "gymnopedie-no-1.mp3": {
+      "segundos": 120,
+      "lufs_origen": -21.99,
+      "mean_db": -20.8,
+      "peak_db": -2.0,
+      "kb": 1876
+    },
+    "local-forecast-elevator.mp3": {
+      "segundos": 120,
+      "lufs_origen": -19.41,
+      "mean_db": -22.7,
+      "peak_db": -1.6,
+      "kb": 1876
+    }
+  },
+  "params": {
+    "seconds": 120,
+    "target_lufs": -18.0,
+    "peak": -1.5
+  }
+}

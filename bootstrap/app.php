@@ -61,6 +61,54 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->renderable(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()
+                || $e instanceof \Illuminate\Validation\ValidationException) {
+                return null;
+            }
+
+            $status = match (true) {
+                $e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException,
+                $e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException => 404,
+                $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface => $e->getStatusCode(),
+                default => 500,
+            };
+
+            $page = match (true) {
+                $status >= 300 && $status < 400 => '3xx',
+                $status >= 400 && $status < 500 => '4xx',
+                $status >= 500 && $status < 600 => '5xx',
+                default => null,
+            };
+
+            if ($page === null) {
+                return null;
+            }
+
+            return response()->view('errors.'.$page, [
+                'status' => $status,
+                'title' => match ($status) {
+                    300 => 'Hay varias opciones disponibles',
+                    301, 302, 303, 307, 308 => 'La dirección cambió',
+                    400 => 'Solicitud incorrecta',
+                    401 => 'Necesitas iniciar sesión',
+                    403 => 'Acceso denegado',
+                    404 => 'No encontramos esta página',
+                    405 => 'Método no permitido',
+                    419 => 'La sesión expiró',
+                    422 => 'No se pudo procesar la solicitud',
+                    429 => 'Demasiadas solicitudes',
+                    503 => 'Estamos en mantenimiento',
+                    default => $status >= 500 ? 'Tuvimos un problema' : 'No se pudo completar la solicitud',
+                },
+                'message' => $status >= 500
+                    ? 'Ocurrió un problema inesperado. Inténtalo de nuevo en unos momentos.'
+                    : ($status >= 300 && $status < 400
+                        ? 'El recurso solicitado tiene una nueva ubicación o requiere una opción distinta.'
+                        : 'Revisa la dirección o vuelve a la página principal para continuar.'),
+            ], $status);
+        });
+
+        $exceptions->renderable(function (\Throwable $e, \Illuminate\Http\Request $request) {
             if (! $request->is('api/*')) {
                 return null;
             }

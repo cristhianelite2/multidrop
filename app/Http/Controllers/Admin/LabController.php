@@ -569,21 +569,21 @@ class LabController extends Controller
     public function regeneratePluginToken()
     {
         $token = Str::lower(Str::random(40));
-        \App\Models\PlatformSetting::put('aliexpress.plugin_token', $token, 'aliexpress', true);
+        \App\Models\PlatformSetting::put('product_extractor.plugin_token', $token, 'plugins', true);
 
         return back()->with('success', 'Token del plugin regenerado. Actualízalo en la extensión.');
     }
 
     public function downloadChromeExtension(Request $request)
     {
-        $dir = resource_path('extensions/aliexpress-hunter');
+        $dir = resource_path('extensions/product-extractor');
         if (! is_dir($dir)) {
             abort(404, 'Extensión no encontrada');
         }
 
         $origin = rtrim($request->getSchemeAndHttpHost(), '/');
         $token = $this->ensurePluginToken();
-        $tmp = storage_path('app/aliexpress-hunter.zip');
+        $tmp = storage_path('app/multidrop-product-extractor.zip');
         if (is_file($tmp)) {
             @unlink($tmp);
         }
@@ -598,7 +598,6 @@ class LabController extends Controller
 
         $configJs = 'window.MULTIDROP_DEFAULTS = '.json_encode([
             'origin' => $origin,
-            'capture_path' => '/admin/lab/cj/plugin-capture',
             'extract_path' => '/admin/lab/cj/plugin-extract',
             'image_import_path' => '/admin/lab/cj/plugin-import-image',
             'product_search_path' => '/admin/lab/cj/plugin-product-search',
@@ -609,16 +608,12 @@ class LabController extends Controller
 
         $manifest = json_decode((string) file_get_contents($dir.'/manifest.json'), true) ?: [];
         $hosts = [
-            'https://*.aliexpress.com/*',
-            'https://*.aliexpress.us/*',
-            'https://*.aliexpress.ru/*',
-            'https://*.cjdropshipping.com/*',
             $origin.'/*',
         ];
         $manifest['host_permissions'] = array_values(array_unique($hosts));
         $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-        foreach (['background.js', 'content.js', 'content.css', 'popup.html', 'popup.js', 'README.txt'] as $file) {
+        foreach (['background.js', 'popup.html', 'popup.js', 'README.txt'] as $file) {
             $path = $dir.'/'.$file;
             if (is_file($path)) {
                 $zip->addFile($path, $file);
@@ -631,7 +626,7 @@ class LabController extends Controller
 
         $zip->close();
 
-        return response()->download($tmp, 'multidrop-aliexpress-hunter.zip')->deleteFileAfterSend(true);
+        return response()->download($tmp, 'multidrop-product-extractor.zip')->deleteFileAfterSend(true);
     }
 
     /**
@@ -830,7 +825,7 @@ class LabController extends Controller
             'store_id' => ['required', 'integer', 'min:1'],
             'product_id' => ['required', 'integer', 'min:1'],
             'sections' => ['required', 'array', 'min:1'],
-            'sections.*' => ['string', Rule::in(['images', 'videos', 'reviews', 'description', 'details'])],
+            'sections.*' => ['string', Rule::in(['images', 'videos', 'reviews', 'description', 'details', 'title', 'variants'])],
             'replace' => ['nullable', 'boolean'],
             'url' => ['nullable', 'string', 'max:2000'],
             'html' => ['nullable', 'string'],
@@ -992,7 +987,10 @@ class LabController extends Controller
 
     protected function pluginTokenValid(Request $request): bool
     {
-        $expected = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
+        $expected = (string) \App\Models\PlatformSetting::getValue(
+            'product_extractor.plugin_token',
+            \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '')
+        );
         $token = (string) $request->input('token', $request->header('X-Multidrop-Token', ''));
 
         return $expected !== '' && hash_equals($expected, $token);
@@ -1000,10 +998,15 @@ class LabController extends Controller
 
     protected function ensurePluginToken(): string
     {
-        $token = (string) \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '');
+        $token = (string) \App\Models\PlatformSetting::getValue(
+            'product_extractor.plugin_token',
+            \App\Models\PlatformSetting::getValue('aliexpress.plugin_token', '')
+        );
         if ($token === '') {
             $token = Str::lower(Str::random(40));
-            \App\Models\PlatformSetting::put('aliexpress.plugin_token', $token, 'aliexpress', true);
+            \App\Models\PlatformSetting::put('product_extractor.plugin_token', $token, 'plugins', true);
+        } elseif (! \App\Models\PlatformSetting::getValue('product_extractor.plugin_token', '')) {
+            \App\Models\PlatformSetting::put('product_extractor.plugin_token', $token, 'plugins', true);
         }
 
         return $token;

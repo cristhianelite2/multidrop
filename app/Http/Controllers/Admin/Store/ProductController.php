@@ -284,6 +284,44 @@ class ProductController extends Controller
         return redirect()->route('admin.store.products.index')->with('success', 'Producto eliminado.');
     }
 
+    public function storeVariant(Request $request, Product $product, StoreContext $storeContext)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:190'],
+            'sku' => ['nullable', 'string', 'max:120'],
+            'price' => ['nullable', 'numeric', 'min:0'],
+        ]);
+        $product->variants()->create([
+            'name' => trim($data['name']),
+            'sku' => trim((string) ($data['sku'] ?? '')) ?: null,
+            'price' => $data['price'] ?? null,
+            'options' => [],
+        ]);
+
+        return back()->with('success', 'Variante creada.');
+    }
+
+    public function updateVariant(Request $request, Product $product, ProductVariant $variant, StoreContext $storeContext)
+    {
+        $store = $this->currentStoreOrFail($storeContext);
+        abort_unless((int) $product->store_id === (int) $store->id, 404);
+        abort_unless((int) $variant->product_id === (int) $product->id, 404);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:190'],
+            'sku' => ['nullable', 'string', 'max:120'],
+            'price' => ['nullable', 'numeric', 'min:0'],
+        ]);
+        $variant->update([
+            'name' => trim($data['name']),
+            'sku' => trim((string) ($data['sku'] ?? '')) ?: null,
+            'price' => $data['price'] ?? null,
+        ]);
+
+        return back()->with('success', 'Variante actualizada.');
+    }
+
     public function destroyVariant(Product $product, ProductVariant $variant, StoreContext $storeContext)
     {
         $store = $this->currentStoreOrFail($storeContext);
@@ -317,7 +355,7 @@ class ProductController extends Controller
             $product->save();
         }
 
-        return back()->with('success', 'Variante eliminada. No se volverá a importar en la próxima sync CJ.');
+        return back()->with('success', 'Variante eliminada.');
     }
 
     public function bulkDestroyVariants(Product $product, StoreContext $storeContext, \Illuminate\Http\Request $request)

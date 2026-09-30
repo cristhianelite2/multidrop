@@ -5,6 +5,7 @@ namespace App\Services\Catalog;
 use App\Domain\Suppliers\AliExpress\AliExpressProductFetcher;
 use App\Domain\Suppliers\Cj\CjConnector;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\Store;
 use App\Services\Storage\ProductMediaMirrorService;
 
@@ -91,6 +92,49 @@ class ProductSimilarImportService
         $verified = is_array($product->verified_data) ? $product->verified_data : [];
         $imported = [];
 
+        if (in_array('title', $sections, true)) {
+            $title = trim((string) ($remote['title'] ?? ''));
+            if ($title !== '') {
+                $product->name = mb_substr($title, 0, 190);
+                $imported['title'] = 1;
+            }
+        }
+
+        if (in_array('variants', $sections, true)) {
+            $variants = array_values(array_filter($remote['variants'] ?? [], 'is_array'));
+            $excluded = array_map('strval', data_get($product->creative_data, 'excluded_variant_vids', []));
+            $count = 0;
+            foreach ($variants as $row) {
+                $vid = trim((string) ($row['vid'] ?? ''));
+                $sku = mb_substr(trim((string) ($row['sku'] ?? '')), 0, 120);
+                $name = mb_substr(trim((string) ($row['name'] ?? $sku)), 0, 190);
+                if ($name === '') continue;
+                if ($vid !== '' && in_array($vid, $excluded, true)) continue;
+                $variant = null;
+                if ($vid !== '') {
+                    $variant = $product->variants()->where('options->vid', $vid)->first();
+                }
+                if (! $variant && $sku !== '') {
+                    $variant = $product->variants()->where('sku', $sku)->first();
+                }
+                if (! $variant) $variant = new ProductVariant(['product_id' => $product->id]);
+                $options = is_array($variant->options) ? $variant->options : [];
+                if ($vid !== '') $options['vid'] = $vid;
+                foreach (['image', 'stock', 'weight_g', 'length', 'width', 'height'] as $key) {
+                    if (array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '') $options[$key] = $row[$key];
+                }
+                $variant->fill([
+                    'sku' => $sku !== '' ? $sku : null,
+                    'name' => $name,
+                    'options' => $options,
+                    'price' => is_numeric($row['price'] ?? null) ? (float) $row['price'] : $variant->price,
+                    'cost' => is_numeric($row['cost'] ?? null) ? (float) $row['cost'] : $variant->cost,
+                ])->save();
+                $count++;
+            }
+            $imported['variants'] = $count;
+        }
+
         if (in_array('images', $sections, true)) {
             $before = count(is_array($verified['images'] ?? null) ? $verified['images'] : []);
             $verified['images'] = $this->mergeUrlList(
@@ -157,19 +201,48 @@ class ProductSimilarImportService
         }
 
         if (in_array('description', $sections, true)) {
-            $plain = trim((string) ($remote['description_plain'] ?? ''));
+            $description = trim((string) ($remote['description_plain'] ?? ''));
+            $summary = trim((string) ($remote['ai_summary'] ?? ''));
+            $plain = implode("\n\n", array_values(array_unique(array_filter([$description, $summary]))));
             $html = trim((string) ($remote['description_html'] ?? ''));
             $short = trim((string) ($remote['description_short'] ?? ''));
             $descUpdated = false;
-            if ($replace || trim((string) ($product->description ?? '')) === '') {
-                if ($plain !== '') {
+            if ($plain !== '') {
+                $existingDescription = trim((string) ($product->description ?? ''));
+                if ($replace || $existingDescription === '') {
                     $product->description = mb_substr($plain, 0, 20000);
                     $descUpdated = true;
+                } else {
+                    $combined = $existingDescription;
+                    foreach ([$description, $summary] as $incomingPart) {
+                        $incomingPart = trim($incomingPart);
+                        if ($incomingPart === '' || str_contains(mb_strtolower($combined), mb_strtolower($incomingPart))) continue;
+                        $combined = str_contains(mb_strtolower($incomingPart), mb_strtolower($combined))
+                            ? $incomingPart
+                            : $combined."\n\n".$incomingPart;
+                    }
+                    if ($combined !== $existingDescription) {
+                        $product->description = mb_substr($combined, 0, 20000);
+                        $descUpdated = true;
+                    }
                 }
             }
             if ($html !== '' && ($replace || trim((string) ($verified['description_html'] ?? '')) === '')) {
                 $verified['description_html'] = $html;
                 $descUpdated = true;
+            }
+            if ($summary !== '') {
+                $currentHtml = trim((string) ($verified['description_html'] ?? ''));
+                if ($currentHtml === '' && $plain !== '') {
+                    $currentHtml = nl2br(e($plain), false);
+                } elseif (! str_contains(mb_strtolower(strip_tags($currentHtml)), mb_strtolower($summary))) {
+                    $currentHtml .= '<p>'.e($summary).'</p>';
+                }
+                if ($currentHtml !== '') {
+                    $verified['description_html'] = app(\App\Services\Storefront\ProductDescriptionHtml::class)
+                        ->present('', $currentHtml)['html'];
+                    $descUpdated = true;
+                }
             }
             if ($short !== '' && ($replace || trim((string) ($verified['description_short'] ?? '')) === '')) {
                 $verified['description_short'] = $short;
@@ -179,9 +252,7 @@ class ProductSimilarImportService
                 $descUpdated = true;
             }
             if ($replace && ($plain !== '' || $html !== '')) {
-                if ($plain !== '') {
-                    $product->description = mb_substr($plain, 0, 20000);
-                }
+                if ($plain !== '') $product->description = mb_substr($plain, 0, 20000);
                 if ($html !== '') {
                     $verified['description_html'] = $html;
                 }
@@ -227,12 +298,12 @@ class ProductSimilarImportService
     public function fetchFromPage(string $url, ?string $html, ?array $snapshot, Store $store, array $sections = []): array
     {
         $url = trim($url);
-        if (preg_match('#cjdropshipping\.com#i', $url) || CjConnector::parseProductRef($url)) {
-            return $this->fetchRemote($url, $store);
-        }
-
         $snapshot = is_array($snapshot) ? $snapshot : [];
         $hasCapture = ($html !== null && $html !== '') || $snapshot !== [];
+
+        if (! $hasCapture && (preg_match('#cjdropshipping\.com#i', $url) || CjConnector::parseProductRef($url))) {
+            return $this->fetchRemote($url, $store);
+        }
 
         if ($hasCapture && ($url === '' || AliExpressProductFetcher::looksLikeAliExpress($url))) {
             $fetched = $this->aeFetcher->parseFromCapture(
@@ -245,10 +316,58 @@ class ProductSimilarImportService
                 return ['success' => false, 'error' => (string) ($fetched['error'] ?? 'No se pudo parsear AliExpress.')];
             }
 
+            $capturedProduct = is_array($fetched['product'] ?? null) ? $fetched['product'] : [];
+            $capturedTitle = trim((string) ($snapshot['title'] ?? $snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
+            if ($capturedTitle !== '') $capturedProduct['title'] = $capturedTitle;
+            $capturedDescription = trim((string) ($snapshot['descriptionText'] ?? $snapshot['description_text'] ?? ''));
+            if ($capturedDescription !== '' && empty($capturedProduct['description'])) {
+                $capturedProduct['description'] = $capturedDescription;
+            }
+            $capturedProduct['ai_summary'] = trim((string) ($snapshot['aiSummary'] ?? $snapshot['ai_summary'] ?? ''));
+            if (! empty($snapshot['variants']) && is_array($snapshot['variants'])) {
+                $capturedProduct['variants'] = array_values(array_filter($snapshot['variants'], 'is_array'));
+            }
+
             return [
                 'success' => true,
                 'source' => 'aliexpress',
-                'product' => $this->normalizeAe(is_array($fetched['product'] ?? null) ? $fetched['product'] : []),
+                'product' => $this->normalizeAe($capturedProduct),
+            ];
+        }
+
+        if ($hasCapture) {
+            $title = trim((string) ($snapshot['title'] ?? $snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
+            $description = trim((string) ($snapshot['descriptionText'] ?? $snapshot['description_text'] ?? ''));
+            $summary = trim((string) ($snapshot['aiSummary'] ?? $snapshot['ai_summary'] ?? ''));
+            $descriptionHtml = trim((string) ($snapshot['descriptionHtml'] ?? $snapshot['description_html'] ?? ''));
+            if ($descriptionHtml !== '') {
+                $descriptionHtml = app(\App\Services\Storefront\ProductDescriptionHtml::class)
+                    ->present('', $descriptionHtml)['html'];
+            }
+            if ($title === '' && $description === '' && $summary === '' && $descriptionHtml === '' && empty($snapshot['variants'])) {
+                return ['success' => false, 'error' => 'No se encontró información de producto en la página.'];
+            }
+            $variants = array_values(array_filter($snapshot['variants'] ?? [], 'is_array'));
+            $images = array_values(array_filter(array_map('strval', array_merge(
+                ! empty($snapshot['ogImage']) ? [(string) $snapshot['ogImage']] : [],
+                is_array($snapshot['images'] ?? null) ? $snapshot['images'] : []
+            ))));
+
+            return [
+                'success' => true,
+                'source' => 'page',
+                'product' => [
+                    'title' => $title,
+                    'images' => array_values(array_unique($images)),
+                    'videos' => array_values(is_array($snapshot['pageVideos'] ?? null) ? $snapshot['pageVideos'] : []),
+                    'reviews' => [],
+                    'details' => [],
+                    'description_plain' => $description !== '' ? $description : trim(strip_tags($descriptionHtml)),
+                    'description_html' => $descriptionHtml,
+                    'description_short' => $summary !== '' ? $summary : $description,
+                    'ai_summary' => $summary,
+                    'variants' => $variants,
+                ],
             ];
         }
 
@@ -256,7 +375,7 @@ class ProductSimilarImportService
             return $this->fetchRemote($url, $store);
         }
 
-        return ['success' => false, 'error' => 'No hay URL ni HTML para extraer.'];
+        return ['success' => false, 'error' => 'No hay URL ni datos de página para extraer.'];
     }
 
     /**
@@ -361,6 +480,8 @@ class ProductSimilarImportService
             'description_plain' => $plain,
             'description_html' => (string) ($product['description_html'] ?? ''),
             'description_short' => (string) ($product['description_short'] ?? ''),
+            'ai_summary' => (string) ($product['ai_summary'] ?? ''),
+            'variants' => array_values(is_array($product['variants'] ?? null) ? $product['variants'] : []),
         ];
     }
 
@@ -407,6 +528,8 @@ class ProductSimilarImportService
             'description_plain' => $plain,
             'description_html' => (string) ($product['description_html'] ?? $product['description_long'] ?? ''),
             'description_short' => (string) ($product['description_short'] ?? ''),
+            'ai_summary' => (string) ($product['ai_summary'] ?? ''),
+            'variants' => array_values(is_array($product['variants'] ?? null) ? $product['variants'] : []),
         ];
     }
 
@@ -730,6 +853,8 @@ class ProductSimilarImportService
     protected function buildMessage(array $imported, string $source): string
     {
         $labels = [
+            'title' => 'títulos',
+            'variants' => 'variantes',
             'images' => 'imágenes',
             'videos' => 'videos',
             'reviews' => 'reseñas',
@@ -743,7 +868,11 @@ class ProductSimilarImportService
                 $parts[] = $n.' '.$label;
             }
         }
-        $from = $source === 'cj' ? 'CJ' : 'AliExpress';
+        $from = match ($source) {
+            'cj' => 'CJ',
+            'aliexpress' => 'AliExpress',
+            default => 'la página de producto',
+        };
         if ($parts === []) {
             return 'Importación desde '.$from.' completada (sin cambios nuevos).';
         }

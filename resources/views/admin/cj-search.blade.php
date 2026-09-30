@@ -65,17 +65,17 @@
         </div>
 
         <details class="rounded-xl border border-line bg-white p-3 sm:p-4" id="ph-html-box">
-            <summary class="cursor-pointer text-sm font-medium text-ink">Pegar HTML de AliExpress / plugin Chrome</summary>
+            <summary class="cursor-pointer text-sm font-medium text-ink">Pegar HTML de producto / extensión</summary>
             <p class="mt-2 text-xs text-ink-soft/70">
                 Si Cloudflare o el scrape fallan: abre la ficha en el navegador, copia el HTML (o usa el plugin) y pégalo aquí.
-                Extrae título, precio, envío, variantes y reseñas cuando vengan en la página.
+                Extrae título, descripción, resumen, variantes y medios presentes en la página.
             </p>
             <div class="mt-3 grid gap-3 lg:grid-cols-2">
                 <div class="space-y-2">
                     <label class="text-xs font-medium text-ink-soft">HTML o JSON del plugin</label>
                     <textarea id="ph-html-input" rows="7" class="admin-input font-mono text-xs" placeholder="Pega el HTML de la ficha, o el JSON {url, html, snapshot}"></textarea>
                     <input type="url" id="ph-html-url" class="admin-input text-sm" placeholder="URL del item (opcional si ya va en el HTML)">
-                    <p class="text-[11px] text-ink-soft/55">Tip: en AliExpress, abre la pestaña <strong>Descripción</strong> (#nav-description) y espera a que cargue el contenido antes de copiar el HTML. El enlace del menú solo no basta.</p>
+                    <p class="text-[11px] text-ink-soft/55">Si la página carga contenido de forma dinámica, espera a que aparezca antes de copiar el HTML.</p>
                     <button type="button" id="ph-html-btn" class="admin-btn">Parsear HTML</button>
                 </div>
                 <div class="space-y-2 rounded-xl border border-dashed border-line bg-mist/30 p-3 text-xs text-ink-soft/80">
@@ -83,14 +83,14 @@
                     <ol class="list-decimal space-y-1 pl-4">
                         <li>Descarga el ZIP e instálalo en <code>chrome://extensions</code> (modo desarrollador → cargar descomprimida).</li>
                         <li>Copia el token, ábrelo en el popup de la extensión y pulsa <strong>Guardar y validar</strong>.</li>
-                        <li>Elige la tienda destino y en una ficha AliExpress pulsa <strong>Enviar a borrador</strong>.</li>
+                        <li>Elige la tienda destino, busca el producto por SKU y pulsa <strong>Extraer de esta página</strong> en la extensión.</li>
                     </ol>
                     <p class="break-all">Origen: <code>{{ $pluginOrigin ?? url('/') }}</code></p>
                     <p>Token: <code id="ph-plugin-token" class="select-all">{{ $pluginToken ?? '' }}</code>
                         <button type="button" class="ml-1 text-teal hover:underline" id="ph-copy-token">Copiar</button>
                     </p>
                     <div class="flex flex-wrap gap-2 pt-1">
-                        <a href="{{ $pluginDownloadUrl ?? route('admin.lab.cj.extension') }}" class="admin-btn !px-3 !py-1.5 text-xs">Descargar plugin (.zip)</a>
+                        <a href="{{ $pluginDownloadUrl ?? route('admin.lab.cj.extension') }}" class="admin-btn !px-3 !py-1.5 text-xs">Descargar extractor (.zip)</a>
                         <form method="post" action="{{ route('admin.lab.cj.plugin-token') }}" onsubmit="return confirm('Se invalidará el token anterior en la extensión.');">
                             @csrf
                             <button type="submit" class="admin-btn-secondary !px-3 !py-1.5 text-xs">Regenerar token</button>

@@ -313,6 +313,8 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::post('products/{product}/translate', [ProductController::class, 'translate'])->name('products.translate');
                 Route::post('products/{product}/variants/sync', [ProductController::class, 'syncVariants'])->name('products.variants.sync');
                 Route::post('products/{product}/variants/suggest-prices', [ProductController::class, 'suggestVariantPrices'])->name('products.variants.suggest-prices');
+                Route::post('products/{product}/variants', [ProductController::class, 'storeVariant'])->name('products.variants.store');
+                Route::patch('products/{product}/variants/{variant}', [ProductController::class, 'updateVariant'])->name('products.variants.update');
                 Route::delete('products/{product}/variants/{variant}', [ProductController::class, 'destroyVariant'])->name('products.variants.destroy');
                 Route::delete('products/{product}/variants', [ProductController::class, 'bulkDestroyVariants'])->name('products.variants.bulk-destroy');
 

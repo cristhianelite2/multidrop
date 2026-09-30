@@ -981,10 +981,13 @@
                 <div>
                     <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <h3 class="font-display text-base font-bold text-ink">Variantes ({{ $cjVariants->count() }})</h3>
-                        <span class="text-xs text-ink-soft/55">Incluye imagen, SKU, precio USD, peso y stock CJ</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-ink-soft/55">Imagen, SKU, precio, peso y stock</span>
+                            <button type="button" id="variant-add" class="admin-btn-secondary !px-2 !py-1 text-xs" data-url="{{ route('admin.store.products.variants.store', $product) }}">+ Añadir variante</button>
+                        </div>
                     </div>
                     @if($cjVariants->isEmpty())
-                        <p class="text-sm text-ink-soft/55">Sin variantes guardadas. Pulsa «Sincronizar desde CJ» para traerlas.</p>
+                        <p class="text-sm text-ink-soft/55">Sin variantes guardadas. Añade una o sincroniza el producto con su fuente.</p>
                     @else
                         {{-- El form bulk se inyecta fuera del <form> principal vía JS (HTML no permite forms anidados) --}}
 
@@ -1037,6 +1040,9 @@
                                             <td class="px-2 py-1.5 text-right">
                                                 <button type="button" class="text-coral hover:underline text-[11px] js-var-single-delete"
                                                         data-url="{{ route('admin.store.products.variants.destroy', [$product, $variant]) }}">Quitar</button>
+                                                <button type="button" class="ml-2 text-teal hover:underline text-[11px] js-var-edit"
+                                                        data-url="{{ route('admin.store.products.variants.update', [$product, $variant]) }}"
+                                                        data-name="{{ $variant->name }}" data-sku="{{ $variant->sku }}" data-price="{{ $variant->price }}">Editar</button>
                                             </td>
                                         </tr>
                                     @endforeach
@@ -1053,6 +1059,38 @@
 
     @if($product->exists)
         <div class="admin-card p-5 sm:p-6 space-y-5 admin-card-span-2">
+            @unless($isCj)
+                <section class="mb-6 rounded-xl border border-line p-4">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h3 class="font-display text-base font-bold text-ink">Variantes ({{ $product->variants->count() }})</h3>
+                            <p class="text-xs text-ink-soft/55">Añade, edita o elimina opciones del producto.</p>
+                        </div>
+                        <button type="button" id="variant-add" class="admin-btn-secondary !px-2 !py-1 text-xs" data-url="{{ route('admin.store.products.variants.store', $product) }}">+ Añadir variante</button>
+                    </div>
+                    @if($product->variants->isEmpty())
+                        <p class="text-sm text-ink-soft/55">Todavía no hay variantes. Usa «Añadir variante» o impórtalas desde el extractor.</p>
+                    @else
+                        <div class="overflow-x-auto">
+                            <table id="variants-table" class="w-full text-left text-xs">
+                                <tbody>
+                                    @foreach($product->variants as $variant)
+                                        <tr class="border-t border-line/70">
+                                            <td class="py-2 font-medium">{{ $variant->name }}</td>
+                                            <td class="px-2 py-2">{{ $variant->sku ?: '—' }}</td>
+                                            <td class="px-2 py-2">{{ $variant->price ?? '—' }}</td>
+                                            <td class="py-2 text-right">
+                                                <button type="button" class="text-teal hover:underline js-var-edit" data-url="{{ route('admin.store.products.variants.update', [$product, $variant]) }}" data-name="{{ $variant->name }}" data-sku="{{ $variant->sku }}" data-price="{{ $variant->price }}">Editar</button>
+                                                <button type="button" class="ml-2 text-coral hover:underline js-var-single-delete" data-url="{{ route('admin.store.products.variants.destroy', [$product, $variant]) }}">Eliminar</button>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </section>
+            @endunless
             <div class="flex flex-wrap items-start justify-between gap-2">
                 <div>
                     <h2 class="font-display text-lg font-bold text-ink">Reseñas, ranking y detalles</h2>
@@ -3160,6 +3198,10 @@
   $('#suggest-ai-prices').on('click', function () {
     var $btn = $(this);
     var $status = $('#suggest-prices-status');
+    // El botón principal también debe sugerir ambos precios para cada
+    // variación. El handler de #ae-var-suggest aplica los resultados en
+    // sus campos y deja el guardado bajo control del usuario.
+    $('#ae-var-suggest').trigger('click');
     var base = baseCurrency();
     var currencies = [];
     $('#currency-price-rows .currency-price-row').each(function () {
@@ -3575,7 +3617,7 @@
   /* ── Bulk variantes ────────────────────────────────────────────── */
   (function () {
     var $table = $('#variants-table');
-    if (!$table.length) return;
+    if (!$table.length && !$('#variant-add').length) return;
 
     var bulkAction = @json(route('admin.store.products.variants.bulk-destroy', $product));
     var csrfToken  = $('meta[name="csrf-token"]').attr('content');
@@ -3590,6 +3632,38 @@
     }).append('<input type="hidden" name="_token" value="' + csrfToken + '">')
       .append('<input type="hidden" name="_method" value="DELETE">');
     $('body').append($bulkForm);
+
+    function submitVariantForm(url, method, values) {
+      var $form = $('<form>', { method: 'POST', action: url, css: { display: 'none' } })
+        .append($('<input>', { type: 'hidden', name: '_token', value: csrfToken }))
+        .append($('<input>', { type: 'hidden', name: '_method', value: method }));
+      Object.keys(values).forEach(function (key) {
+        $form.append($('<input>', { type: 'hidden', name: key, value: values[key] }));
+      });
+      $('body').append($form);
+      $form[0].submit();
+    }
+
+    $('#variant-add').on('click', function () {
+      var name = prompt('Nombre de la variante:');
+      if (name === null || !name.trim()) return;
+      var sku = prompt('SKU (opcional):', '');
+      if (sku === null) return;
+      var price = prompt('Precio de la variante (opcional):', '');
+      if (price === null) return;
+      submitVariantForm($(this).data('url'), 'POST', { name: name.trim(), sku: sku.trim(), price: price.trim() });
+    });
+
+    $table.on('click', '.js-var-edit', function () {
+      var $button = $(this);
+      var name = prompt('Nombre de la variante:', String($button.data('name') || ''));
+      if (name === null || !name.trim()) return;
+      var sku = prompt('SKU (opcional):', String($button.data('sku') || ''));
+      if (sku === null) return;
+      var price = prompt('Precio (opcional):', String($button.data('price') || ''));
+      if (price === null) return;
+      submitVariantForm($button.data('url'), 'PATCH', { name: name.trim(), sku: sku.trim(), price: price.trim() });
+    });
 
     /* Toolbar overlay al final del body */
     var $toolbar = $([
@@ -3637,7 +3711,7 @@
     $toolbar.on('click', '#var-bulk-delete', function () {
       var $sel = selectedChecks();
       if (!$sel.length) return;
-      if (!confirm('¿Eliminar ' + $sel.length + ' variante(s)? No se volverán a importar en sync CJ.')) return;
+      if (!confirm('¿Eliminar ' + $sel.length + ' variante(s)?')) return;
       $bulkForm.find('input[name="ids[]"]').remove();
       $sel.each(function () {
         $bulkForm.append('<input type="hidden" name="ids[]" value="' + $(this).val() + '">');
@@ -3655,7 +3729,7 @@
 
     /* Eliminar individual (no puede ser <form> anidado) */
     $table.on('click', '.js-var-single-delete', function () {
-      if (!confirm('¿Eliminar esta variante? No se volverá a importar en la próxima sync CJ.')) return;
+      if (!confirm('¿Eliminar esta variante?')) return;
       var url = $(this).data('url');
       var $f = $('<form>', { method: 'POST', action: url, css: { display: 'none' } })
         .append('<input type="hidden" name="_token" value="' + csrfToken + '">')

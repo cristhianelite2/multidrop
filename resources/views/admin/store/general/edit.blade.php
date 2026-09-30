@@ -71,7 +71,17 @@
                 <div class="sm:col-span-2">
                     <label class="mb-1.5 block text-sm font-medium text-ink-soft">Nombre de la tienda</label>
                     <input type="text" name="name" value="{{ old('name', $store->name) }}" required maxlength="80" class="admin-input" placeholder="Emergency Power">
-                    <p class="mt-1 text-xs text-ink-soft/55">El slug público <code>/{{ $store->slug }}</code> no cambia al renombrar.</p>
+                    <p class="mt-1 text-xs text-ink-soft/55">El nombre es el que verán tus clientes.</p>
+                </div>
+
+                <div class="sm:col-span-2">
+                    <label for="store-slug" class="mb-1.5 block text-sm font-medium text-ink-soft">Slug de la tienda</label>
+                    <div class="flex items-center gap-2">
+                        <span class="shrink-0 text-sm text-ink-soft/60">{{ url('/s') }}/</span>
+                        <input id="store-slug" type="text" name="slug" value="{{ old('slug', $store->slug) }}" required maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" class="admin-input" placeholder="mi-tienda" autocomplete="off" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <p class="mt-1 text-xs text-ink-soft/55">Solo minúsculas, números y guiones. Al cambiarlo, cambia la URL pública de la tienda.</p>
+                    @error('slug')<p class="mt-1 text-xs text-red-600">{{ $message }}</p>@enderror
                 </div>
 
                 <div class="sm:col-span-2">

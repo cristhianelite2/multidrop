@@ -120,6 +120,15 @@ class StoreGeneralController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:80'],
+            'slug' => [
+                'required',
+                'string',
+                'max:80',
+                'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
+                Rule::unique('stores', 'slug')
+                    ->where('market_id', $store->market_id)
+                    ->ignore($store->id),
+            ],
             'contact_email' => ['nullable', 'email', 'max:190'],
             'store_type' => ['required', 'string', Rule::in(['mega', 'mini'])],
             'parent_id' => ['nullable', 'integer', 'exists:stores,id'],
@@ -282,6 +291,7 @@ class StoreGeneralController extends Controller
             $settings['contact']['email'] = $contactEmail !== '' ? $contactEmail : null;
 
             $store->name = trim((string) $data['name']);
+            $store->slug = $data['slug'];
             $store->store_type = $storeType;
             $store->parent_id = $storeType === 'mini' ? $parentId : null;
             $store->settings = $settings;

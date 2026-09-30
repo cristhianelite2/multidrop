@@ -62,18 +62,9 @@
       storeEl.appendChild(opt);
     });
     if (selectedId) storeEl.value = String(selectedId);
-    // Si la tienda guardada ya no está en la lista, conservar el id en un option fantasma
-    // hasta que el bootstrap silencioso refresque; así no se pierde la sesión.
-    if (selectedId && storeEl.value !== String(selectedId)) {
-      var ghost = document.createElement('option');
-      ghost.value = String(selectedId);
-      ghost.textContent = 'Tienda #' + selectedId + ' (sesión)';
-      storeEl.insertBefore(ghost, storeEl.firstChild);
-      storeEl.value = String(selectedId);
-    }
     if (!storeEl.value && storeEl.options.length) storeEl.selectedIndex = 0;
     storeMeta.textContent = storeEl.options.length
-      ? (storeEl.options.length + ' tienda(s) · última: ' + (storeEl.options[storeEl.selectedIndex] ? storeEl.options[storeEl.selectedIndex].textContent : '—'))
+      ? (storeEl.options.length + ' tienda(s) disponible(s)')
       : 'No hay tiendas en Multidrop';
   }
 
@@ -83,28 +74,6 @@
     tokenWrap.classList.add('hidden');
     originLabel.textContent = 'Conectado a ' + origin;
     fillStores(stores, storeId);
-  }
-
-  /** Revalida en segundo plano sin bloquear la UI (solo si ya hay sesión). */
-  function silentRefreshSession(origin, token, preferredStoreId) {
-    requestHosts(origin).then(function () {
-      return validateAndLoad(origin, token);
-    }).then(function (stores) {
-      if (!stores.length) return;
-      var keepId = preferredStoreId || parseInt(storeEl.value, 10) || 0;
-      var stillThere = stores.some(function (s) { return Number(s.id) === Number(keepId); });
-      var storeId = stillThere ? keepId : stores[0].id;
-      chrome.storage.sync.set({
-        token_ok: true,
-        stores_cache: stores,
-        store_id: storeId,
-        session_checked_at: Date.now()
-      });
-      if (readyBlock.classList.contains('hidden')) return;
-      fillStores(stores, storeId);
-    }).catch(function () {
-      // No expulsar la sesión por un fallo de red puntual; la acción fallará al usarla.
-    });
   }
 
   function showSetup(keepToken) {
@@ -230,39 +199,36 @@
     return sections;
   }
 
-  chrome.storage.sync.get([
-    'origin', 'token', 'store_id', 'token_ok', 'stores_cache',
-    'selected_product_id', 'selected_product_sku', 'selected_product_name',
-    'selected_product_image_url', 'extract_panel_open'
-  ], function (cfg) {
+  chrome.storage.sync.get(['origin', 'token', 'store_id', 'token_ok', 'selected_product_id', 'selected_product_sku', 'selected_product_name', 'selected_product_image_url', 'extract_panel_open'], function (cfg) {
     originEl.value = cfg.origin || d.origin || '';
     tokenEl.value = cfg.token || '';
     if (cfg.selected_product_sku) productSkuEl.value = cfg.selected_product_sku;
     setExtractOpen(!!cfg.extract_panel_open, false);
-
-    var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
-    var token = String(cfg.token || '');
-    var storeId = parseInt(cfg.store_id, 10) || 0;
-    var cachedStores = Array.isArray(cfg.stores_cache) ? cfg.stores_cache : [];
-
-    // Sesión ya guardada: UI lista al instante (sin “Validando…”) y refresh oculto.
-    if (cfg.token_ok && origin && token) {
-      showReady(origin, cachedStores, storeId);
-      setStatus('Listo', 'ok');
-      if (cfg.selected_product_id) {
-        showSelectedProduct({
-          id: cfg.selected_product_id,
-          name: cfg.selected_product_name || ('Producto #' + cfg.selected_product_id),
-          sku: cfg.selected_product_sku || '',
-          image_url: cfg.selected_product_image_url || ''
-        }, origin);
-        refreshStoredProduct(cfg, origin, token);
-      }
-      silentRefreshSession(origin, token, storeId);
-      return;
+    if (cfg.token_ok && cfg.origin && cfg.token) {
+      setStatus('Validando…');
+      requestHosts(String(cfg.origin).replace(/\/+$/, '')).then(function () {
+        return validateAndLoad(String(cfg.origin).replace(/\/+$/, ''), cfg.token);
+      }).then(function (stores) {
+        var origin = String(cfg.origin).replace(/\/+$/, '');
+        showReady(origin, stores, cfg.store_id);
+        setStatus('Listo', 'ok');
+        if (cfg.selected_product_id) {
+          showSelectedProduct({
+            id: cfg.selected_product_id,
+            name: cfg.selected_product_name || ('Producto #' + cfg.selected_product_id),
+            sku: cfg.selected_product_sku || '',
+            image_url: cfg.selected_product_image_url || ''
+          }, origin);
+          refreshStoredProduct(cfg, origin, cfg.token);
+        }
+      }).catch(function () {
+        chrome.storage.sync.set({ token_ok: false });
+        showSetup(true);
+        setStatus('Vuelve a validar el token', 'error');
+      });
+    } else {
+      showSetup(true);
     }
-
-    showSetup(true);
   });
 
   document.getElementById('save').addEventListener('click', async function () {
@@ -282,20 +248,9 @@
         document.getElementById('save').disabled = false;
         return;
       }
-      var prev = await chrome.storage.sync.get(['store_id']);
-      var prevId = parseInt(prev.store_id, 10) || 0;
-      var keepPrev = stores.some(function (s) { return Number(s.id) === prevId; });
-      var storeId = keepPrev ? prevId : stores[0].id;
-      chrome.storage.sync.set({
-        origin: origin,
-        token: token,
-        token_ok: true,
-        store_id: storeId,
-        stores_cache: stores,
-        session_checked_at: Date.now()
-      }, function () {
-        showReady(origin, stores, storeId);
-        setStatus('Sesión guardada · tienda lista.', 'ok');
+      chrome.storage.sync.set({ origin: origin, token: token, token_ok: true, store_id: stores[0].id }, function () {
+        showReady(origin, stores, stores[0].id);
+        setStatus('Token válido.', 'ok');
         document.getElementById('save').disabled = false;
       });
     } catch (e) {
@@ -307,12 +262,7 @@
 
   storeEl.addEventListener('change', function () {
     var id = parseInt(storeEl.value, 10) || 0;
-    if (id) {
-      chrome.storage.sync.set({ store_id: id });
-      storeMeta.textContent = storeEl.options.length
-        ? (storeEl.options.length + ' tienda(s) · última: ' + (storeEl.options[storeEl.selectedIndex] ? storeEl.options[storeEl.selectedIndex].textContent : '—'))
-        : storeMeta.textContent;
-    }
+    if (id) chrome.storage.sync.set({ store_id: id });
     showSelectedProduct(null);
   });
 
@@ -330,20 +280,6 @@
     });
   }
 
-  document.getElementById('capture').addEventListener('click', function () {
-    var btn = document.getElementById('capture');
-    btn.disabled = true;
-    setStatus('Capturando y sanitizando con MIIA (puede tardar 30–90 s)…');
-    var storeId = parseInt(storeEl.value, 10) || 0;
-    chrome.storage.sync.set({ store_id: storeId }, function () {
-      chrome.runtime.sendMessage({ type: 'MULTIDROP_RUN_CAPTURE', store_id: storeId }, function (res) {
-        btn.disabled = false;
-        if (res && res.ok) setStatus(res.message || 'Enviado a borrador (sanitizado)', 'ok');
-        else setStatus((res && res.error) || 'Error al capturar', 'error');
-      });
-    });
-  });
-
   document.getElementById('search-sku').addEventListener('click', async function () {
     var sku = String(productSkuEl.value || '').trim();
     var storeId = parseInt(storeEl.value, 10) || 0;
@@ -360,7 +296,7 @@
       var json = await fetchProductBySku(origin, token, storeId, sku);
       showSelectedProduct(json, origin);
       setExtractOpen(true);
-      setStatus('Producto encontrado. Abre AE/CJ y pulsa Extraer.', 'ok');
+      setStatus('Producto encontrado. Abre una página de producto y pulsa Extraer.', 'ok');
     } catch (e) {
       showSelectedProduct(null);
       setStatus(String(e && e.message ? e.message : e), 'error');

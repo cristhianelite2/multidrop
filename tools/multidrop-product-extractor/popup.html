@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Multidrop Hunter</title>
+  <title>Multidrop Extractor</title>
   <style>
     body { font: 13px/1.4 system-ui, sans-serif; margin: 0; padding: 12px; width: 340px; color: #134e4a; }
     h1 { font-size: 14px; margin: 0 0 8px; }
@@ -89,7 +89,7 @@
   </style>
 </head>
 <body>
-  <h1>Multidrop · Hunter</h1>
+  <h1>Multidrop · Extractor</h1>
 
   <div id="setup-block">
     <label for="origin">URL de Multidrop</label>
@@ -107,9 +107,6 @@
     <select id="store"></select>
     <p id="store-meta"></p>
 
-    <button type="button" id="capture" class="secondary">Capturar → sanitizar (MIIA) → borrador</button>
-    <p class="hint">Antes de guardar: quita AliExpress/China, importa el Resumen de IA y optimiza título/descripción con MIIA.</p>
-
     <div id="extract-wrap" class="extract-wrap">
       <button type="button" id="extract-toggle" class="extract-toggle" aria-expanded="false" aria-controls="extract-panel">
         <span>
@@ -119,7 +116,7 @@
         <span class="chev" aria-hidden="true">▶</span>
       </button>
       <div id="extract-panel" class="extract-panel">
-        <p class="hint">Abre una ficha AliExpress o CJ, busca el SKU en Multidrop y elige qué importar. También: clic derecho en una imagen → <strong>Extraer imagen a Multidrop</strong>.</p>
+        <p class="hint">Abre cualquier página de producto, busca el SKU en Multidrop y elige qué importar. También puedes hacer clic derecho en una imagen para extraerla.</p>
         <label for="product-sku">SKU del producto en Multidrop</label>
         <div style="display:flex;gap:6px;align-items:flex-end;">
           <input id="product-sku" placeholder="SKU o ID" autocomplete="off" style="flex:1">
@@ -131,6 +128,8 @@
           <label><input type="checkbox" class="ext-section" value="videos" checked> Videos</label>
           <label><input type="checkbox" class="ext-section" value="reviews" checked> Reseñas</label>
           <label><input type="checkbox" class="ext-section" value="description" checked> Descripción</label>
+          <label><input type="checkbox" class="ext-section" value="title" checked> Título</label>
+          <label><input type="checkbox" class="ext-section" value="variants" checked> Variantes</label>
           <label><input type="checkbox" class="ext-section" value="details"> Detalles</label>
         </div>
         <label class="checks"><input type="checkbox" id="extract-replace"> Reemplazar secciones marcadas</label>

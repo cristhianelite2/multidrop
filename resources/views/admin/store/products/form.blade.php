@@ -1059,38 +1059,6 @@
 
     @if($product->exists)
         <div class="admin-card p-5 sm:p-6 space-y-5 admin-card-span-2">
-            @unless($isCj)
-                <section class="mb-6 rounded-xl border border-line p-4">
-                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                            <h3 class="font-display text-base font-bold text-ink">Variantes ({{ $product->variants->count() }})</h3>
-                            <p class="text-xs text-ink-soft/55">Añade, edita o elimina opciones del producto.</p>
-                        </div>
-                        <button type="button" id="variant-add" class="admin-btn-secondary !px-2 !py-1 text-xs" data-url="{{ route('admin.store.products.variants.store', $product) }}">+ Añadir variante</button>
-                    </div>
-                    @if($product->variants->isEmpty())
-                        <p class="text-sm text-ink-soft/55">Todavía no hay variantes. Usa «Añadir variante» o impórtalas desde el extractor.</p>
-                    @else
-                        <div class="overflow-x-auto">
-                            <table id="variants-table" class="w-full text-left text-xs">
-                                <tbody>
-                                    @foreach($product->variants as $variant)
-                                        <tr class="border-t border-line/70">
-                                            <td class="py-2 font-medium">{{ $variant->name }}</td>
-                                            <td class="px-2 py-2">{{ $variant->sku ?: '—' }}</td>
-                                            <td class="px-2 py-2">{{ $variant->price ?? '—' }}</td>
-                                            <td class="py-2 text-right">
-                                                <button type="button" class="text-teal hover:underline js-var-edit" data-url="{{ route('admin.store.products.variants.update', [$product, $variant]) }}" data-name="{{ $variant->name }}" data-sku="{{ $variant->sku }}" data-price="{{ $variant->price }}">Editar</button>
-                                                <button type="button" class="ml-2 text-coral hover:underline js-var-single-delete" data-url="{{ route('admin.store.products.variants.destroy', [$product, $variant]) }}">Eliminar</button>
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
-                </section>
-            @endunless
             <div class="flex flex-wrap items-start justify-between gap-2">
                 <div>
                     <h2 class="font-display text-lg font-bold text-ink">Reseñas, ranking y detalles</h2>

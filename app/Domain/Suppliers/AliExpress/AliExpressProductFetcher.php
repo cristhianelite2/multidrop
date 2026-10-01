@@ -1225,15 +1225,21 @@ class AliExpressProductFetcher
             }
         }
 
+        // Si la estructura del módulo no se pudo reconstruir, las filas skuId
+        // + skuAttr del HTML siguen describiendo combinaciones reales (incluidas
+        // las dimensiones que no se ofrecen en todos los diseños).
+        if ($variants === []) {
+            $variants = $this->filterRealVariants($this->extractVariants($html));
+        }
+
         $domVariants = $this->extractVariantsFromDom($html);
         if ($domVariants !== []) {
             if ($variants === [] || (count($variants) === 1 && ! empty($variants[0]['is_product_option']))) {
                 $variants = $this->filterRealVariants($domVariants);
-            } elseif (count($domVariants) > count($variants) && ! $this->hasComboSkuAttrs($variants)) {
-                // El JSON vino incompleto (p. ej. HTML pegado sin la lista de SKUs completa).
-                // El DOM solo aporta combinaciones sueltas, así que no se mezcla con
-                // combinaciones reales de `skuAttr` (p. ej. 2 colores x 3 tallas con una
-                // agotada: 4 SKUs reales frente a 5 swatches).
+            } else {
+                // El DOM representa opciones individuales; no se deben anexar
+                // como si fueran variantes vendibles. Solo aporta fotos/nombres
+                // para enriquecer las combinaciones que sí existen en los SKU.
                 $variants = $this->mergeVariantLists($variants, $domVariants);
             }
         }
@@ -1457,21 +1463,31 @@ class AliExpressProductFetcher
      */
     protected function mergeVariantLists(array $primary, array $extra): array
     {
-        $seen = [];
-        $out = [];
-        foreach (array_merge($primary, $extra) as $v) {
-            if (! is_array($v)) {
+        foreach ($primary as $i => $variant) {
+            if (! is_array($variant)) {
                 continue;
             }
-            $key = trim((string) ($v['sku'] ?? $v['vid'] ?? $v['key'] ?? $v['name'] ?? ''));
-            if ($key === '' || isset($seen[$key])) {
-                continue;
+            $variantText = mb_strtolower(trim(implode(' ', array_filter([
+                (string) ($variant['name'] ?? ''),
+                (string) ($variant['key'] ?? ''),
+            ]))));
+            foreach ($extra as $option) {
+                if (! is_array($option)) {
+                    continue;
+                }
+                $optionText = mb_strtolower(trim((string) ($option['name'] ?? '')));
+                $label = preg_replace('/^[^:]+:\s*/u', '', $optionText) ?? $optionText;
+                if ($label === '' || ! str_contains($variantText, $label)) {
+                    continue;
+                }
+                if (trim((string) ($variant['image'] ?? '')) === '' && trim((string) ($option['image'] ?? '')) !== '') {
+                    $primary[$i]['image'] = $option['image'];
+                }
+                break;
             }
-            $seen[$key] = true;
-            $out[] = $v;
         }
 
-        return $out;
+        return $primary;
     }
 
     /**
@@ -1667,7 +1683,7 @@ class AliExpressProductFetcher
                     'vid' => (string) $row['id'],
                     'sku' => (string) $row['id'],
                     'name' => $name !== '' ? $name : ('SKU '.$row['id']),
-                    'key' => $name,
+                    'key' => (string) $row['attr'],
                     'price' => null,
                     'image' => '',
                     'stock' => null,
@@ -3709,6 +3725,9 @@ class AliExpressProductFetcher
     {
         $propMap = [];
         $properties = $skuModule['productSKUPropertyList'] ?? $skuModule['skuPropertyList'] ?? [];
+        if (is_array($skuModule['linkSkuPropertyList'] ?? null)) {
+            $properties = array_merge(is_array($properties) ? $properties : [], $skuModule['linkSkuPropertyList']);
+        }
         if (! is_array($properties)) {
             $properties = [];
         }
@@ -3760,6 +3779,8 @@ class AliExpressProductFetcher
                 $ids = array_values(array_unique(array_filter([$vShort, $vLong])));
                 foreach ($ids as $vid) {
                     $propMap[($pid !== '' ? $pid.':' : '').$vid] = $meta;
+                    // Algunas respuestas omiten el propertyId dentro de skuAttr.
+                    $propMap[$vid] ??= $meta;
                 }
                 // Algunos `skuAttr` traen solo el id del valor, sin el de la propiedad.
                 if (count($ids) === 1) {
@@ -3770,6 +3791,9 @@ class AliExpressProductFetcher
 
         $variants = [];
         $rows = $skuModule['skuPriceList'] ?? $skuModule['skuList'] ?? [];
+        if (is_array($skuModule['linkSkuList'] ?? null)) {
+            $rows = array_merge(is_array($rows) ? $rows : [], $skuModule['linkSkuList']);
+        }
         if (! is_array($rows)) {
             $rows = [];
         }

@@ -91,11 +91,22 @@ async function readPagePayload(tabId, sections) {
       }
       function compactRunModules(data) {
         if (!data || typeof data !== 'object') return null;
+        var skuModule = data.skuModule || null;
+        if (!skuModule && (Array.isArray(data.skuPropertyList) || Array.isArray(data.productSKUPropertyList)
+          || Array.isArray(data.skuList) || Array.isArray(data.skuPriceList) || Array.isArray(data.linkSkuList))) {
+          skuModule = {
+            productSKUPropertyList: data.skuPropertyList || data.productSKUPropertyList || [],
+            skuPriceList: data.skuPriceList || data.skuList || data.productSKUPriceList || [],
+            linkSkuList: data.linkSkuList || [],
+            linkSkuPropertyList: data.linkSkuPropertyList || []
+          };
+        }
         var mods = {
           imageModule: data.imageModule || null,
           imagePathList: data.imagePathList || null,
-          skuModule: data.skuModule || null,
-          titleModule: data.titleModule || null
+          skuModule: skuModule,
+          titleModule: data.titleModule || null,
+          priceModule: data.priceModule || null
         };
         if (sections.indexOf('description') >= 0 || sections.length === 0) {
           mods.descriptionModule = data.descriptionModule || null;

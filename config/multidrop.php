@@ -184,7 +184,7 @@ return [
          */
         'remotion' => [
             'root' => env('REMOTION_ADS_ROOT', base_path('tools/remotion-ads')),
-            'python' => env('REMOTION_ADS_PYTHON', 'python'),
+            'python' => env('REMOTION_ADS_PYTHON', 'python3'),
             'timeout_seconds' => (int) env('REMOTION_ADS_TIMEOUT', 1800),
             // Estilo por defecto. "random" elige uno de styles.json en cada generación.
             'default_preset' => env('REMOTION_ADS_PRESET', 'random'),

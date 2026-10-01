@@ -1,0 +1,16 @@
+services:
+  app:
+    ports: !override
+      - "127.0.0.1:8083:80"
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      DB_PASSWORD: ${DB_PASSWORD}
+  db:
+    ports: !override
+      - "127.0.0.1:3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ALLOW_EMPTY_PASSWORD: "no"

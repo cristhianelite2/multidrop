@@ -33,17 +33,64 @@ class RemotionAdsRenderService
     public function pythonBinary(): string
     {
         $root = $this->root();
-        $venvWin = $root.DIRECTORY_SEPARATOR.'.venv'.DIRECTORY_SEPARATOR.'Scripts'.DIRECTORY_SEPARATOR.'python.exe';
-        $venvUnix = $root.DIRECTORY_SEPARATOR.'.venv'.DIRECTORY_SEPARATOR.'bin'.DIRECTORY_SEPARATOR.'python';
-        if (is_file($venvWin)) {
-            return $venvWin;
+        $candidates = [
+            $root.DIRECTORY_SEPARATOR.'.venv'.DIRECTORY_SEPARATOR.'Scripts'.DIRECTORY_SEPARATOR.'python.exe',
+            $root.DIRECTORY_SEPARATOR.'.venv'.DIRECTORY_SEPARATOR.'bin'.DIRECTORY_SEPARATOR.'python3',
+            $root.DIRECTORY_SEPARATOR.'.venv'.DIRECTORY_SEPARATOR.'bin'.DIRECTORY_SEPARATOR.'python',
+        ];
+        $configured = trim((string) config('multidrop.marketing.remotion.python', ''));
+        // Nunca aceptar un directorio como binario (p. ej. tools/remotion-ads/python/).
+        // Con cwd=tools/remotion-ads, `exec python` resolvía al directorio y fallaba
+        // con "exec: python: cannot execute: Is a directory" en producción.
+        if ($configured !== '' && ! is_dir($configured)) {
+            array_unshift($candidates, $configured);
         }
-        if (is_file($venvUnix)) {
-            return $venvUnix;
+        foreach ($candidates as $bin) {
+            if ($bin !== '' && is_file($bin) && ! is_dir($bin)) {
+                return $bin;
+            }
         }
-        $bin = trim((string) config('multidrop.marketing.remotion.python', 'python'));
+        foreach (['python3', 'python'] as $name) {
+            $resolved = $this->resolveExecutableOnPath($name);
+            if ($resolved !== null) {
+                return $resolved;
+            }
+        }
+        foreach (['/usr/bin/python3', '/usr/local/bin/python3', '/usr/bin/python'] as $abs) {
+            if (is_file($abs) && ! is_dir($abs)) {
+                return $abs;
+            }
+        }
 
-        return $bin !== '' ? $bin : 'python';
+        return 'python3';
+    }
+
+    protected function resolveExecutableOnPath(string $name): ?string
+    {
+        $pathEnv = (string) (getenv('PATH') ?: getenv('Path') ?: '');
+        if ($pathEnv === '') {
+            return null;
+        }
+        foreach (explode(PATH_SEPARATOR, $pathEnv) as $dir) {
+            $dir = trim($dir);
+            if ($dir === '' || $dir === '.' || $dir === './') {
+                continue;
+            }
+            $base = rtrim($dir, '/\\').DIRECTORY_SEPARATOR.$name;
+            if (is_file($base) && ! is_dir($base)) {
+                return $base;
+            }
+            if (PHP_OS_FAMILY === 'Windows') {
+                foreach (['.exe', '.bat', '.cmd'] as $ext) {
+                    $cand = $base.$ext;
+                    if (is_file($cand) && ! is_dir($cand)) {
+                        return $cand;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     public function timeoutSeconds(): int
@@ -654,6 +701,15 @@ class RemotionAdsRenderService
 
             $python = $this->pythonBinary();
             $script = $this->root().DIRECTORY_SEPARATOR.'python'.DIRECTORY_SEPARATOR.'run_pipeline.py';
+            if (is_dir($python) || (str_contains($python, DIRECTORY_SEPARATOR) && ! is_file($python))) {
+                throw new \RuntimeException(
+                    'No se encontró el binario Python para Remotion ('.$python.'). '
+                    .'Configura REMOTION_ADS_PYTHON con la ruta absoluta al intérprete.'
+                );
+            }
+            if (! is_file($script)) {
+                throw new \RuntimeException('Falta el pipeline Remotion en '.$script);
+            }
             // Process::env() reemplaza el entorno completo. En Windows hace falta
             // SystemRoot/windir o asyncio falla con WinError 10106 al cargar Winsock.
             $result = Process::timeout($this->timeoutSeconds())

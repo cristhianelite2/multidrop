@@ -26,6 +26,20 @@ class AliExpressProductSyncService
 
         $currency = strtoupper((string) ($store->market?->currency ?: ($detail['currency'] ?? 'MXN')));
         $marketPrice = isset($detail['price']) ? (float) $detail['price'] : 0;
+        // Sin precio a nivel ficha: usar el menor precio de variante.
+        if ($marketPrice <= 0) {
+            foreach (is_array($detail['variants'] ?? null) ? $detail['variants'] : [] as $v) {
+                if (! is_array($v)) {
+                    continue;
+                }
+                foreach (['sale_price', 'price'] as $pk) {
+                    $f = isset($v[$pk]) && is_numeric($v[$pk]) ? (float) $v[$pk] : null;
+                    if ($f !== null && $f > 0 && ($marketPrice <= 0 || $f < $marketPrice)) {
+                        $marketPrice = $f;
+                    }
+                }
+            }
+        }
         $price = isset($hints['sell']) ? (float) $hints['sell'] : 0.0;
         $compare = isset($detail['compare_at_price']) ? (float) $detail['compare_at_price'] : null;
 

@@ -105,6 +105,8 @@ class ProductSimilarImportService
             $excluded = array_map('strval', data_get($product->creative_data, 'excluded_variant_vids', []));
             $count = 0;
             $skippedSoldOut = 0;
+            $minImportedPrice = null;
+            $minImportedCurrency = null;
             foreach ($variants as $row) {
                 $vid = trim((string) ($row['vid'] ?? ''));
                 $sku = mb_substr(trim((string) ($row['sku'] ?? '')), 0, 120);
@@ -118,6 +120,15 @@ class ProductSimilarImportService
                 if ($rowSoldOut) {
                     $skippedSoldOut++;
                     continue;
+                }
+                foreach (['sale_price', 'price'] as $pk) {
+                    $f = isset($row[$pk]) && is_numeric($row[$pk]) ? (float) $row[$pk] : null;
+                    if ($f !== null && $f > 0 && ($minImportedPrice === null || $f < $minImportedPrice)) {
+                        $minImportedPrice = $f;
+                        if (! empty($row['currency'])) {
+                            $minImportedCurrency = strtoupper((string) $row['currency']);
+                        }
+                    }
                 }
                 $variant = null;
                 if ($vid !== '') {
@@ -145,6 +156,14 @@ class ProductSimilarImportService
             $skippedSoldOut += (int) ($remote['excluded_sold_out'] ?? 0);
             if ($skippedSoldOut > 0) {
                 $imported['variants_excluidas'] = $skippedSoldOut;
+            }
+            // Sin precio de compra registrado: usar el menor precio de variante.
+            if ($minImportedPrice !== null
+                && ((float) ($verified['price'] ?? 0) <= 0)) {
+                $verified['price'] = $minImportedPrice;
+                if ($minImportedCurrency && empty($verified['currency'])) {
+                    $verified['currency'] = $minImportedCurrency;
+                }
             }
         }
 

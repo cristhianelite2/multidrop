@@ -118,12 +118,45 @@ async function readPagePayload(tabId, sections) {
         if (/CNY|RMB|¥/.test(txt)) return 'CNY';
         return '';
       }
+      // querySelector que además perfora shadow roots (la PDP CSR los usa).
+      function queryDeep(sel, sub) {
+        try {
+          var direct = document.querySelector(sel);
+          if (direct) return direct;
+        } catch (eD) {}
+        if (!sub) return null;
+        try {
+          var stack = [document.body || document.documentElement];
+          var count = 0;
+          while (stack.length && count < 4000) {
+            var node = stack.pop();
+            count++;
+            if (!node) continue;
+            var kids = (node.children && node.children.length) ? node.children : (node.childNodes || []);
+            if (!kids || !kids.length) continue;
+            for (var i = 0; i < kids.length; i++) {
+              var k = kids[i];
+              if (!k || k.nodeType === 3) continue;
+              try {
+                if (String(k.className || '').indexOf(sub) >= 0) return k;
+              } catch (eC) {}
+              try {
+                if (k.shadowRoot) stack.push(k.shadowRoot);
+              } catch (eS) {}
+              stack.push(k);
+            }
+          }
+        } catch (eT) {}
+        return null;
+      }
       function readCurrentPrice() {
-        var cur = null;
-        try { cur = document.querySelector('[class*="price-default--current"]'); } catch (eQ) {}
-        var orig = null;
-        try { orig = document.querySelector('[class*="price-default--original"]'); } catch (eQ2) {}
-        var curText = cur ? String(cur.innerText || '').replace(/\s+/g, ' ').trim() : '';
+        var cur = queryDeep(
+          '[class*="price-default--current"], [class*="price--current"], [itemprop="price"]',
+          'price-default--current'
+        );
+        if (!cur) cur = queryDeep('[class*="price--current"]', 'price--current');
+        var orig = queryDeep('[class*="price-default--original"]', 'price-default--original');
+        var curText = cur ? String(cur.innerText || (cur.getAttribute && cur.getAttribute('content')) || '').replace(/\s+/g, ' ').trim() : '';
         var origText = orig ? String(orig.innerText || '').replace(/\s+/g, ' ').trim() : '';
         return {
           curText: curText,
@@ -318,6 +351,84 @@ async function readPagePayload(tabId, sections) {
         } catch (eWalk) {}
         return { prices: out, walked: out.length > 0, groups: groupCount };
       }
+      // La PDP CSR no siempre llena window.runParams: fusionar las fuentes
+      // disponibles (runParams, _dida_config_._init_data_, __INIT_DATA__).
+      function mergedPageData() {
+        var sources = [];
+        try {
+          if (typeof window.runParams === 'object' && window.runParams) sources.push(window.runParams);
+        } catch (e1) {}
+        try {
+          var dida = window._dida_config_ && window._dida_config_._init_data_;
+          if (dida && typeof dida === 'object') sources.push(dida);
+        } catch (e2) {}
+        try {
+          if (typeof window.__INIT_DATA__ === 'object' && window.__INIT_DATA__) sources.push(window.__INIT_DATA__);
+        } catch (e3) {}
+        if (!sources.length) return null;
+        var merged = {};
+        sources.forEach(function (s) {
+          var d = (s && typeof s === 'object' && (s.data || s)) || null;
+          if (!d || typeof d !== 'object') return;
+          Object.keys(d).forEach(function (k) {
+            if (merged[k] === undefined || merged[k] === null) merged[k] = d[k];
+          });
+        });
+        return Object.keys(merged).length ? merged : null;
+      }
+      // Mapa precio-por-SKU de la PDP nueva (PRICE.skuIdStrPriceInfoMap), adelgazado.
+      function findSkuPriceMap(data) {
+        var found = null;
+        var scanned = 0;
+        var seen = [];
+        function visit(node, depth) {
+          if (found || node == null || depth > 6 || scanned > 4000) return;
+          if (typeof node !== 'object') return;
+          if (seen.indexOf(node) >= 0) return;
+          seen.push(node);
+          scanned++;
+          if (!Array.isArray(node) && node.skuIdStrPriceInfoMap && typeof node.skuIdStrPriceInfoMap === 'object') {
+            found = node.skuIdStrPriceInfoMap;
+            return;
+          }
+          if (Array.isArray(node)) {
+            for (var i = 0; i < node.length && !found; i++) visit(node[i], depth + 1);
+            return;
+          }
+          for (var k in node) {
+            if (!Object.prototype.hasOwnProperty.call(node, k) || found) break;
+            if (k === 'skuIdStrPriceInfoMap' && node[k] && typeof node[k] === 'object') { found = node[k]; break; }
+            visit(node[k], depth + 1);
+          }
+        }
+        try { visit(data, 0); } catch (eF) {}
+        if (!found) return null;
+        var slim = {};
+        var n = 0;
+        Object.keys(found).forEach(function (skuId) {
+          if (n >= 200) return;
+          var row = found[skuId];
+          if (!row || typeof row !== 'object') return;
+          var price = row.salePrice !== undefined ? row.salePrice
+            : (row.currentPrice !== undefined ? row.currentPrice : row.price);
+          var original = null;
+          if (row.originalPrice !== undefined) {
+            original = (row.originalPrice && typeof row.originalPrice === 'object')
+              ? (row.originalPrice.value !== undefined ? row.originalPrice.value : null)
+              : row.originalPrice;
+          } else if (row.compare_at_price !== undefined) {
+            original = row.compare_at_price;
+          }
+          if (price == null && row.salePriceString !== undefined) {
+            price = String(row.salePriceString).split('|')[0];
+          }
+          if (price == null && original == null) return;
+          slim[skuId] = { salePrice: price };
+          if (original != null) slim[skuId].originalPrice = original;
+          n++;
+        });
+        return n ? slim : null;
+      }
       function compactRunModules(data) {
         if (!data || typeof data !== 'object') return null;
         var skuModule = data.skuModule || null;
@@ -337,6 +448,8 @@ async function readPagePayload(tabId, sections) {
           titleModule: data.titleModule || null,
           priceModule: data.priceModule || null
         };
+        var priceMap = findSkuPriceMap(data);
+        if (priceMap) mods.PRICE = { skuIdStrPriceInfoMap: priceMap };
         if (sections.indexOf('description') >= 0 || sections.length === 0) {
           mods.descriptionModule = data.descriptionModule || null;
           mods.productDescModule = data.productDescModule || null;
@@ -374,8 +487,7 @@ async function readPagePayload(tabId, sections) {
       }
 
       var pageVideos = extractPageVideos();
-      var rp = (typeof window.runParams === 'object' && window.runParams) ? window.runParams : null;
-      var rpData = rp && (rp.data || rp);
+      var rpData = mergedPageData();
       var compactRp = rpData ? compactRunModules(rpData) : null;
       var hasVideoData = pageVideos.length > 0 || (compactRp && compactRp.data && compactRp.data.imageModule);
 
@@ -409,7 +521,11 @@ async function readPagePayload(tabId, sections) {
       var mt = document.querySelector('meta[property="og:title"]');
       var md = document.querySelector('meta[name="description"], meta[property="og:description"]');
       var mi = document.querySelector('meta[property="og:image"]');
-      var priceEl = document.querySelector('[class*="price-default--current"], [class*="price--current"], [itemprop="price"]');
+      var priceEl = queryDeep(
+        '[class*="price-default--current"], [class*="price--current"], [itemprop="price"]',
+        'price-default--current'
+      );
+      if (!priceEl) priceEl = queryDeep('[class*="price--current"]', 'price--current');
       var shipEl = document.querySelector('[class*="dynamic-shipping"]');
       var productId = '';
       var m = String(location.href).match(/(?:item|i)\/(\d{10,20})/i);

@@ -305,6 +305,42 @@ class AliExpressProductFetcher
             $product['excluded_sold_out'] = (int) ($product['excluded_sold_out'] ?? 0) + $snapshotState['excluded'];
         }
 
+        // Sin precio a nivel ficha (PDP CSR sin precio legible): usar el menor
+        // precio de variante como precio de compra del producto.
+        if (! isset($product['price']) || ! ((float) $product['price'] > 0)) {
+            $minVariantPrice = null;
+            foreach (is_array($product['variants'] ?? null) ? $product['variants'] : [] as $v) {
+                if (! is_array($v)) {
+                    continue;
+                }
+                foreach (['sale_price', 'price'] as $pk) {
+                    $f = $this->toFloat($v[$pk] ?? null);
+                    if ($f !== null && $f > 0 && ($minVariantPrice === null || $f < $minVariantPrice)) {
+                        $minVariantPrice = $f;
+                    }
+                }
+            }
+            if ($minVariantPrice !== null) {
+                $product['price'] = $minVariantPrice;
+            }
+        }
+        if (empty($product['currency'])) {
+            foreach ((array) ($snapshot['variantPrices'] ?? []) as $wp) {
+                if (is_array($wp) && ! empty($wp['currency'])) {
+                    $product['currency'] = strtoupper((string) $wp['currency']);
+                    break;
+                }
+            }
+        }
+        if (empty($product['currency'])) {
+            foreach (is_array($product['variants'] ?? null) ? $product['variants'] : [] as $v) {
+                if (is_array($v) && ! empty($v['currency'])) {
+                    $product['currency'] = strtoupper((string) $v['currency']);
+                    break;
+                }
+            }
+        }
+
         $mediaOnlyExtract = $sections !== [] && array_diff($sections, ['videos', 'images']) === [];
 
         $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
@@ -1623,6 +1659,11 @@ class AliExpressProductFetcher
             $hit = $vid === $col || $sku === $col;
             if (! $hit && $key !== '') {
                 foreach ($this->soldOutKeys($col) as $form) {
+                    // Solo formas estructuradas ("14:175"): un id corto suelto
+                    // ("175") daría falsos positivos dentro de "14:1750".
+                    if (! str_contains($form, ':') && ! str_contains($form, '-')) {
+                        continue;
+                    }
                     if (str_contains($key, $form)) {
                         $hit = true;
                         break;
@@ -1712,6 +1753,59 @@ class AliExpressProductFetcher
                     $parsed[$i]['sold_out'] = true;
                     $parsed[$i]['available'] = false;
                     $parsed[$i]['stock'] = 0;
+                }
+            }
+        }
+
+        // Mapa precio-por-SKU del runParams compacto (PDP CSR): respaldo cuando
+        // el precio visible no se pudo leer. Claves: skuId o combos "14:175;…".
+        $runParamsData = $snapshot['runParams']['data'] ?? $snapshot['runParams'] ?? null;
+        $compactPriceMap = is_array($runParamsData)
+            ? ($runParamsData['PRICE']['skuIdStrPriceInfoMap'] ?? $runParamsData['skuIdStrPriceInfoMap'] ?? null)
+            : null;
+        if (is_array($compactPriceMap) && $compactPriceMap !== []) {
+            foreach ($compactPriceMap as $skuId => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $mapPrice = $this->toFloat($row['salePrice'] ?? $row['currentPrice'] ?? $row['price'] ?? null);
+                if (($mapPrice === null || $mapPrice <= 0) && isset($row['salePriceString'])) {
+                    $mapPrice = $this->toFloat(explode('|', (string) $row['salePriceString'])[0]);
+                }
+                if ($mapPrice === null || $mapPrice <= 0) {
+                    continue;
+                }
+                $mapCompare = $this->toFloat($row['compare_at_price'] ?? null);
+                if ($mapCompare === null && isset($row['originalPrice'])) {
+                    $mapCompare = $this->toFloat(is_array($row['originalPrice'])
+                        ? ($row['originalPrice']['value'] ?? null)
+                        : $row['originalPrice']);
+                }
+                $sid = trim((string) $skuId);
+                $cols = array_values(array_filter(array_map(
+                    fn ($c) => trim((string) $c),
+                    preg_split('/[;|,]/', $sid) ?: []
+                )));
+                foreach ($parsed as $i => $pv) {
+                    if (! is_array($pv)) {
+                        continue;
+                    }
+                    $hit = $cols !== [] && $this->variantMatchesCols($pv, $cols);
+                    if (! $hit && $sid !== '') {
+                        $hit = $sid === trim((string) ($pv['vid'] ?? ''))
+                            || $sid === trim((string) ($pv['sku'] ?? ''));
+                    }
+                    if (! $hit) {
+                        continue;
+                    }
+                    if (! is_numeric($pv['price'] ?? null)) {
+                        $parsed[$i]['price'] = $mapPrice;
+                    }
+                    $parsed[$i]['sale_price'] = $mapPrice;
+                    if ($mapCompare !== null && $mapCompare > $mapPrice
+                        && ! is_numeric($pv['compare_at_price'] ?? null)) {
+                        $parsed[$i]['compare_at_price'] = $mapCompare;
+                    }
                 }
             }
         }

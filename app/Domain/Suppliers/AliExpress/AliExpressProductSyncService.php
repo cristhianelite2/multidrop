@@ -264,8 +264,12 @@ class AliExpressProductSyncService
                 continue;
             }
 
-            $sourcePrice = isset($v['price']) && $v['price'] !== null && $v['price'] !== ''
-                ? (float) $v['price']
+            // El plugin captura el precio publicado por cada SKU. Se conserva
+            // como precio de origen y se usa como costo para recalcular el
+            // precio de venta local con el margen configurado.
+            $capturedPrice = $v['sale_price'] ?? $v['price'] ?? null;
+            $sourcePrice = $capturedPrice !== null && $capturedPrice !== ''
+                ? (float) $capturedPrice
                 : null;
             $purchase = $sourcePrice;
             if ($purchase !== null && $purchase > 0 && $srcCurrency !== $storeCurrency) {
@@ -306,6 +310,7 @@ class AliExpressProductSyncService
                     'purchase_price' => $purchase,
                     'compare_at_price' => ($compare !== null && $sale !== null && $compare > $sale) ? $compare : null,
                     'source_price' => $sourcePrice,
+                    'source_sale_price' => $sourcePrice,
                     'source_currency' => $srcCurrency,
                 ],
                 'price' => $sale,

@@ -248,6 +248,53 @@ class AliExpressProductFetcher
             }
         }
 
+        // El plugin entrega precios por variante de forma explícita cuando
+        // puede leerlos del JSON-LD. Completa las variantes parseadas desde
+        // HTML/runParams y conserva el precio publicado para el recálculo.
+        $capturedVariants = is_array($snapshot['variants'] ?? null) ? $snapshot['variants'] : [];
+        if ($capturedVariants !== []) {
+            $product['variants'] = is_array($product['variants'] ?? null) ? $product['variants'] : [];
+            foreach ($capturedVariants as $captured) {
+                if (! is_array($captured)) {
+                    continue;
+                }
+                $capturedPrice = $this->toFloat($captured['sale_price'] ?? $captured['price'] ?? null);
+                if ($capturedPrice === null || $capturedPrice <= 0) {
+                    continue;
+                }
+                $vid = trim((string) ($captured['vid'] ?? ''));
+                $sku = trim((string) ($captured['sku'] ?? ''));
+                $match = null;
+                foreach ($product['variants'] as $index => $variant) {
+                    if (($vid !== '' && (string) ($variant['vid'] ?? '') === $vid)
+                        || ($sku !== '' && strcasecmp((string) ($variant['sku'] ?? ''), $sku) === 0)) {
+                        $match = $index;
+                        break;
+                    }
+                }
+                if ($match !== null) {
+                    if (! is_numeric($product['variants'][$match]['price'] ?? null)) {
+                        $product['variants'][$match]['price'] = $capturedPrice;
+                    }
+                    $product['variants'][$match]['sale_price'] = $capturedPrice;
+                    continue;
+                }
+                $name = trim((string) ($captured['name'] ?? $sku));
+                if ($name === '' || count($product['variants']) >= 120) {
+                    continue;
+                }
+                $product['variants'][] = [
+                    'vid' => $vid,
+                    'sku' => $sku,
+                    'name' => mb_substr($name, 0, 190),
+                    'price' => $capturedPrice,
+                    'sale_price' => $capturedPrice,
+                    'currency' => strtoupper((string) ($captured['currency'] ?? $product['currency'] ?? '')),
+                    'stock' => $captured['stock'] ?? null,
+                ];
+            }
+        }
+
         $mediaOnlyExtract = $sections !== [] && array_diff($sections, ['videos', 'images']) === [];
 
         $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));

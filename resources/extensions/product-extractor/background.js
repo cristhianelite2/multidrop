@@ -227,7 +227,8 @@ async function readPagePayload(tabId, sections) {
         var sku = String(offer.sku || offer.mpn || nestedOffer.sku || '').trim();
         var name = String(offer.name || (jsonProduct.name ? jsonProduct.name + (index ? ' ' + (index + 1) : '') : '')).trim();
         if (!name && !sku) return;
-        extractedVariants.push({ sku: sku, name: name || sku, price: nestedOffer.price || nestedOffer.lowPrice || null, currency: nestedOffer.priceCurrency || '', vid: String(offer.productID || offer.sku || offer.mpn || index), stock: nestedOffer.inventoryLevel || null });
+        var variantSalePrice = nestedOffer.price || nestedOffer.lowPrice || null;
+        extractedVariants.push({ sku: sku, name: name || sku, price: variantSalePrice, sale_price: variantSalePrice, currency: nestedOffer.priceCurrency || '', vid: String(offer.productID || offer.sku || offer.mpn || index), stock: nestedOffer.inventoryLevel || null });
       });
       document.querySelectorAll('[itemprop="offers"] [itemprop="sku"], [data-variant-id], [data-sku]').forEach(function (el, index) {
         var sku = String(el.getAttribute('content') || el.getAttribute('data-sku') || '').trim();

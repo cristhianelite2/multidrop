@@ -280,6 +280,45 @@
     });
   }
 
+  document.getElementById('capture').addEventListener('click', async function () {
+    var btn = document.getElementById('capture');
+    var storeId = parseInt(storeEl.value, 10) || 0;
+    if (!storeId) {
+      setStatus('Elige una tienda antes de enviar.', 'error');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Enviando y optimizando con MIIA…';
+    setStatus('Capturando el producto y guardándolo como borrador…');
+    try {
+      await new Promise(function (resolve) {
+        chrome.storage.sync.set({ store_id: storeId }, resolve);
+      });
+      var res = await new Promise(function (resolve) {
+        chrome.runtime.sendMessage({ type: 'MULTIDROP_RUN_CAPTURE', store_id: storeId }, function (reply) {
+          if (chrome.runtime.lastError) {
+            resolve({ ok: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(reply || { ok: false, error: 'El extractor no respondió.' });
+        });
+      });
+      if (!res.ok) {
+        setStatus(res.error || 'No se pudo enviar el producto.', 'error');
+        return;
+      }
+      if (res.product_id) {
+        showSelectedProduct({ id: res.product_id, name: res.title || ('Producto #' + res.product_id), sku: '' });
+      }
+      setStatus(res.message || 'Producto enviado a Multidrop como borrador.', 'ok');
+    } catch (e) {
+      setStatus(String(e && e.message ? e.message : e), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Enviar producto a Multidrop · MIIA';
+    }
+  });
+
   document.getElementById('search-sku').addEventListener('click', async function () {
     var sku = String(productSkuEl.value || '').trim();
     var storeId = parseInt(storeEl.value, 10) || 0;

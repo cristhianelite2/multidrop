@@ -598,6 +598,7 @@ class LabController extends Controller
 
         $configJs = 'window.MULTIDROP_DEFAULTS = '.json_encode([
             'origin' => $origin,
+            'capture_path' => '/admin/lab/cj/plugin-capture',
             'extract_path' => '/admin/lab/cj/plugin-extract',
             'image_import_path' => '/admin/lab/cj/plugin-import-image',
             'product_search_path' => '/admin/lab/cj/plugin-product-search',

@@ -8,6 +8,7 @@ function defaults() {
   var d = self.MULTIDROP_DEFAULTS || {};
   return {
     origin: d.origin || '',
+    capture_path: d.capture_path || '/admin/lab/cj/plugin-capture',
     extract_path: d.extract_path || '/admin/lab/cj/plugin-extract',
     image_import_path: d.image_import_path || '/admin/lab/cj/plugin-import-image',
     product_search_path: d.product_search_path || '/admin/lab/cj/plugin-product-search',
@@ -309,6 +310,45 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
           url: payload.url,
           html: payload.html || '',
           snapshot: payload.snapshot || {}
+        });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === 'MULTIDROP_RUN_CAPTURE') {
+    (async function () {
+      try {
+        var tabId = await activeTabId(sender);
+        if (!tabId) { sendResponse({ ok: false, error: 'No hay pestaña activa' }); return; }
+        var payload = await readPagePayload(tabId, []);
+        if (!payload || !payload.url) { sendResponse({ ok: false, error: 'No pude leer la página activa.' }); return; }
+        var cfg = await chrome.storage.sync.get(['origin', 'token', 'store_id']);
+        var d = defaults();
+        var origin = String(cfg.origin || d.origin || '').replace(/\/+$/, '');
+        var token = String(cfg.token || '');
+        var storeId = parseInt(msg.store_id != null ? msg.store_id : cfg.store_id, 10) || 0;
+        if (!origin || !token) { sendResponse({ ok: false, error: 'Configura la URL y el token del plugin.' }); return; }
+        if (!storeId) { sendResponse({ ok: false, error: 'Elige una tienda antes de enviar.' }); return; }
+        var out = await postPlugin(origin, d.capture_path, token, {
+          token: token,
+          store_id: storeId,
+          url: payload.url,
+          html: payload.html || '',
+          snapshot: payload.snapshot || {}
+        });
+        if (!out.res.ok || !out.json.success) {
+          sendResponse({ ok: false, error: out.json.error || out.json.message || ('HTTP ' + out.res.status) });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          message: out.json.message || 'Producto enviado a Multidrop.',
+          product_id: out.json.product_id,
+          edit_url: out.json.edit_url,
+          title: out.json.title
         });
       } catch (e) {
         sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });

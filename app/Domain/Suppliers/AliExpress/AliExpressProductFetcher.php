@@ -1147,6 +1147,10 @@ class AliExpressProductFetcher
             return '';
         }
 
+        // Algunas páginas entregan el formato `foto.jpg.jpg`; el CDN sirve
+        // el recurso real con una sola extensión.
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)\.\1(?=(?:[?#].*)?$)/i', '.$1', $url) ?? $url;
+
         // Patrones CDN AE: foo.jpg_220x220.jpg / foo.png_50x50.png / foo.jpg_.webp
         $url = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(jpe?g|png|webp|avif)(?:\?.*)?$/i', '.$1', $url) ?? $url;
         $url = preg_replace('/\.(jpe?g|png|webp|avif)_\.(avif|webp)$/i', '.$1', $url) ?? $url;

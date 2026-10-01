@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Store;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class ProductMediaMirrorService
@@ -41,7 +42,7 @@ class ProductMediaMirrorService
         ];
 
         if (! $this->r2->enabled()) {
-            return $product;
+            return $this->mirrorVariantImages($product, false);
         }
 
         $store = $product->store ?: Store::query()->find($product->store_id);
@@ -178,7 +179,70 @@ class ProductMediaMirrorService
             $this->r2->refreshStoreStats($store);
         }
 
-        return $product->fresh() ?? $product;
+        return $this->mirrorVariantImages($product->fresh() ?? $product, false);
+    }
+
+    public function mirrorVariantImages(Product $product, bool $resetReport = true): Product
+    {
+        if ($resetReport) {
+            $this->lastMirrorReport = [
+                'mirrored' => 0,
+                'skipped' => 0,
+                'failed' => 0,
+                'r2' => $this->r2->enabled(),
+            ];
+        }
+
+        $store = $product->store ?: Store::query()->find($product->store_id);
+        if (! $store) {
+            return $product;
+        }
+
+        $verified = is_array($product->verified_data) ? $product->verified_data : [];
+        $verifiedVariants = is_array($verified['variants'] ?? null) ? $verified['variants'] : [];
+        $verifiedChanged = false;
+
+        foreach ($product->variants()->get() as $variant) {
+            $options = is_array($variant->options) ? $variant->options : [];
+            $image = trim((string) ($options['image'] ?? ''));
+            if ($image === '') {
+                continue;
+            }
+
+            $normalized = $this->normalizeRemoteImageUrl($image);
+            $mirrored = $this->isLocalStorageUrl($normalized)
+                ? $normalized
+                : $this->mirrorRemoteUrl($normalized, $store, $product, 'images');
+            $resolved = $mirrored ?: $normalized;
+            if ($resolved !== $image) {
+                $options['image'] = $resolved;
+                $variant->options = $options;
+                $variant->save();
+            }
+
+            foreach ($verifiedVariants as &$verifiedVariant) {
+                if (! is_array($verifiedVariant)) {
+                    continue;
+                }
+                $sameVariant = ((string) ($verifiedVariant['vid'] ?? '') !== ''
+                    && (string) ($verifiedVariant['vid'] ?? '') === (string) ($options['vid'] ?? ''))
+                    || ((string) ($verifiedVariant['sku'] ?? '') !== ''
+                    && (string) ($verifiedVariant['sku'] ?? '') === (string) $variant->sku);
+                if ($sameVariant && ($verifiedVariant['image'] ?? null) !== $resolved) {
+                    $verifiedVariant['image'] = $resolved;
+                    $verifiedChanged = true;
+                }
+            }
+            unset($verifiedVariant);
+        }
+
+        if ($verifiedChanged) {
+            $verified['variants'] = $verifiedVariants;
+            $product->verified_data = $verified;
+            $product->save();
+        }
+
+        return $product->fresh(['variants']) ?? $product;
     }
 
     public function storeUploadedFile(Store $store, Product $product, UploadedFile $file, string $folder): array
@@ -217,6 +281,9 @@ class ProductMediaMirrorService
     protected function mirrorRemoteUrl(string $url, Store $store, Product $product, string $folder): ?string
     {
         $url = trim($url);
+        if ($folder === 'images') {
+            $url = $this->normalizeRemoteImageUrl($url);
+        }
         if ($url === '') {
             return null;
         }
@@ -369,6 +436,19 @@ class ProductMediaMirrorService
         $filename = preg_replace('/[^a-zA-Z0-9._-]/', '-', $filename) ?: ($hash.'.'.$ext);
 
         $storagePath = $this->r2->productPrefix((int) $store->id, (int) $product->id).'/'.$folder.'/'.$filename;
+        if (! $this->r2->enabled()) {
+            $disk = Storage::disk('public');
+            if ($disk->exists($storagePath)) {
+                $this->lastMirrorReport['skipped']++;
+
+                return \App\Services\Storefront\DesignAssetUrl::fromPath($storagePath);
+            }
+
+            $disk->put($storagePath, $contents);
+
+            return \App\Services\Storefront\DesignAssetUrl::fromPath($storagePath);
+        }
+
         if ($this->r2->disk()->exists($storagePath)) {
             $this->lastMirrorReport['skipped']++;
 
@@ -400,12 +480,6 @@ class ProductMediaMirrorService
 
     protected function guessExtension(string $url, string $contentType, string $folder): string
     {
-        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
-        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION) ?: '');
-        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov', 'm4v'], true)) {
-            return $ext === 'jpeg' ? 'jpg' : $ext;
-        }
-
         $map = [
             'image/jpeg' => 'jpg',
             'image/png' => 'png',
@@ -416,8 +490,22 @@ class ProductMediaMirrorService
             'video/quicktime' => 'mov',
         ];
         $ct = strtolower(trim(explode(';', $contentType)[0] ?? ''));
+        if (isset($map[$ct])) {
+            return $map[$ct];
+        }
 
-        return $map[$ct] ?? ($folder === 'videos' ? 'mp4' : 'jpg');
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION) ?: '');
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov', 'm4v'], true)) {
+            return $ext === 'jpeg' ? 'jpg' : $ext;
+        }
+
+        return $folder === 'videos' ? 'mp4' : 'jpg';
+    }
+
+    protected function normalizeRemoteImageUrl(string $url): string
+    {
+        return preg_replace('/\.(jpe?g|png|webp|avif)\.\1(?=(?:[?#].*)?$)/i', '.$1', trim($url)) ?? trim($url);
     }
 
     /**

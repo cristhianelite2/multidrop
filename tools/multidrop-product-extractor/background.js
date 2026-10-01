@@ -92,7 +92,9 @@ async function readPagePayload(tabId, sections) {
       }
       function parsePriceNum(txt) {
         txt = String(txt == null ? '' : txt);
-        var n = txt.replace(/[^\d.,]/g, '');
+        // Ante rangos ("MX$70.00 - MX$83.10") tomar el primer importe.
+        var first = txt.match(/[\d.,]+/);
+        var n = first ? first[0] : '';
         if (!n) return null;
         var lastComma = n.lastIndexOf(',');
         var lastDot = n.lastIndexOf('.');
@@ -527,6 +529,10 @@ async function readPagePayload(tabId, sections) {
       );
       if (!priceEl) priceEl = queryDeep('[class*="price--current"]', 'price--current');
       var shipEl = document.querySelector('[class*="dynamic-shipping"]');
+      // Textos ANTES del walk: el walk cambia la selección y los elementos son
+      // referencias vivas (si se leyeran al final darían el último combo).
+      var priceTextInitial = priceEl ? String(priceEl.innerText || priceEl.getAttribute('content') || '') : '';
+      var shippingTextInitial = shipEl ? String(shipEl.innerText || '').replace(/\s+/g, ' ').trim() : '';
       var productId = '';
       var m = String(location.href).match(/(?:item|i)\/(\d{10,20})/i);
       if (m) productId = m[1];
@@ -581,7 +587,11 @@ async function readPagePayload(tabId, sections) {
         if (!offer || typeof offer !== 'object') return;
         var nestedOffer = offer.offers && typeof offer.offers === 'object' ? offer.offers : offer;
         var sku = String(offer.sku || offer.mpn || nestedOffer.sku || '').trim();
-        var name = String(offer.name || (jsonProduct.name ? jsonProduct.name + (index ? ' ' + (index + 1) : '') : '')).trim();
+        var rawName = String(offer.name || '').trim();
+        var hasId = sku !== '' || String(offer.productID || offer.mpn || '').trim() !== '';
+        // Sin SKU ni nombre no se fabrica variante fantasma ("Producto N", vid=N).
+        if (!hasId && rawName === '') return;
+        var name = String(rawName || (jsonProduct.name ? jsonProduct.name + (index ? ' ' + (index + 1) : '') : '')).trim();
         if (!name && !sku) return;
         var variantSalePrice = nestedOffer.price || nestedOffer.lowPrice || null;
         extractedVariants.push({ sku: sku, name: name || sku, price: variantSalePrice, sale_price: variantSalePrice, currency: nestedOffer.priceCurrency || '', vid: String(offer.productID || offer.sku || offer.mpn || index), stock: nestedOffer.inventoryLevel || null });
@@ -652,8 +662,8 @@ async function readPagePayload(tabId, sections) {
           aiSummary: aiSummary,
           ogImage: mi ? (mi.getAttribute('content') || '') : '',
           images: extractedImages,
-          priceText: priceEl ? String(priceEl.innerText || priceEl.getAttribute('content') || '') : '',
-          shippingText: shipEl ? String(shipEl.innerText || '').replace(/\s+/g, ' ').trim() : '',
+          priceText: priceTextInitial,
+          shippingText: shippingTextInitial,
           descriptionHtml: descriptionHtml,
           descriptionUrl: descriptionUrl,
           variants: extractedVariants,

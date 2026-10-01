@@ -113,6 +113,7 @@ class ProductSimilarImportService
                 $name = mb_substr(trim((string) ($row['name'] ?? $sku)), 0, 190);
                 if ($name === '') continue;
                 if ($vid !== '' && in_array($vid, $excluded, true)) continue;
+                if ($vid === '' && $sku === '') continue;
                 // Agotadas (soldOut del DOM o stock 0): no se agregan a Multidrop.
                 $rowSoldOut = ! empty($row['sold_out'])
                     || ($row['available'] ?? null) === false

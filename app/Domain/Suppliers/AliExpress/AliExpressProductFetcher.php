@@ -1594,6 +1594,43 @@ class AliExpressProductFetcher
     }
 
     /**
+     * Identificadores normalizados de una variante (vid, sku y tokens de la
+     * clave de combo "14:175;200:10"). Comparación siempre exacta por token:
+     * nunca subcadena ("14-10" NO debe coincidir con "14-1052").
+     *
+     * @param  array<string, mixed>  $variant
+     * @return array<string, true>
+     */
+    protected function variantKeyTokens(array $variant): array
+    {
+        $forms = [];
+        $add = function ($raw) use (&$forms) {
+            $raw = trim((string) $raw);
+            if ($raw === '') {
+                return;
+            }
+            $raw = preg_replace('/#.*$/', '', $raw) ?? $raw;
+            $raw = trim($raw);
+            if ($raw === '') {
+                return;
+            }
+            foreach ($this->soldOutKeys($raw) as $f) {
+                $forms[$f] = true;
+            }
+        };
+        $add($variant['vid'] ?? '');
+        $add($variant['sku'] ?? '');
+        $key = (string) ($variant['key'] ?? '');
+        if ($key !== '') {
+            foreach (preg_split('/[;|,]/', $key) ?: [] as $token) {
+                $add($token);
+            }
+        }
+
+        return $forms;
+    }
+
+    /**
      * ¿La variante está agotada (flags explícitos, stock 0 o set soldOut)?
      *
      * @param  array<string, mixed>  $variant
@@ -1611,26 +1648,9 @@ class AliExpressProductFetcher
         if ($soldOutSet === []) {
             return false;
         }
-        foreach (['vid', 'sku'] as $field) {
-            $raw = trim((string) ($variant[$field] ?? ''));
-            if ($raw === '') {
-                continue;
-            }
-            foreach ($this->soldOutKeys($raw) as $k) {
-                if (isset($soldOutSet[$k])) {
-                    return true;
-                }
-            }
-        }
-        // Clave de combo ("14:175;..."): contiene el id normalizado estructurado.
-        $key = (string) ($variant['key'] ?? '');
-        if ($key !== '') {
-            foreach ($soldOutSet as $k => $_) {
-                if (($k !== '' && str_contains($k, ':')) || str_contains($k, '-')) {
-                    if (str_contains($key, $k) || str_contains($key, str_replace('-', ':', $k))) {
-                        return true;
-                    }
-                }
+        foreach ($this->variantKeyTokens($variant) as $form => $_) {
+            if (isset($soldOutSet[$form])) {
+                return true;
             }
         }
 
@@ -1648,26 +1668,20 @@ class AliExpressProductFetcher
         if ($cols === []) {
             return false;
         }
-        $vid = trim((string) ($variant['vid'] ?? ''));
-        $sku = trim((string) ($variant['sku'] ?? ''));
-        $key = (string) ($variant['key'] ?? '');
+        $forms = $this->variantKeyTokens($variant);
+        if ($forms === []) {
+            return false;
+        }
         foreach ($cols as $col) {
             $col = trim((string) $col);
             if ($col === '') {
                 return false;
             }
-            $hit = $vid === $col || $sku === $col;
-            if (! $hit && $key !== '') {
-                foreach ($this->soldOutKeys($col) as $form) {
-                    // Solo formas estructuradas ("14:175"): un id corto suelto
-                    // ("175") daría falsos positivos dentro de "14:1750".
-                    if (! str_contains($form, ':') && ! str_contains($form, '-')) {
-                        continue;
-                    }
-                    if (str_contains($key, $form)) {
-                        $hit = true;
-                        break;
-                    }
+            $hit = false;
+            foreach ($this->soldOutKeys($col) as $form) {
+                if (isset($forms[$form])) {
+                    $hit = true;
+                    break;
                 }
             }
             if (! $hit) {
@@ -1896,11 +1910,15 @@ class AliExpressProductFetcher
             }
         }
 
-        // Eliminar agotadas: no deben agregarse a Multidrop.
+        // Eliminar agotadas (y filas sin identificador): no deben agregarse.
         $excluded = 0;
         $out = [];
         foreach ($parsed as $pv) {
             if (! is_array($pv)) {
+                continue;
+            }
+            if (trim((string) ($pv['vid'] ?? '')) === '' && trim((string) ($pv['sku'] ?? '')) === '') {
+                $excluded++;
                 continue;
             }
             if ($this->isSoldOutVariant($pv, $soldOutSet)) {

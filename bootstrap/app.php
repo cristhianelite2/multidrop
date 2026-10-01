@@ -61,6 +61,11 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions) {
         $exceptions->renderable(function (\Throwable $e, \Illuminate\Http\Request $request) {
+            if ($e instanceof \Illuminate\Auth\AuthenticationException
+                || $e instanceof \Illuminate\Auth\Access\AuthorizationException) {
+                return null;
+            }
+
             if ($request->is('api/*') || $request->expectsJson()
                 || $e instanceof \Illuminate\Validation\ValidationException) {
                 return null;

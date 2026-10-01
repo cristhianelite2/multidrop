@@ -525,6 +525,10 @@ class LabController extends Controller
         $msg = $created
             ? 'Producto enviado a borrador en «'.$store->name.'» (sanitizado).'
             : 'Borrador actualizado en «'.$store->name.'» (sanitizado).';
+        $excludedSoldOut = (int) ($ae['excluded_sold_out'] ?? 0);
+        if ($excludedSoldOut > 0) {
+            $msg .= ' Se omitieron '.$excludedSoldOut.' variación(es) agotada(s).';
+        }
         if (! empty($ae['sanitized_with_miia'])) {
             $msg .= ' Título y descripción optimizados con MIIA.';
         }

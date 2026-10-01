@@ -256,6 +256,13 @@ class AliExpressProductSyncService
             if ($vid !== '' && in_array($vid, $excluded, true)) {
                 continue;
             }
+            // Agotadas (soldOut del DOM, no-vendibles o stock 0): no se agregan.
+            $rowSoldOut = ! empty($v['sold_out'])
+                || ($v['available'] ?? null) === false
+                || (array_key_exists('stock', $v) && $v['stock'] !== null && $v['stock'] !== '' && (int) $v['stock'] <= 0);
+            if ($rowSoldOut) {
+                continue;
+            }
             $sku = (string) ($v['sku'] ?? $vid);
             if ($sku === '' && $vid !== '') {
                 $sku = 'VID-'.$vid;

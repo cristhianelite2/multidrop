@@ -295,6 +295,16 @@ class AliExpressProductFetcher
             }
         }
 
+        // Snapshot del plugin: precios por variación clicada + descarte de agotados.
+        $snapshotState = $this->mergeSnapshotVariants(
+            is_array($product['variants'] ?? null) ? $product['variants'] : [],
+            $snapshot
+        );
+        $product['variants'] = $snapshotState['variants'];
+        if ($snapshotState['excluded'] > 0) {
+            $product['excluded_sold_out'] = (int) ($product['excluded_sold_out'] ?? 0) + $snapshotState['excluded'];
+        }
+
         $mediaOnlyExtract = $sections !== [] && array_diff($sections, ['videos', 'images']) === [];
 
         $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
@@ -1437,7 +1447,376 @@ class AliExpressProductFetcher
             }
         }
 
+        // Marcar opciones agotadas: el tag con data-sku-col lleva clase ...soldOut...
+        // (y las de texto, soldOut sin data-sku-col). El filtrado se hace al persistir.
+        if ($variants !== []) {
+            $soldOutSet = $this->soldOutColsFromHtml($html);
+            $soldOutTexts = $this->soldOutTextsFromHtml($html);
+            if ($soldOutSet !== [] || $soldOutTexts !== []) {
+                foreach ($variants as $i => $v) {
+                    if (! is_array($v) || ! empty($v['sold_out'])) {
+                        continue;
+                    }
+                    $hit = $this->isSoldOutVariant($v, $soldOutSet);
+                    if (! $hit && $soldOutTexts !== [] && str_starts_with((string) ($v['vid'] ?? ''), 'dom-')) {
+                        $nm = mb_strtolower(trim((string) ($v['name'] ?? '')));
+                        foreach ($soldOutTexts as $t) {
+                            if ($t !== '' && ($nm === $t || str_ends_with($nm, ': '.$t))) {
+                                $hit = true;
+                                break;
+                            }
+                        }
+                    }
+                    if ($hit) {
+                        $variants[$i]['sold_out'] = true;
+                        $variants[$i]['available'] = false;
+                        $variants[$i]['stock'] = 0;
+                    }
+                }
+            }
+        }
+
         return $variants;
+    }
+
+    /**
+     * Clases ...soldOut... sobre el tag con data-sku-col="14-175" (cualquier orden).
+     *
+     * @return array<string, true>
+     */
+    protected function soldOutColsFromHtml(string $html): array
+    {
+        $set = [];
+        if ($html === '') {
+            return $set;
+        }
+        if (preg_match_all(
+            '/<(?:div|li|button|a|span)[^>]*data-sku-col=["\']([^"\']+)["\'][^>]*>/i',
+            $html,
+            $m,
+            PREG_SET_ORDER
+        )) {
+            foreach ($m as $row) {
+                if (! preg_match('/sold\s*-?out/i', (string) ($row[0] ?? ''))) {
+                    continue;
+                }
+                foreach ($this->soldOutKeys(trim((string) ($row[1] ?? ''))) as $k) {
+                    if ($k !== '') {
+                        $set[$k] = true;
+                    }
+                }
+            }
+        }
+
+        return $set;
+    }
+
+    /**
+     * Nombres de opciones de texto agotadas (sin data-sku-col), en minúsculas.
+     *
+     * @return list<string>
+     */
+    protected function soldOutTextsFromHtml(string $html): array
+    {
+        $out = [];
+        if ($html === '') {
+            return $out;
+        }
+        if (preg_match_all(
+            '/<(?:div|li|button|span)[^>]+class="[^"]*sku-item--(?:text|skuText|selectSku)[^"]*soldOut[^"]*"[^>]*>([\s\S]*?)<\/(?:div|li|button|span)>/i',
+            $html,
+            $m
+        )) {
+            foreach ($m[1] as $raw) {
+                $nm = mb_strtolower(trim((string) (preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($raw), ENT_QUOTES, 'UTF-8')) ?? '')));
+                if ($nm !== '' && ! in_array($nm, $out, true)) {
+                    $out[] = $nm;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Formas normalizadas de un identificador de opción ("14-175" ↔ "14:175").
+     *
+     * @return list<string>
+     */
+    protected function soldOutKeys(string $raw): array
+    {
+        $raw = trim($raw);
+        if ($raw === '') {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter([
+            $raw,
+            str_replace('-', ':', $raw),
+            str_replace(':', '-', $raw),
+        ])));
+    }
+
+    /**
+     * ¿La variante está agotada (flags explícitos, stock 0 o set soldOut)?
+     *
+     * @param  array<string, mixed>  $variant
+     * @param  array<string, true>  $soldOutSet
+     */
+    protected function isSoldOutVariant(array $variant, array $soldOutSet): bool
+    {
+        if (! empty($variant['sold_out']) || ($variant['available'] ?? null) === false) {
+            return true;
+        }
+        if (array_key_exists('stock', $variant) && $variant['stock'] !== null && $variant['stock'] !== ''
+            && (int) $variant['stock'] <= 0) {
+            return true;
+        }
+        if ($soldOutSet === []) {
+            return false;
+        }
+        foreach (['vid', 'sku'] as $field) {
+            $raw = trim((string) ($variant[$field] ?? ''));
+            if ($raw === '') {
+                continue;
+            }
+            foreach ($this->soldOutKeys($raw) as $k) {
+                if (isset($soldOutSet[$k])) {
+                    return true;
+                }
+            }
+        }
+        // Clave de combo ("14:175;..."): contiene el id normalizado estructurado.
+        $key = (string) ($variant['key'] ?? '');
+        if ($key !== '') {
+            foreach ($soldOutSet as $k => $_) {
+                if (($k !== '' && str_contains($k, ':')) || str_contains($k, '-')) {
+                    if (str_contains($key, $k) || str_contains($key, str_replace('-', ':', $k))) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * ¿Todos los cols del walk están contenidos en la variante (combo completo)?
+     *
+     * @param  array<string, mixed>  $variant
+     * @param  list<string>  $cols
+     */
+    protected function variantMatchesCols(array $variant, array $cols): bool
+    {
+        if ($cols === []) {
+            return false;
+        }
+        $vid = trim((string) ($variant['vid'] ?? ''));
+        $sku = trim((string) ($variant['sku'] ?? ''));
+        $key = (string) ($variant['key'] ?? '');
+        foreach ($cols as $col) {
+            $col = trim((string) $col);
+            if ($col === '') {
+                return false;
+            }
+            $hit = $vid === $col || $sku === $col;
+            if (! $hit && $key !== '') {
+                foreach ($this->soldOutKeys($col) as $form) {
+                    if (str_contains($key, $form)) {
+                        $hit = true;
+                        break;
+                    }
+                }
+            }
+            if (! $hit) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Cruza variantes parseadas con el snapshot del plugin:
+     *  - marca agotados (soldOutSkus + domSkuOptions con soldOut),
+     *  - aplica el precio clicado por variación/combo (variantPrices),
+     *  - crea variantes desde domSkuOptions si no había ninguna,
+     *  - elimina las agotadas para no agregarlas a Multidrop.
+     *
+     * @param  list<array<string, mixed>>  $parsed
+     * @param  array<string, mixed>  $snapshot
+     * @return array{variants: list<array<string, mixed>>, excluded: int}
+     */
+    public function mergeSnapshotVariants(array $parsed, array $snapshot): array
+    {
+        $parsed = array_values(array_filter($parsed, 'is_array'));
+        $soldOutSet = [];
+        foreach ((array) ($snapshot['soldOutSkus'] ?? []) as $raw) {
+            foreach ($this->soldOutKeys((string) $raw) as $k) {
+                if ($k !== '') {
+                    $soldOutSet[$k] = true;
+                }
+            }
+        }
+        $domOptions = [];
+        foreach ((array) ($snapshot['domSkuOptions'] ?? []) as $opt) {
+            if (! is_array($opt)) {
+                continue;
+            }
+            $col = trim((string) ($opt['col'] ?? ''));
+            if ($col === '' || isset($domOptions[$col])) {
+                continue;
+            }
+            $domOptions[$col] = $opt;
+            if (! empty($opt['soldOut'])) {
+                foreach ($this->soldOutKeys($col) as $k) {
+                    if ($k !== '') {
+                        $soldOutSet[$k] = true;
+                    }
+                }
+            }
+        }
+
+        // Enriquecer con filas del snapshot (precio/flags por vid|sku).
+        foreach (array_values(array_filter((array) ($snapshot['variants'] ?? []), 'is_array')) as $row) {
+            $vid = trim((string) ($row['vid'] ?? ''));
+            $sku = trim((string) ($row['sku'] ?? ''));
+            if ($vid === '' && $sku === '') {
+                continue;
+            }
+            $price = $this->toFloat($row['sale_price'] ?? $row['price'] ?? null);
+            $unavail = ! empty($row['sold_out'])
+                || ($row['available'] ?? null) === false
+                || (array_key_exists('stock', $row) && $row['stock'] !== null && $row['stock'] !== '' && (int) $row['stock'] <= 0);
+            foreach ($parsed as $i => $pv) {
+                if (! is_array($pv)) {
+                    continue;
+                }
+                $pvid = trim((string) ($pv['vid'] ?? ''));
+                $psku = trim((string) ($pv['sku'] ?? ''));
+                if (!(($vid !== '' && ($pvid === $vid || $psku === $vid))
+                    || ($sku !== '' && ($psku === $sku || $pvid === $sku)))) {
+                    continue;
+                }
+                if ($price !== null && $price > 0) {
+                    if (! is_numeric($pv['price'] ?? null)) {
+                        $parsed[$i]['price'] = $price;
+                    }
+                    $parsed[$i]['sale_price'] = $price;
+                    if (empty($pv['currency']) && ! empty($row['currency'])) {
+                        $parsed[$i]['currency'] = strtoupper((string) $row['currency']);
+                    }
+                }
+                if ($unavail) {
+                    $parsed[$i]['sold_out'] = true;
+                    $parsed[$i]['available'] = false;
+                    $parsed[$i]['stock'] = 0;
+                }
+            }
+        }
+
+        // Precio por variación/combo clicado en la página.
+        foreach ((array) ($snapshot['variantPrices'] ?? []) as $wp) {
+            if (! is_array($wp)) {
+                continue;
+            }
+            $cols = array_values(array_filter(array_map(
+                fn ($c) => trim((string) $c),
+                (array) ($wp['cols'] ?? [])
+            )));
+            if ($cols === []) {
+                continue;
+            }
+            $price = $this->toFloat($wp['price'] ?? null);
+            $original = $this->toFloat($wp['original'] ?? null);
+            $notAvailable = ($wp['available'] ?? null) === false;
+            $partial = ($wp['full'] ?? true) === false;
+            foreach ($parsed as $i => $pv) {
+                if (! is_array($pv) || ! $this->variantMatchesCols($pv, $cols)) {
+                    continue;
+                }
+                // Caminata parcial: el precio no es del combo; solo la
+                // no-disponibilidad es válida.
+                if (! $partial && $price !== null && $price > 0) {
+                    if (! is_numeric($pv['price'] ?? null)) {
+                        $parsed[$i]['price'] = $price;
+                    }
+                    $parsed[$i]['sale_price'] = $price;
+                    if (empty($pv['currency']) && ! empty($wp['currency'])) {
+                        $parsed[$i]['currency'] = strtoupper((string) $wp['currency']);
+                    }
+                    if ($original !== null && $original > $price
+                        && ! is_numeric($pv['compare_at_price'] ?? null)) {
+                        $parsed[$i]['compare_at_price'] = $original;
+                    }
+                }
+                if ($notAvailable) {
+                    $parsed[$i]['sold_out'] = true;
+                    $parsed[$i]['available'] = false;
+                    $parsed[$i]['stock'] = 0;
+                }
+            }
+        }
+
+        // Sin variantes parseadas: construir desde las opciones del DOM.
+        if ($parsed === [] && $domOptions !== []) {
+            $walkByCol = [];
+            foreach ((array) ($snapshot['variantPrices'] ?? []) as $wp) {
+                if (! is_array($wp)) {
+                    continue;
+                }
+                $cols = array_values(array_filter(array_map(
+                    fn ($c) => trim((string) $c),
+                    (array) ($wp['cols'] ?? [])
+                )));
+                if (count($cols) !== 1 || ($wp['full'] ?? true) === false) {
+                    continue;
+                }
+                $p = $this->toFloat($wp['price'] ?? null);
+                if ($p !== null && $p > 0 && ! isset($walkByCol[$cols[0]])) {
+                    $walkByCol[$cols[0]] = ['price' => $p, 'currency' => $wp['currency'] ?? ''];
+                }
+            }
+            foreach ($domOptions as $col => $opt) {
+                if (! empty($opt['soldOut'])) {
+                    continue;
+                }
+                $name = trim((string) ($opt['name'] ?? $col));
+                if ($name === '' || count($parsed) >= 120) {
+                    continue;
+                }
+                $wp = $walkByCol[$col] ?? null;
+                $parsed[] = [
+                    'vid' => $col,
+                    'sku' => $col,
+                    'name' => mb_substr($name, 0, 190),
+                    'key' => $col,
+                    'price' => $wp['price'] ?? null,
+                    'sale_price' => $wp['price'] ?? null,
+                    'currency' => strtoupper((string) ($wp['currency'] ?? '')),
+                    'image' => (string) ($opt['image'] ?? ''),
+                    'stock' => null,
+                    'weight' => null,
+                ];
+            }
+        }
+
+        // Eliminar agotadas: no deben agregarse a Multidrop.
+        $excluded = 0;
+        $out = [];
+        foreach ($parsed as $pv) {
+            if (! is_array($pv)) {
+                continue;
+            }
+            if ($this->isSoldOutVariant($pv, $soldOutSet)) {
+                $excluded++;
+                continue;
+            }
+            $out[] = $pv;
+        }
+
+        return ['variants' => array_slice(array_values($out), 0, 120), 'excluded' => $excluded];
     }
 
     /**
@@ -3849,6 +4228,17 @@ class AliExpressProductFetcher
             } elseif (isset($row['skuStock'])) {
                 $stock = (int) $row['skuStock'];
             }
+            // Flags de no-vendible que deja la PDP (además de `salable`).
+            $unsellable = ($stock !== null && $stock <= 0)
+                || ! empty($row['soldOut'])
+                || ! empty($row['isSoldOut'])
+                || (array_key_exists('saleable', $row) && ! $row['saleable'])
+                || (array_key_exists('canBuy', $row) && ! $row['canBuy'])
+                || ! empty($skuVal['soldOut'])
+                || ! empty($skuVal['isSoldOut']);
+            if ($unsellable) {
+                $stock = 0;
+            }
             $variants[] = [
                 'vid' => $skuId,
                 'sku' => $skuId !== '' ? $skuId : $skuAttr,
@@ -3859,6 +4249,8 @@ class AliExpressProductFetcher
                 'image' => $image,
                 'stock' => $stock,
                 'weight' => null,
+                'sold_out' => $unsellable,
+                'available' => ! $unsellable,
             ];
         }
 

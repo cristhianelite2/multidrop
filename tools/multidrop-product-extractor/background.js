@@ -90,6 +90,234 @@ async function readPagePayload(tabId, sections) {
         } catch (e2) {}
         return out;
       }
+      function parsePriceNum(txt) {
+        txt = String(txt == null ? '' : txt);
+        var n = txt.replace(/[^\d.,]/g, '');
+        if (!n) return null;
+        var lastComma = n.lastIndexOf(',');
+        var lastDot = n.lastIndexOf('.');
+        if (lastComma >= 0 && lastDot >= 0) {
+          if (lastComma > lastDot) { n = n.replace(/\./g, '').replace(',', '.'); }
+          else { n = n.replace(/,/g, ''); }
+        } else if (lastComma >= 0) {
+          var frac = n.slice(lastComma + 1);
+          n = (frac.length === 3 && lastComma > 0) ? n.replace(/,/g, '') : n.replace(',', '.');
+        }
+        var v = parseFloat(n);
+        return isNaN(v) ? null : v;
+      }
+      function detectCurrencyTxt(txt) {
+        txt = String(txt || '');
+        if (/MXN|MX\s*\$|Mex\s*\$/i.test(txt)) return 'MXN';
+        if (/USD|US\s*\$/i.test(txt)) return 'USD';
+        if (/EUR|€/.test(txt)) return 'EUR';
+        if (/GBP|£/.test(txt)) return 'GBP';
+        if (/BRL|R\s*\$/i.test(txt)) return 'BRL';
+        if (/CAD|CA\s*\$/i.test(txt)) return 'CAD';
+        if (/AUD|AU\s*\$/i.test(txt)) return 'AUD';
+        if (/CNY|RMB|¥/.test(txt)) return 'CNY';
+        return '';
+      }
+      function readCurrentPrice() {
+        var cur = null;
+        try { cur = document.querySelector('[class*="price-default--current"]'); } catch (eQ) {}
+        var orig = null;
+        try { orig = document.querySelector('[class*="price-default--original"]'); } catch (eQ2) {}
+        var curText = cur ? String(cur.innerText || '').replace(/\s+/g, ' ').trim() : '';
+        var origText = orig ? String(orig.innerText || '').replace(/\s+/g, ' ').trim() : '';
+        return {
+          curText: curText,
+          price: parsePriceNum(curText),
+          currency: detectCurrencyTxt(curText),
+          origText: origText,
+          original: parsePriceNum(origText)
+        };
+      }
+      function isSoldOutEl(el) {
+        if (!el) return false;
+        var cls = '';
+        try { cls = String(el.className || ''); }
+        catch (eC) { cls = String((el.getAttribute && el.getAttribute('class')) || ''); }
+        if (/sold\s*-?out/i.test(cls)) return true;
+        if (/out[\s_-]*of[\s_-]*stock/i.test(cls)) return true;
+        if (/unavailable/i.test(cls)) return true;
+        return false;
+      }
+      function skuOptName(el) {
+        try {
+          var img = el.querySelector ? el.querySelector('img') : null;
+          var alt = img ? String(img.getAttribute('alt') || '').trim() : '';
+          if (alt) return alt;
+        } catch (eA) {}
+        try {
+          var aria = String((el.getAttribute && el.getAttribute('aria-label')) || '').replace(/\s+/g, ' ').trim();
+          if (aria) return aria;
+        } catch (eA2) {}
+        return String(el.innerText || '').replace(/\s+/g, ' ').trim();
+      }
+      function skuOptImg(el) {
+        try {
+          var img = el.querySelector ? el.querySelector('img') : null;
+          if (!img) return '';
+          return absUrl(img.currentSrc || img.src || img.getAttribute('data-src') || '');
+        } catch (eI) { return ''; }
+      }
+      // Estado soldOut del DOM: [data-sku-col="14-175"] con clase ...soldOut...
+      function extractDomSkuState() {
+        var byCol = {};
+        var soldOutCols = [];
+        try {
+          document.querySelectorAll('[data-sku-col]').forEach(function (el) {
+            var col = String(el.getAttribute('data-sku-col') || '').trim();
+            if (!col || byCol[col]) return;
+            var sold = isSoldOutEl(el);
+            byCol[col] = { col: col, name: skuOptName(el), image: skuOptImg(el), soldOut: sold };
+            if (sold && soldOutCols.indexOf(col) < 0) soldOutCols.push(col);
+          });
+        } catch (e1) {}
+        var soldOutTexts = [];
+        try {
+          document.querySelectorAll('[class*="sku-item--text"]').forEach(function (el) {
+            if (!isSoldOutEl(el)) return;
+            var nm = String(el.innerText || '').replace(/\s+/g, ' ').trim();
+            if (nm && soldOutTexts.indexOf(nm) < 0) soldOutTexts.push(nm);
+          });
+        } catch (e2) {}
+        return { byCol: byCol, soldOutCols: soldOutCols, soldOutTexts: soldOutTexts };
+      }
+      function isComboSelected(el) {
+        try {
+          var cls = String(el.className || '');
+          if (/selected/i.test(cls)) return true;
+          if (el.getAttribute) {
+            if (el.getAttribute('aria-checked') === 'true') return true;
+            if (el.getAttribute('aria-selected') === 'true') return true;
+          }
+        } catch (eS) {}
+        return false;
+      }
+      function optRef(el) {
+        var col = '';
+        try { col = String(el.getAttribute('data-sku-col') || ''); } catch (eR) {}
+        return { el: el, col: col, name: skuOptName(el) };
+      }
+      // La PDP re-renderiza las opciones al seleccionar: re-resolver el nodo
+      // vivo antes de cada clic/lectura para no operar sobre nodos sueltos.
+      function resolveOpt(ref) {
+        try {
+          if (ref.col) {
+            var live = document.querySelector('[data-sku-col="' + ref.col + '"]');
+            if (live) return live;
+          }
+        } catch (eL) {}
+        if (ref.el && ref.el.isConnected !== false) return ref.el;
+        try {
+          var found = null;
+          document.querySelectorAll('[class*="sku-item--text"]').forEach(function (el) {
+            if (!found && skuOptName(el) === ref.name) found = el;
+          });
+          if (found) return found;
+        } catch (eL2) {}
+        return ref.el;
+      }
+      // Recorre cada variación (o combinación) clicándola y lee su precio visible
+      // en .price-default--current (más .price-default--original si existe).
+      async function walkVariantPrices() {
+        var out = [];
+        var groupCount = 0;
+        try {
+          var groups = [];
+          var propBlocks = document.querySelectorAll('[class*="sku-item--property"]');
+          propBlocks.forEach(function (block) {
+            var opts = [];
+            block.querySelectorAll('[data-sku-col]').forEach(function (el) { opts.push(optRef(el)); });
+            if (!opts.length) {
+              block.querySelectorAll('[class*="sku-item--text"]').forEach(function (el) { opts.push(optRef(el)); });
+            }
+            var seen = {};
+            opts = opts.filter(function (ref) {
+              var k = ref.col || ref.name;
+              if (!k || seen[k]) return false;
+              seen[k] = true;
+              return true;
+            });
+            if (opts.length) groups.push(opts);
+          });
+          if (!groups.length) {
+            var global = [];
+            var seenG = {};
+            document.querySelectorAll('[data-sku-col]').forEach(function (el) {
+              var k = String(el.getAttribute('data-sku-col') || '');
+              if (!k || seenG[k]) return;
+              seenG[k] = true;
+              global.push(optRef(el));
+            });
+            if (global.length) groups.push(global);
+          }
+          if (!groups.length) return { prices: [], walked: false, groups: 0 };
+          groupCount = groups.length;
+          var MAX = 40;
+          var total = groups.reduce(function (a, g) { return a * g.length; }, 1);
+          var combos = [];
+          if (total <= MAX) {
+            combos = [[]];
+            groups.forEach(function (opts) {
+              var next = [];
+              combos.forEach(function (prefix) {
+                opts.forEach(function (ref) { next.push(prefix.concat([ref])); });
+              });
+              combos = next;
+            });
+          } else {
+            // Demasiadas combinaciones: caminar opción por opción.
+            groups.forEach(function (opts) {
+              opts.forEach(function (ref) {
+                if (combos.length < MAX) combos.push([ref]);
+              });
+            });
+          }
+          for (var ci = 0; ci < combos.length; ci++) {
+            var combo = combos[ci];
+            for (var k = 0; k < combo.length; k++) {
+              try {
+                var target = resolveOpt(combo[k]);
+                if (target.scrollIntoView) target.scrollIntoView({ behavior: 'instant', block: 'center' });
+                target.click();
+                await sleep(300);
+              } catch (eClick) {}
+            }
+            await sleep(450);
+            var pr = readCurrentPrice();
+            var cols = combo.map(function (ref) { return ref.col; }).filter(function (c) { return !!c; });
+            var names = combo.map(function (ref) { return ref.name; });
+            var liveEls = combo.map(function (ref) { return resolveOpt(ref); });
+            var selected = liveEls.map(function (el) { return isComboSelected(el); });
+            var avail = true;
+            liveEls.forEach(function (el) { if (isSoldOutEl(el)) avail = false; });
+            try {
+              document.querySelectorAll('[class*="sku-item--selected"]').forEach(function (sel) {
+                if (isSoldOutEl(sel)) avail = false;
+              });
+            } catch (eSel) {}
+            var allSelected = selected.length === 0 || selected.every(function (s) { return s; });
+            if (!allSelected) avail = false;
+            out.push({
+              cols: cols,
+              names: names,
+              // full=false: caminata parcial (una opción con 2+ dimensiones):
+              // el precio NO es del combo, solo la no-disponibilidad es válida.
+              full: combo.length === groupCount,
+              price: allSelected ? pr.price : null,
+              priceText: allSelected ? pr.curText : '',
+              original: allSelected ? pr.original : null,
+              originalText: allSelected ? pr.origText : '',
+              currency: pr.currency,
+              available: avail
+            });
+          }
+        } catch (eWalk) {}
+        return { prices: out, walked: out.length > 0, groups: groupCount };
+      }
       function compactRunModules(data) {
         if (!data || typeof data !== 'object') return null;
         var skuModule = data.skuModule || null;
@@ -245,12 +473,55 @@ async function readPagePayload(tabId, sections) {
       document.querySelectorAll('[itemprop="offers"] [itemprop="sku"], [data-variant-id], [data-sku]').forEach(function (el, index) {
         var sku = String(el.getAttribute('content') || el.getAttribute('data-sku') || '').trim();
         var vid = String(el.getAttribute('data-variant-id') || el.getAttribute('data-sku') || sku || index).trim();
-        var name = String(el.innerText || el.getAttribute('aria-label') || sku || '').replace(/\\s+/g, ' ').trim();
+        var name = String(el.innerText || el.getAttribute('aria-label') || sku || '').replace(/\s+/g, ' ').trim();
         if (!name && !sku) return;
         if (!extractedVariants.some(function (variant) { return (variant.vid && variant.vid === vid) || (sku && variant.sku === sku); })) {
           extractedVariants.push({ sku: sku, name: name || sku, vid: vid, price: null, currency: '', stock: null });
         }
       });
+
+      // 1) Marcar agotados del DOM (clase soldOut en [data-sku-col]) para omitirlos.
+      // 2) Caminar cada variación/combinación clicándola y leer su precio visible.
+      var domSku = extractDomSkuState();
+      var wantWalk = fullCapture || sections.indexOf('variants') >= 0;
+      var variantWalk = { prices: [], walked: false, groups: 0 };
+      if (wantWalk) {
+        try { variantWalk = await walkVariantPrices(); }
+        catch (eW) { variantWalk = { prices: [], walked: false, groups: 0 }; }
+      }
+      extractedVariants.forEach(function (v) {
+        var keys = [v.vid, v.sku].map(function (x) { return String(x || ''); }).filter(Boolean);
+        for (var i = 0; i < keys.length; i++) {
+          var st = domSku.byCol[keys[i]];
+          if (st && st.soldOut) { v.sold_out = true; v.available = false; v.stock = 0; break; }
+        }
+        if (!v.sold_out && domSku.soldOutTexts.length) {
+          var nm = String(v.name || '').toLowerCase();
+          for (var t = 0; t < domSku.soldOutTexts.length; t++) {
+            var s = String(domSku.soldOutTexts[t]).toLowerCase();
+            if (s && (nm === s || nm.slice(-s.length - 2) === ': ' + s)) {
+              v.sold_out = true; v.available = false; v.stock = 0; break;
+            }
+          }
+        }
+        if (v.available == null) v.available = !v.sold_out;
+      });
+      // Precio por variación clicada (una sola dimensión): completa variantes sin precio.
+      // Con 2+ dimensiones, el backend cruza variantPrices con la clave de cada SKU.
+      if (variantWalk.prices.length && variantWalk.groups === 1) {
+        variantWalk.prices.forEach(function (wp) {
+          if (!wp.cols || !wp.cols.length || !(wp.price > 0)) return;
+          var col = wp.cols[0];
+          extractedVariants.forEach(function (v) {
+            if (String(v.vid) === col || String(v.sku) === col) {
+              if (v.price == null) v.price = wp.price;
+              v.sale_price = wp.price;
+              if (!v.currency && wp.currency) v.currency = wp.currency;
+              if (wp.available === false) { v.sold_out = true; v.available = false; v.stock = 0; }
+            }
+          });
+        });
+      }
 
       return {
         url: location.href,
@@ -270,6 +541,9 @@ async function readPagePayload(tabId, sections) {
           descriptionHtml: descriptionHtml,
           descriptionUrl: descriptionUrl,
           variants: extractedVariants,
+          soldOutSkus: domSku.soldOutCols,
+          variantPrices: variantWalk.prices,
+          domSkuOptions: Object.keys(domSku.byCol).map(function (k) { return domSku.byCol[k]; }),
           pageVideos: pageVideos
         }
       };

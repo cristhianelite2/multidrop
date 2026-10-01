@@ -104,12 +104,21 @@ class ProductSimilarImportService
             $variants = array_values(array_filter($remote['variants'] ?? [], 'is_array'));
             $excluded = array_map('strval', data_get($product->creative_data, 'excluded_variant_vids', []));
             $count = 0;
+            $skippedSoldOut = 0;
             foreach ($variants as $row) {
                 $vid = trim((string) ($row['vid'] ?? ''));
                 $sku = mb_substr(trim((string) ($row['sku'] ?? '')), 0, 120);
                 $name = mb_substr(trim((string) ($row['name'] ?? $sku)), 0, 190);
                 if ($name === '') continue;
                 if ($vid !== '' && in_array($vid, $excluded, true)) continue;
+                // Agotadas (soldOut del DOM o stock 0): no se agregan a Multidrop.
+                $rowSoldOut = ! empty($row['sold_out'])
+                    || ($row['available'] ?? null) === false
+                    || (array_key_exists('stock', $row) && $row['stock'] !== null && $row['stock'] !== '' && (int) $row['stock'] <= 0);
+                if ($rowSoldOut) {
+                    $skippedSoldOut++;
+                    continue;
+                }
                 $variant = null;
                 if ($vid !== '') {
                     $variant = $product->variants()->where('options->vid', $vid)->first();
@@ -133,6 +142,10 @@ class ProductSimilarImportService
                 $count++;
             }
             $imported['variants'] = $count;
+            $skippedSoldOut += (int) ($remote['excluded_sold_out'] ?? 0);
+            if ($skippedSoldOut > 0) {
+                $imported['variants_excluidas'] = $skippedSoldOut;
+            }
         }
 
         if (in_array('images', $sections, true)) {
@@ -325,7 +338,53 @@ class ProductSimilarImportService
             }
             $capturedProduct['ai_summary'] = trim((string) ($snapshot['aiSummary'] ?? $snapshot['ai_summary'] ?? ''));
             if (! empty($snapshot['variants']) && is_array($snapshot['variants'])) {
-                $capturedProduct['variants'] = array_values(array_filter($snapshot['variants'], 'is_array'));
+                // Cruza parseadas (nombres/imágenes/claves SKU reales) con el snapshot
+                // (precios por variación + soldOut) y descarta las agotadas.
+                $merged = $this->aeFetcher->mergeSnapshotVariants(
+                    is_array($capturedProduct['variants'] ?? null) ? $capturedProduct['variants'] : [],
+                    $snapshot
+                );
+                $variants = $merged['variants'];
+                $known = [];
+                foreach ($variants as $mv) {
+                    if (! is_array($mv)) {
+                        continue;
+                    }
+                    foreach ([trim((string) ($mv['vid'] ?? '')), trim((string) ($mv['sku'] ?? ''))] as $k) {
+                        if ($k !== '') {
+                            $known[$k] = true;
+                        }
+                    }
+                }
+                foreach (array_values(array_filter($snapshot['variants'], 'is_array')) as $row) {
+                    $vid = trim((string) ($row['vid'] ?? ''));
+                    $sku = trim((string) ($row['sku'] ?? ''));
+                    if (($vid !== '' && isset($known[$vid])) || ($sku !== '' && isset($known[$sku]))) {
+                        continue;
+                    }
+                    $rowSoldOut = ! empty($row['sold_out'])
+                        || ($row['available'] ?? null) === false
+                        || (array_key_exists('stock', $row) && $row['stock'] !== null && $row['stock'] !== '' && (int) $row['stock'] <= 0);
+                    if ($rowSoldOut) {
+                        $merged['excluded']++;
+                        continue;
+                    }
+                    $rowName = trim((string) ($row['name'] ?? $sku));
+                    if ($rowName === '') {
+                        continue;
+                    }
+                    $variants[] = $row;
+                    if ($vid !== '') {
+                        $known[$vid] = true;
+                    }
+                    if ($sku !== '') {
+                        $known[$sku] = true;
+                    }
+                }
+                $capturedProduct['variants'] = array_values($variants);
+                if ($merged['excluded'] > 0) {
+                    $capturedProduct['excluded_sold_out'] = (int) ($capturedProduct['excluded_sold_out'] ?? 0) + $merged['excluded'];
+                }
             }
 
             return [
@@ -482,6 +541,7 @@ class ProductSimilarImportService
             'description_short' => (string) ($product['description_short'] ?? ''),
             'ai_summary' => (string) ($product['ai_summary'] ?? ''),
             'variants' => array_values(is_array($product['variants'] ?? null) ? $product['variants'] : []),
+            'excluded_sold_out' => (int) ($product['excluded_sold_out'] ?? 0),
         ];
     }
 
@@ -855,6 +915,7 @@ class ProductSimilarImportService
         $labels = [
             'title' => 'títulos',
             'variants' => 'variantes',
+            'variants_excluidas' => 'agotadas omitidas',
             'images' => 'imágenes',
             'videos' => 'videos',
             'reviews' => 'reseñas',

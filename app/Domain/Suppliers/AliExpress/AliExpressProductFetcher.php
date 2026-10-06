@@ -8,6 +8,56 @@ use Illuminate\Support\Facades\Log;
 
 class AliExpressProductFetcher
 {
+    /**
+     * Lado mínimo (px) para considerar una imagen como foto del producto.
+     * El usuario pidió descartar todo lo que no llegue a 300x300.
+     */
+    protected const MIN_IMAGE_SIDE = 300;
+
+    /**
+     * Contenedores que sí contienen fotos del producto: carrusel, magnificador
+     * y las cajas de imagen de las variantes de SKU.
+     *
+     * @var list<string>
+     */
+    protected const GALLERY_ZONE_PARTS = [
+        'image-view-v2', 'images-view', 'main-image', 'magnifier', 'slider--wrap',
+        'slider--slider', 'slider--item', 'slider--img', 'image-gallery',
+        'product-gallery', 'product-image', 'gallery--item', 'sku-item',
+    ];
+
+    /** Descripción del artículo: también son fotos del producto. */
+    protected const DESCRIPTION_ZONE_PARTS = [
+        'product-description', 'detail-desc-decorate', 'description--product', 'desc-decorate',
+    ];
+
+    /** Reseñas: material válido (fotos de los compradores). */
+    protected const REVIEW_ZONE_PARTS = [
+        'ae-evaluate', 'ae-evaluation', 'evaluation-list', 'feedback', 'review', 'comment',
+    ];
+
+    /**
+     * Bloques que comparten el CDN del producto pero nunca son sus fotos:
+     * iconos, banners, estrellas, envío, tienda y productos relacionados.
+     * Se evalúan antes que las zonas buenas, así que ganan siempre.
+     *
+     * @var list<string>
+     */
+    protected const EXCLUDED_ZONE_PARTS = [
+        'shipping--', 'price-default--', 'bannerslogan', 'bannertop', 'ae-stars',
+        'ae-filter', 'ae-great-', 'choice-mind', 'instruction--', 'action--',
+        'quantity--', 'remind--', 'copy-link--', 'store-detail--', 'specification--',
+        'menu--wrap', 'recommend', 'related--', 'similar--', 'also--', 'upsell',
+        'bundle--', 'cross--', 'popular--', 'compare', 'nav--', 'footer', 'header',
+    ];
+
+    /** Etiquetas sin cierre: no se apilan al recorrer el HTML. */
+    protected const VOID_ELEMENTS = [
+        'area' => true, 'base' => true, 'br' => true, 'col' => true, 'embed' => true,
+        'hr' => true, 'img' => true, 'input' => true, 'link' => true, 'meta' => true,
+        'param' => true, 'source' => true, 'track' => true, 'wbr' => true,
+    ];
+
     public function __construct(
         protected AliExpressAffiliateClient $affiliate,
         protected CloudflareBrowserRenderer $browser,
@@ -1241,43 +1291,212 @@ class AliExpressProductFetcher
     protected function extractGalleryImagesFromDom(string $html): array
     {
         $out = [];
-        // El carrusel actual (image-view-v2 / slider--*) deja la clase del
-        // gallery en el <div> contenedor y el <img> solo con la miniatura
-        // 220x220, así que los patrones tienen que mirar los dos niveles.
-        $patterns = [
-            // <img> con la clase de galería en su propio atributo class.
-            '/<img[^>]+class="[^"]*(?:slider--img|magnifier--image|image-view-v2--img|images-view-item)[^"]*"[^>]+src="([^"]+)"/i',
-            '/<img[^>]+src="([^"]+)"[^>]+class="[^"]*(?:slider--img|magnifier--image|image-view-v2--img)[^"]*"/i',
-            '/<img[^>]+data-src="([^"]+)"[^>]+class="[^"]*(?:slider--img|magnifier--image)[^"]*"/i',
-            // <img> sin clase propia con la galería como contenedor inmediato.
-            '/(?:slider--item|slider--img|image-view-v2|main-image|magnifier|images-view)[^"]{0,160}"[^>]{0,120}>\s*(?:<(?!img\b)[a-z][a-z0-9-]*[^>]*>\s*){0,3}<img[^>]+(?:src|data-src)="([^"]+)"/i',
-            // Red de seguridad: cualquier <img> servido por el CDN de producto.
-            '/<img[^>]+src="([^"]*(?:\/kf\/S|ahtimg|imgextra)[^"]*)"/i',
-        ];
-        $excluded = '/review--|feedback--|shipping--|sku-item--|seller--|comment--|avatar|favicon/i';
-
-        foreach ($patterns as $re) {
-            $found = preg_match_all($re, $html, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER);
-            if (! $found) {
+        // Recorrer "cualquier <img> del CDN" traía iconos, banners y fotos de
+        // productos relacionados; con la zona de cada <img> se puede aplicar
+        // la misma regla que en el plugin (solo producto y reseñas).
+        foreach ($this->parseHtmlImages($html) as $img) {
+            if ($img['url'] === '' || stripos($img['url'], 'data:') === 0) {
                 continue;
             }
-            foreach ($m as $row) {
-                $offset = (int) $row[0][1];
-                // Reseñas/envíos/tienda comparten CDN: se descartan por el bloque.
-                $before = substr($html, max(0, $offset - 260), 260);
-                if (preg_match($excluded, $before)) {
-                    continue;
-                }
-                $abs = $this->normalizeGalleryImageUrl(
-                    $this->absUrl(html_entity_decode((string) $row[1][0], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
-                );
-                if ($abs !== '' && $this->isGalleryImageUrl($abs)) {
-                    $out[] = $abs;
-                }
+            if ($this->galleryZoneForChain($img['chain']) === null) {
+                continue;
+            }
+            if ($this->declaredImageIsTooSmall($img)) {
+                continue;
+            }
+            $abs = $this->normalizeGalleryImageUrl(
+                $this->absUrl(html_entity_decode($img['url'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+            );
+            if ($abs !== '' && $this->isGalleryImageUrl($abs)) {
+                $out[] = $abs;
             }
         }
 
         return $out;
+    }
+
+    /**
+     * Recorre el HTML una sola vez apilando las etiquetas abiertas y devuelve
+     * cada <img> con la cadena de class/id de sus contenedores (el equivalente
+     * a `Element.closest()` del plugin) y los tamaños declarados.
+     *
+     * @return list<array{url: string, chain: string, width: int, height: int}>
+     */
+    protected function parseHtmlImages(string $html): array
+    {
+        if ($html === '') {
+            return [];
+        }
+
+        // Scripts, estilos y comentarios meterían basura en el apilado.
+        $clean = preg_replace('#<(script|style|noscript)\b[^>]*>.*?</\1\s*>#is', ' ', $html) ?? $html;
+        $clean = preg_replace('#<!--.*?-->#s', ' ', $clean) ?? $clean;
+
+        $found = preg_match_all(
+            '#<(/?)([a-z][a-z0-9:-]*)((?:"[^"]*"|\'[^\']*\'|[^>"\'])*)>#i',
+            $clean,
+            $matches,
+            PREG_SET_ORDER
+        );
+        if (! $found) {
+            return [];
+        }
+
+        $stack = [];
+        $out = [];
+        foreach ($matches as $token) {
+            $name = strtolower((string) ($token[2] ?? ''));
+            $attrs = (string) ($token[3] ?? '');
+            if ($name === '') {
+                continue;
+            }
+
+            if (($token[1] ?? '') === '/') {
+                // HTML mal formado: se cierra hasta el primer tag del mismo nombre.
+                for ($i = count($stack) - 1; $i >= 0; $i--) {
+                    if ($stack[$i][0] === $name) {
+                        array_splice($stack, $i);
+                        break;
+                    }
+                }
+
+                continue;
+            }
+
+            if ($name === 'img') {
+                $out[] = [
+                    'url' => $this->imageTagSource($attrs),
+                    'chain' => $this->imageAncestorChain($stack, $attrs),
+                    'width' => $this->imageTagSide($attrs, 'width'),
+                    'height' => $this->imageTagSide($attrs, 'height'),
+                ];
+                if (count($out) >= 400) {
+                    break;
+                }
+
+                continue;
+            }
+
+            if (isset(self::VOID_ELEMENTS[$name]) || str_ends_with(rtrim($attrs), '/')) {
+                continue;
+            }
+
+            $stack[] = [$name, $this->imageTagKey($attrs)];
+            if (count($stack) > 220) {
+                array_shift($stack);
+            }
+        }
+
+        return $out;
+    }
+
+    protected function imageTagSource(string $attrs): string
+    {
+        if (preg_match('/(?<![\w:-])(?:src|data-src|data-original|data-lazy-src)\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $attrs, $m)) {
+            return trim($m[1] !== '' ? $m[1] : ($m[2] ?? ''));
+        }
+        if (preg_match('/(?<![\w:-])(?:src|data-src|data-original|data-lazy-src)\s*=\s*([^\s>]+)/i', $attrs, $m)) {
+            return trim(html_entity_decode($m[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        }
+
+        return '';
+    }
+
+    /** class + id de un tag, en minúsculas (sirve de "zone chain"). */
+    protected function imageTagKey(string $attrs): string
+    {
+        $parts = [];
+        foreach (['class', 'id'] as $attr) {
+            if (preg_match('/(?<![\w:-])'.$attr.'\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $attrs, $m)) {
+                $value = strtolower(trim($m[1] !== '' ? $m[1] : ($m[2] ?? '')));
+                if ($value !== '') {
+                    $parts[] = $value;
+                }
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /** @param list<array{0: string, 1: string}> $stack */
+    protected function imageAncestorChain(array $stack, string $attrs): string
+    {
+        $parts = [];
+        foreach ($stack as $frame) {
+            if ($frame[1] !== '') {
+                $parts[] = $frame[1];
+            }
+        }
+        $own = $this->imageTagKey($attrs);
+        if ($own !== '') {
+            $parts[] = $own;
+        }
+
+        return implode(' ', $parts);
+    }
+
+    protected function imageTagSide(string $attrs, string $prop): int
+    {
+        if (preg_match('/(?<![\w:-])'.$prop.'\s*=\s*"?(\d+(?:\.\d+)?)/i', $attrs, $m)) {
+            return (int) round((float) $m[1]);
+        }
+        // style="width: 18px; height: 24px"
+        if (preg_match('/(?<![\w:-])style\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $attrs, $s)
+            && preg_match('/(?:^|;)\s*'.$prop.'\s*:\s*(\d+(?:\.\d+)?)px/i', $s[1] !== '' ? $s[1] : ($s[2] ?? ''), $m)) {
+            return (int) round((float) $m[1]);
+        }
+
+        return 0;
+    }
+
+    /**
+     * ¿La zona del <img> es de producto o de reseñas? null = descartar.
+     * Se revisan primero los bloques excluidos para que ganen sobre las zonas
+     * buenas (las estrellas están dentro del bloque de reseñas, por ejemplo).
+     */
+    protected function galleryZoneForChain(string $chain): ?string
+    {
+        $needle = strtolower($chain);
+        if ($needle === '') {
+            return null;
+        }
+
+        foreach (self::EXCLUDED_ZONE_PARTS as $part) {
+            if (str_contains($needle, $part)) {
+                return null;
+            }
+        }
+        foreach ([self::REVIEW_ZONE_PARTS, self::DESCRIPTION_ZONE_PARTS, self::GALLERY_ZONE_PARTS] as $group) {
+            foreach ($group as $part) {
+                if (str_contains($needle, $part)) {
+                    return 'gallery';
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Tamaño declarado en la propia etiqueta. No aplica a las miniaturas del
+     * carrusel (`…_220x220.jpg`), que se suben al original del CDN antes.
+     *
+     * @param  array{url: string, chain: string, width: int, height: int}  $img
+     */
+    protected function declaredImageIsTooSmall(array $img): bool
+    {
+        $thumb = (bool) preg_match('/_\d+x\d+q?\d*\.(?:jpe?g|png|webp|avif)(?:_\.(?:avif|webp))?$/i', $img['url']);
+        if ($thumb) {
+            return false;
+        }
+        foreach (['width', 'height'] as $side) {
+            $value = $img[$side];
+            if ($value > 0 && $value < self::MIN_IMAGE_SIDE) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1355,6 +1574,9 @@ class AliExpressProductFetcher
         $url = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(?:jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
         $url = preg_replace('/\.(jpe?g|png|webp|avif)_\.(?:avif|webp)$/i', '.$1', $url) ?? $url;
         $url = preg_replace('/_\.(?:avif|webp)$/i', '', $url) ?? $url;
+        // El CDN también expone el "preview" del carrusel como
+        // `…_sum.jpg` / `…_summ.jpg` (o `…_80x80.jpg` sin extensión previa).
+        $url = preg_replace('/_(?:sum|summ|cover)\.(jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
         $url = preg_replace('/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
 
         return $url;
@@ -1390,18 +1612,19 @@ class AliExpressProductFetcher
         ) {
             return false;
         }
-        // Thumbs pequeños fuera; full (sin _NxM) o lado ≥ 300px OK.
+        // Thumbs pequeños fuera; full (sin _NxM) o ambos lados ≥ 300px OK.
         if (preg_match('/_(\d+)x(\d+)/i', $url, $m)) {
-            $side = max((int) $m[1], (int) $m[2]);
-            if ($side > 0 && $side < 300) {
+            $side = min((int) $m[1], (int) $m[2]);
+            if ($side > 0 && $side < self::MIN_IMAGE_SIDE) {
                 return false;
             }
         }
 
-        // Iconos y sprites: /kf/S…/48x48.png (ícono de video), /…/16x16.png, etc.
+        // Iconos, sprites y banners: /kf/S…/48x48.png (ícono de video),
+        // /…/16x16.png, /…/522x94.png (banner del precio), etc.
         if (preg_match('#/(\d+)x(\d+)\.(?:jpe?g|png|webp|avif)$#i', $url, $m)) {
-            $side = max((int) $m[1], (int) $m[2]);
-            if ($side > 0 && $side < 300) {
+            $side = min((int) $m[1], (int) $m[2]);
+            if ($side > 0 && $side < self::MIN_IMAGE_SIDE) {
                 return false;
             }
         }

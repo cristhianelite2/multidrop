@@ -51,6 +51,9 @@ async function readPagePayload(tabId, sections) {
       // El carrusel nuevo (image-view-v2/slider--*) solo expone miniaturas
       // 220x220 en el <img> y pone la clase del gallery en el <div> contenedor,
       // así que un lector ingenuo se queda con 1-2 fotos y en miniatura.
+      // Reglas pedidas: ninguna imagen por debajo de 300x300 y solo fotos que
+      // estén en el producto o en sus reseñas.
+      var MIN_IMAGE_SIDE = 300;
       function stripUrlNoise(url) {
         return String(url || '').trim().split('#')[0].split('?')[0];
       }
@@ -84,11 +87,92 @@ async function readPagePayload(tabId, sections) {
       function isProductGalleryUrl(url) {
         if (!/^https?:\/\//i.test(url)) return false;
         if (!/\.(jpe?g|png|webp|avif)$/i.test(url)) return false;
-        if (/shipping--|sku-item|review--|avatar|favicon|logo|icon|badge|watermark|sprite/i.test(url)) return false;
-        // Iconos y miniaturas sueltas (…/48x48.png) no son fotos del producto.
+        if (/shipping--|sku-item|review--|avatar|favicon|logo|icon|badge|watermark|sprite|banner|slogan|stars|great-|promo/i.test(url)) return false;
+        // Regla del usuario: nada por debajo de 300x300. Se mira el lado MENOR
+        // (no el mayor) porque un banner 522x94 o una 42x42 no son fotos.
         var size = url.match(/(\d+)x(\d+)/);
-        if (size && Math.max(parseInt(size[1], 10) || 0, parseInt(size[2], 10) || 0) < 300) return false;
+        if (size && Math.min(parseInt(size[1], 10) || 0, parseInt(size[2], 10) || 0) < MIN_IMAGE_SIDE) return false;
         return true;
+      }
+      // ---- Zonas de imagen ---------------------------------------------------
+      // Recorrer `main img` traía iconos, banners y fotos de productos
+      // relacionados. Solo se aceptan <img> que vivan en un contenedor de
+      // producto (carrusel, descripción, variantes) o de reseñas.
+      function zoneSelector(parts) {
+        var sel = [];
+        for (var i = 0; i < parts.length; i++) {
+          sel.push('[class*="' + parts[i] + '" i]', '[id*="' + parts[i] + '" i]');
+        }
+        return sel.join(', ');
+      }
+      var GALLERY_ZONE_SEL = zoneSelector([
+        'image-view-v2', 'images-view', 'main-image', 'magnifier', 'slider--wrap',
+        'slider--slider', 'slider--item', 'slider--img', 'image-gallery',
+        'product-gallery', 'product-image', 'gallery--item'
+      ]);
+      var DESCRIPTION_ZONE_SEL = zoneSelector([
+        'product-description', 'detail-desc-decorate', 'description--product', 'desc-decorate'
+      ]);
+      var REVIEW_ZONE_SEL = zoneSelector([
+        'ae-evaluate', 'ae-evaluation', 'evaluation-list', 'feedback', 'review', 'comment'
+      ]);
+      var SKU_ZONE_SEL = zoneSelector(['sku-item']);
+      // Bloques que comparten el CDN del producto pero nunca son sus fotos.
+      var EXCLUDED_ZONE_SEL = zoneSelector([
+        'shipping--', 'price-default--', 'bannerslogan', 'bannertop', 'ae-stars',
+        'ae-filter', 'ae-great-', 'choice-mind', 'instruction--', 'action--',
+        'quantity--', 'remind--', 'copy-link--', 'store-detail--', 'specification--',
+        'menu--wrap', 'recommend', 'related--', 'similar--', 'also--', 'upsell',
+        'bundle--', 'cross--', 'popular--', 'compare', 'nav--', 'footer', 'header'
+      ]);
+      // null = bloque descartado; '' = fuera de las zonas conocidas.
+      function galleryZoneOf(img) {
+        try {
+          if (img.closest && img.closest(EXCLUDED_ZONE_SEL)) return null;
+          if (img.closest(REVIEW_ZONE_SEL)) return 'review';
+          if (img.closest(DESCRIPTION_ZONE_SEL)) return 'description';
+          if (img.closest(GALLERY_ZONE_SEL)) return 'gallery';
+          if (img.closest(SKU_ZONE_SEL)) return 'sku';
+        } catch (eZone) {}
+        return '';
+      }
+      // ¿La URL es una miniatura que se puede subir al original del CDN?
+      // (`…jpg_220x220q75.jpg_.avif` → `…jpg`). Si lo es, su tamaño real no
+      // está en la URL y no se puede aplicar el mínimo de 300px.
+      function isUpgradableThumb(url) {
+        var u = stripUrlNoise(url);
+        return /_\d+x\d+q?\d*\.(?:jpe?g|png|webp|avif)(?:_\.(?:avif|webp))?$/i.test(u);
+      }
+      function inlineStylePx(el, prop) {
+        try {
+          var raw = el.style && el.style[prop] ? String(el.style[prop]) : '';
+          return /px$/i.test(raw) ? (parseFloat(raw) || 0) : 0;
+        } catch (eStyle) {
+          return 0;
+        }
+      }
+      function isTooSmallImage(img, rawUrl, allowThumbs) {
+        if (allowThumbs !== false && isUpgradableThumb(rawUrl)) return false;
+        var w = 0, h = 0;
+        try {
+          // Se junta la mayor evidencia disponible (atributo, tamaño real del
+          // archivo y tamaño en pantalla): si algo dice 300px o más, la imagen
+          // sirve. Los iconos de AE (42x42, 24x24, 16x16) no llegan a eso.
+          w = Math.max(
+            parseFloat((img.getAttribute && img.getAttribute('width')) || '') || 0,
+            inlineStylePx(img, 'width'),
+            img.naturalWidth || 0,
+            img.width || 0
+          );
+          h = Math.max(
+            parseFloat((img.getAttribute && img.getAttribute('height')) || '') || 0,
+            inlineStylePx(img, 'height'),
+            img.naturalHeight || 0,
+            img.height || 0
+          );
+        } catch (eSize) {}
+        if (!w && !h) return false;
+        return (w > 0 && w < MIN_IMAGE_SIDE) || (h > 0 && h < MIN_IMAGE_SIDE);
       }
       // querySelectorAll que además entra en shadow roots (la PDP CSR los usa).
       function queryAllDeep(selector, cap) {
@@ -167,28 +251,30 @@ async function readPagePayload(tabId, sections) {
             });
           });
         } catch (eRp) {}
-        // 2) DOM del carrusel (incluye shadow roots); cada miniatura sube al original.
-        [
-          '[class*="slider--item"] img',
-          '[class*="image-view"] img',
-          '[class*="main-image"] img',
-          '[class*="magnifier"] img',
-          '[class*="gallery"] img',
-          '[class*="product-image"] img',
-          'img[src*="/kf/"]',
-          'img[data-src*="/kf/"]'
-        ].forEach(function (sel) {
-          queryAllDeep(sel).forEach(function (img) {
-            // `img[src*="/kf/"]` también alcanza fotos de reseñas/envíos/tienda.
-            try {
-              if (img.closest && img.closest(
-                '[class*="review" i], [class*="feedback" i], [class*="shipping" i], '
-                + '[class*="sku-item" i], [class*="seller" i], [class*="shop" i], [class*="comment" i]'
-              )) return;
-            } catch (eX) {}
-            push(img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '');
-          });
-        });
+        // 2) DOM (incluye shadow roots): cada <img> se clasifica por zona y
+        // cada miniatura sube al original del CDN antes de guardarse.
+        var imgs = queryAllDeep('img', 600);
+        var fallback = [];
+        for (var i = 0; i < imgs.length; i++) {
+          var img = imgs[i];
+          var raw = img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '';
+          if (!raw) continue;
+          var zone = galleryZoneOf(img);
+          if (zone === null) continue;
+          if (!zone) {
+            // Fuera de las zonas conocidas (otra plantilla, otro proveedor):
+            // no entra nada salvo que la página no tenga ninguna foto de
+            // producto y esta sea grande de verdad. Capa 12, nunca thumbnails.
+            if (isTooSmallImage(img, raw, false)) continue;
+            if (fallback.length < 12) fallback.push(raw);
+            continue;
+          }
+          if (isTooSmallImage(img, raw, true)) continue;
+          push(raw);
+        }
+        if (out.length === 0) {
+          for (var fb = 0; fb < fallback.length; fb++) push(fallback[fb]);
+        }
         return out;
       }
       function looksLikeVideo(url) {
@@ -752,10 +838,11 @@ async function readPagePayload(tabId, sections) {
       // Galería del carrusel en tamaño original: es la única fuente completa
       // cuando la PDP se renderiza en cliente y no hay imagePathList en el HTML.
       var galleryImages = collectGalleryImages(rpData);
-      document.querySelectorAll('meta[property="og:image"], [itemprop="image"], main img, [class*="gallery" i] img').forEach(function (el) {
+      // Aquí solo metadatos: recorrer `main img` se traía iconos y productos
+      // relacionados, así que el DOM lo revisa collectGalleryImages() por zonas.
+      document.querySelectorAll('meta[property="og:image"], [itemprop="image"]').forEach(function (el) {
         var imageUrl = absUrl(el.content || el.currentSrc || el.src || el.getAttribute('data-src') || '');
-        if (!/^https?:\/\//i.test(imageUrl) || /logo|icon|avatar|sprite/i.test(imageUrl)) return;
-        if (el.tagName === 'IMG' && el.naturalWidth && el.naturalWidth < 120) return;
+        if (!isProductGalleryUrl(imageUrl)) return;
         if (!extractedImages.includes(imageUrl)) extractedImages.push(imageUrl);
       });
       var galleryKeys = {};

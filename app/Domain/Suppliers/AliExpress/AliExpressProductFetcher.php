@@ -26,20 +26,35 @@ class AliExpressProductFetcher
         return (bool) preg_match('/^(100\d{10,16}|\d{13,16})$/', $t);
     }
 
+    /**
+     * Extrae el ID de producto de una URL, un fragmento de HTML o un JSON.
+     *
+     * La URL de la PDP cambia según región y versión (`/item/<id>`, `/i/<id>`,
+     * `/product/-/<id>`, `?productId=`) y en la versión CSR el ID no siempre
+     * está en el path: se cubren también los metas `al:*:url` y el JSON inline.
+     */
     public static function parseProductId(string $input): ?string
     {
-        $t = trim($input);
+        $t = trim(html_entity_decode($input, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         if ($t === '') {
             return null;
         }
-        if (preg_match('/(?:item|i)\/(\d{10,20})/i', $t, $m)) {
-            return $m[1];
-        }
-        if (preg_match('/[?&](?:productId|product_id|item_id)=(\d{10,20})/i', $t, $m)) {
-            return $m[1];
-        }
-        if (preg_match('/^(\d{10,20})$/', $t, $m)) {
-            return $m[1];
+
+        // Orden: primero las formas explícitas (query / JSON / atributo), luego
+        // el path de la ficha y al final un id suelto.
+        $patterns = [
+            '/[?&](?:productId|product_id|itemId|item_id)=(\d{10,20})/i',
+            '/["\'](?:productId|productID|itemId|item_id|product_id)["\']\s*[:=]\s*["\']?(\d{10,20})/i',
+            '/data-product-id=["\']?(\d{10,20})/i',
+            '#/(?:item|i|product|pdp)/(?:-\/)?(\d{10,20})#i',
+            '/item-(\d{10,20})/i',
+            '/^(\d{10,20})$/',
+        ];
+
+        foreach ($patterns as $re) {
+            if (preg_match($re, $t, $m)) {
+                return $m[1];
+            }
         }
 
         return null;
@@ -218,11 +233,24 @@ class AliExpressProductFetcher
         $id = self::parseProductId($url)
             ?: self::parseProductId($html)
             ?: (string) ($snapshot['productId'] ?? $snapshot['product_id'] ?? '');
-        if ($id === '' || ! preg_match('/^\d{10,20}$/', $id)) {
-            return ['success' => false, 'error' => 'No pude extraer el ID de AliExpress del HTML. Abre una ficha /item/…'];
+        $id = preg_match('/^\d{10,20}$/', $id) ? $id : '';
+
+        // El ID solo hace falta para la URL canónica y el enrich de reseñas: si
+        // el plugin leyó la página pero su URL no lo traía, se sigue con lo
+        // capturado en lugar de tirar el producto entero.
+        $capturedSomething = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? $snapshot['title'] ?? '')) !== ''
+            || ! empty($snapshot['galleryImages'])
+            || ! empty($snapshot['images'])
+            || trim((string) ($snapshot['priceText'] ?? '')) !== '';
+        if ($id === '' && ! $capturedSomething) {
+            return ['success' => false, 'error' => 'No pude extraer el ID de AliExpress. Abre la ficha del producto (URL /item/…) y vuelve a capturar.'];
         }
 
-        $url = $this->resolveCapturedProductUrl($url, $html, $snapshot, $id);
+        if ($id !== '') {
+            $url = $this->resolveCapturedProductUrl($url, $html, $snapshot, $id);
+        } else {
+            $url = trim((string) ($snapshot['url'] ?? $url));
+        }
 
         $product = $this->parseHtml($html, $id, $url);
         if ($product === null) {
@@ -232,7 +260,13 @@ class AliExpressProductFetcher
             if (! $hasSnapshotMedia) {
                 return ['success' => false, 'error' => 'No pude parsear título/imágenes. Espera a que la ficha AE termine de cargar y vuelve a capturar.'];
             }
+            // En la PDP CSR `parseHtml` no encuentra nada (el HTML llega vacío)
+            // y el producto sale solo con lo que leyó el plugin. Aun así debe
+            // llevar el ID y la URL resueltos, o el emparejamiento por
+            // product_id y el check de "ya está en el catálogo" fallarían.
             $product = [
+                'product_id' => $id,
+                'url' => $url,
                 'title' => mb_substr(trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? 'Producto AliExpress')), 0, 255),
                 'images' => [],
                 'videos' => [],
@@ -423,11 +457,19 @@ class AliExpressProductFetcher
             ? 'Plugin / snapshot del navegador'
             : 'HTML pegado en Product Hunter';
 
-        if (! $this->shouldSkipHeavyEnrich($sections)) {
+        $warnings = [];
+        if ($id === '') {
+            // Se importó degradado: sin ID no hay URL canónica ni reseñas, y el
+            // emparejamiento por productId no podrá reutilizar el producto.
+            $warnings[] = 'No se pudo leer el ID de AliExpress: se guardó sin él. Para poder actualizarlo más adelante, abre la ficha con URL /item/….';
+            $product['source_note'] .= ' · Sin ID de AliExpress';
+        }
+
+        if ($id !== '' && ! $this->shouldSkipHeavyEnrich($sections)) {
             $product = $this->enrichFromRemote($product, $id, $url, $html);
         }
 
-        return ['success' => true, 'product' => $product];
+        return ['success' => true, 'product' => $product, 'warnings' => $warnings];
     }
 
     /**

@@ -677,9 +677,56 @@ async function readPagePayload(tabId, sections) {
       // referencias vivas (si se leyeran al final darían el último combo).
       var priceTextInitial = priceEl ? String(priceEl.innerText || priceEl.getAttribute('content') || '') : '';
       var shippingTextInitial = shipEl ? String(shipEl.innerText || '').replace(/\s+/g, ' ').trim() : '';
-      var productId = '';
-      var m = String(location.href).match(/(?:item|i)\/(\d{10,20})/i);
-      if (m) productId = m[1];
+      // ID del producto. La URL de la PDP cambia de forma según región y versión
+      // (`/item/<id>`, `/i/<id>`, `/product/-/<id>`, `?productId=`…), y en la
+      // versión CSR ni siquiera viene en el path. Sin ID el backend no puede
+      // armar la URL canónica ni enrichcer reseñas, así que se prueba la URL y
+      // después el DOM/JSON de la página antes de rendirse.
+      function idFromText(text) {
+        var t = String(text || '');
+        if (!t) return '';
+        var pats = [
+          /[?&](?:productId|product_id|itemId|item_id)=(\d{10,20})/i,
+          /["'](?:productId|productID|itemId|item_id|product_id)["']\s*[:=]\s*["']?(\d{10,20})/i,
+          /(?:^|[\/="\s])(?:item|i|product|pdp)\/(?:-\/)?(\d{10,20})/i,
+          /data-product-id=["']?(\d{10,20})/i,
+          /item-(\d{10,20})/i
+        ];
+        for (var pi = 0; pi < pats.length; pi++) {
+          var pm = t.match(pats[pi]);
+          if (pm && pm[1]) return pm[1];
+        }
+        return '';
+      }
+      function extractPageProductId(pageData, capturedHtml) {
+        var sources = [location.href, document.referrer];
+        try {
+          document.querySelectorAll(
+            'meta[name="al:android:url"], meta[name="al:iphone:url"], meta[name="al:ios:url"], '
+            + 'meta[property="og:url"]'
+          ).forEach(function (el) { sources.push(el.getAttribute('content') || ''); });
+        } catch (eMeta) {}
+        try {
+          var can = document.querySelector('link[rel="canonical"]');
+          if (can) sources.push(can.getAttribute('href') || '');
+        } catch (eCan) {}
+        try {
+          document.querySelectorAll('script[type="application/ld+json"]').forEach(function (sc) {
+            sources.push(sc.textContent || '');
+          });
+        } catch (eLd) {}
+        try {
+          var pd = pageData && (pageData.data || pageData);
+          if (pd && typeof pd === 'object') sources.push(JSON.stringify(pd).slice(0, 300000));
+        } catch (ePd) {}
+        if (capturedHtml) sources.push(String(capturedHtml).slice(0, 500000));
+        for (var si = 0; si < sources.length; si++) {
+          var found = idFromText(sources[si]);
+          if (found) return found;
+        }
+        return '';
+      }
+      var productId = extractPageProductId(rpData, html);
 
       var jsonProducts = [];
       document.querySelectorAll('script[type="application/ld+json"]').forEach(function (script) {

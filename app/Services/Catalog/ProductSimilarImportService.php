@@ -350,8 +350,10 @@ class ProductSimilarImportService
             }
 
             $capturedProduct = is_array($fetched['product'] ?? null) ? $fetched['product'] : [];
-            $capturedTitle = trim((string) ($snapshot['title'] ?? $snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
-            if ($capturedTitle !== '') $capturedProduct['title'] = $capturedTitle;
+            $capturedTitle = trim((string) ($snapshot['h1'] ?? $snapshot['title'] ?? $snapshot['ogTitle'] ?? ''));
+            if ($capturedTitle !== '') {
+                $capturedProduct['title'] = $capturedTitle;
+            }
             $capturedDescription = trim((string) ($snapshot['descriptionText'] ?? $snapshot['description_text'] ?? ''));
             if ($capturedDescription !== '' && empty($capturedProduct['description'])) {
                 $capturedProduct['description'] = $capturedDescription;
@@ -415,7 +417,7 @@ class ProductSimilarImportService
         }
 
         if ($hasCapture) {
-            $title = trim((string) ($snapshot['title'] ?? $snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
+            $title = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? $snapshot['title'] ?? ''));
             $description = trim((string) ($snapshot['descriptionText'] ?? $snapshot['description_text'] ?? ''));
             $summary = trim((string) ($snapshot['aiSummary'] ?? $snapshot['ai_summary'] ?? ''));
             $descriptionHtml = trim((string) ($snapshot['descriptionHtml'] ?? $snapshot['description_html'] ?? ''));

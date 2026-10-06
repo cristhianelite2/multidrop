@@ -749,7 +749,9 @@ async function readPagePayload(tabId, sections) {
         if (html.length > 400000) html = html.slice(0, 400000);
       }
 
-      var h1el = document.querySelector('h1');
+      // AliExpress puede insertar otros H1 de navegación/ofertas. El título de
+      // la ficha está marcado explícitamente con data-pl="product-title".
+      var h1el = document.querySelector('h1[data-pl="product-title"]') || document.querySelector('h1');
       var mt = document.querySelector('meta[property="og:title"]');
       var md = document.querySelector('meta[name="description"], meta[property="og:description"]');
       var mi = document.querySelector('meta[property="og:image"]');
@@ -772,7 +774,7 @@ async function readPagePayload(tabId, sections) {
         var t = String(text || '');
         if (!t) return '';
         var pats = [
-          /[?&](?:productId|product_id|itemId|item_id)=(\d{10,20})/i,
+          /[?&](?:productId|product_id|itemId|item_id|productIds)=(\d{10,20})/i,
           /["'](?:productId|productID|itemId|item_id|product_id)["']\s*[:=]\s*["']?(\d{10,20})/i,
           /(?:^|[\/="\s])(?:item|i|product|pdp)\/(?:-\/)?(\d{10,20})/i,
           /data-product-id=["']?(\d{10,20})/i,
@@ -943,7 +945,12 @@ async function readPagePayload(tabId, sections) {
           runParams: compactRp,
           h1: h1el ? String(h1el.innerText || '').trim() : '',
           ogTitle: mt ? (mt.getAttribute('content') || '') : '',
-          title: String(jsonProduct.name || '').trim(),
+          title: String(
+            (compactRp && compactRp.data && compactRp.data.titleModule && compactRp.data.titleModule.subject)
+            || (h1el ? String(h1el.innerText || '').trim() : '')
+            || (mt ? String(mt.getAttribute('content') || '').trim() : '')
+            || (jsonProduct.name || '')
+          ).trim(),
           descriptionText: (md ? String(md.content || '').trim() : '') || jsonDescription,
           aiSummary: aiSummary,
           ogImage: mi ? (mi.getAttribute('content') || '') : '',

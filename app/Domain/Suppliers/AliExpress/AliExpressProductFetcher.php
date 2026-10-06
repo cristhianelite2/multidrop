@@ -432,9 +432,15 @@ class AliExpressProductFetcher
 
         $mediaOnlyExtract = $sections !== [] && array_diff($sections, ['videos', 'images']) === [];
 
-        $h1 = trim((string) ($snapshot['h1'] ?? $snapshot['ogTitle'] ?? ''));
-        if ($h1 !== '' && (str_starts_with((string) ($product['title'] ?? ''), 'Producto AliExpress') || ($product['title'] ?? '') === '')) {
-            $product['title'] = mb_substr($h1, 0, 255);
+        $capturedTitle = trim((string) ($snapshot['h1'] ?? ''));
+        if ($capturedTitle === '') {
+            $capturedTitle = trim((string) ($snapshot['ogTitle'] ?? ''));
+        }
+        // El H1 capturado corresponde al título visible de la PDP y prevalece
+        // sobre titleModule/JSON-LD, que en algunas fichas trae etiquetas de
+        // campaña (p. ej. "Bundle Deals 2.0") en vez del nombre del producto.
+        if ($capturedTitle !== '' && ! $mediaOnlyExtract) {
+            $product['title'] = mb_substr($capturedTitle, 0, 255);
         }
         if (! $mediaOnlyExtract) {
             $ogImage = $this->absUrl((string) ($snapshot['ogImage'] ?? ''));

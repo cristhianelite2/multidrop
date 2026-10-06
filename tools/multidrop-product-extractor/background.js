@@ -47,6 +47,150 @@ async function readPagePayload(tabId, sections) {
         if (url.charAt(0) === '/') return location.origin + url;
         return url;
       }
+      // ---- Galería AliExpress ------------------------------------------------
+      // El carrusel nuevo (image-view-v2/slider--*) solo expone miniaturas
+      // 220x220 en el <img> y pone la clase del gallery en el <div> contenedor,
+      // así que un lector ingenuo se queda con 1-2 fotos y en miniatura.
+      function stripUrlNoise(url) {
+        return String(url || '').trim().split('#')[0].split('?')[0];
+      }
+      function galleryImageKey(url) {
+        var u = stripUrlNoise(url);
+        var m = u.match(/\/(kf\/S[A-Za-z0-9]+)(?:\.[A-Za-z0-9]+)?/i);
+        if (m) return m[1];
+        m = u.match(/\/([A-Za-z0-9_-]+)_(\d+)x(\d+)/i);
+        if (m) return m[1];
+        return u.toLowerCase();
+      }
+      // Original del CDN: /kf/S… conserva la extensión real (muchas son .png).
+      function fullGalleryImageUrl(url) {
+        url = absUrl(String(url || '').trim());
+        if (!/^https?:\/\//i.test(url)) return '';
+        var base = stripUrlNoise(url);
+        var m = base.match(/^(https?:\/\/[^/]+\/kf\/S[A-Za-z0-9]+)(?:\.([A-Za-z0-9]+))?$/i);
+        if (m) {
+          var ext = String(m[2] || 'jpg').toLowerCase();
+          if (ext === 'jpeg') ext = 'jpg';
+          if (!/^(jpg|jpeg|png|webp|avif)$/.test(ext)) ext = 'jpg';
+          return m[1] + '.' + ext;
+        }
+        var out = base.replace(/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(jpe?g|png|webp|avif)$/i, '.$1');
+        out = out.replace(/\.(jpe?g|png|webp|avif)_\.(avif|webp)$/i, '.$1');
+        out = out.replace(/_\d+x\d+q?\d*\.(jpe?g|png|webp|avif)$/i, '.$1');
+        out = out.replace(/_(?:summ)\.(jpe?g|png|webp|avif)$/i, '.$1');
+        out = out.replace(/_\.(avif|webp)$/i, '');
+        return out.replace(/\.(jpe?g|png|webp|avif)\.\1$/i, '.$1');
+      }
+      function isProductGalleryUrl(url) {
+        if (!/^https?:\/\//i.test(url)) return false;
+        if (!/\.(jpe?g|png|webp|avif)$/i.test(url)) return false;
+        if (/shipping--|sku-item|review--|avatar|favicon|logo|icon|badge|watermark|sprite/i.test(url)) return false;
+        // Iconos y miniaturas sueltas (…/48x48.png) no son fotos del producto.
+        var size = url.match(/(\d+)x(\d+)/);
+        if (size && Math.max(parseInt(size[1], 10) || 0, parseInt(size[2], 10) || 0) < 300) return false;
+        return true;
+      }
+      // querySelectorAll que además entra en shadow roots (la PDP CSR los usa).
+      function queryAllDeep(selector, cap) {
+        var out = [];
+        cap = cap || 400;
+        var seenRoots = [];
+        try {
+          var direct = document.querySelectorAll(selector);
+          for (var i = 0; i < direct.length && out.length < cap; i++) out.push(direct[i]);
+        } catch (eQ) {}
+        var roots = [];
+        try {
+          var stack = [document.body || document.documentElement];
+          var visited = 0;
+          while (stack.length && visited < 6000) {
+            var node = stack.pop();
+            visited++;
+            if (!node) continue;
+            var kids = (node.children && node.children.length) ? node.children : (node.childNodes || []);
+            if (!kids || !kids.length) continue;
+            for (var j = 0; j < kids.length; j++) {
+              var k = kids[j];
+              if (!k || k.nodeType === 3) continue;
+              try {
+                if (k.shadowRoot) { roots.push(k.shadowRoot); stack.push(k.shadowRoot); }
+              } catch (eS) {}
+              stack.push(k);
+            }
+          }
+        } catch (eT) {}
+        for (var r = 0; r < roots.length; r++) {
+          try {
+            var extra = roots[r].querySelectorAll(selector);
+            for (var m = 0; m < extra.length && out.length < cap; m++) out.push(extra[m]);
+          } catch (eR) {}
+        }
+        return out;
+      }
+      // Todas las fotos del carrusel, ya en su URL original (sin _220x220).
+      function collectGalleryImages(runData) {
+        var out = [];
+        var seen = {};
+        function push(url) {
+          var full = fullGalleryImageUrl(url);
+          if (!isProductGalleryUrl(full)) return;
+          var key = galleryImageKey(full);
+          if (!key || seen[key]) return;
+          seen[key] = true;
+          out.push(full);
+        }
+        // 1) imagePathList del payload: ya vienen en tamaño grande.
+        try {
+          var sources = [];
+          if (runData && typeof runData === 'object') sources.push(runData);
+          try {
+            var dida = window._dida_config_ && window._dida_config_._init_data_;
+            if (dida && typeof dida === 'object') sources.push(dida.data || dida);
+          } catch (eD) {}
+          try {
+            if (typeof window.__INIT_DATA__ === 'object' && window.__INIT_DATA__) {
+              sources.push(window.__INIT_DATA__.data || window.__INIT_DATA__);
+            }
+          } catch (eI) {}
+          sources.forEach(function (s) {
+            if (!s || typeof s !== 'object') return;
+            var im = s.imageModule || null;
+            var lists = [];
+            if (im) lists.push(im.imagePathList, im.imageList);
+            lists.push(s.imagePathList, s.imageList);
+            lists.forEach(function (list) {
+              if (!Array.isArray(list)) return;
+              list.forEach(function (item) {
+                if (typeof item === 'string') push(item);
+                else if (item && typeof item === 'object') push(item.url || item.imageUrl || item.imgUrl || item.src || '');
+              });
+            });
+          });
+        } catch (eRp) {}
+        // 2) DOM del carrusel (incluye shadow roots); cada miniatura sube al original.
+        [
+          '[class*="slider--item"] img',
+          '[class*="image-view"] img',
+          '[class*="main-image"] img',
+          '[class*="magnifier"] img',
+          '[class*="gallery"] img',
+          '[class*="product-image"] img',
+          'img[src*="/kf/"]',
+          'img[data-src*="/kf/"]'
+        ].forEach(function (sel) {
+          queryAllDeep(sel).forEach(function (img) {
+            // `img[src*="/kf/"]` también alcanza fotos de reseñas/envíos/tienda.
+            try {
+              if (img.closest && img.closest(
+                '[class*="review" i], [class*="feedback" i], [class*="shipping" i], '
+                + '[class*="sku-item" i], [class*="seller" i], [class*="shop" i], [class*="comment" i]'
+              )) return;
+            } catch (eX) {}
+            push(img.currentSrc || img.src || img.getAttribute('data-src') || img.getAttribute('data-original') || '');
+          });
+        });
+        return out;
+      }
       function looksLikeVideo(url) {
         url = String(url || '');
         if (!url) return false;
@@ -558,13 +702,21 @@ async function readPagePayload(tabId, sections) {
         imageUrl = absUrl(imageUrl);
         if (/^https?:\/\//i.test(imageUrl) && !extractedImages.includes(imageUrl)) extractedImages.push(imageUrl);
       });
+      // Galería del carrusel en tamaño original: es la única fuente completa
+      // cuando la PDP se renderiza en cliente y no hay imagePathList en el HTML.
+      var galleryImages = collectGalleryImages(rpData);
       document.querySelectorAll('meta[property="og:image"], [itemprop="image"], main img, [class*="gallery" i] img').forEach(function (el) {
         var imageUrl = absUrl(el.content || el.currentSrc || el.src || el.getAttribute('data-src') || '');
         if (!/^https?:\/\//i.test(imageUrl) || /logo|icon|avatar|sprite/i.test(imageUrl)) return;
         if (el.tagName === 'IMG' && el.naturalWidth && el.naturalWidth < 120) return;
         if (!extractedImages.includes(imageUrl)) extractedImages.push(imageUrl);
       });
-      extractedImages = extractedImages.slice(0, 40);
+      var galleryKeys = {};
+      galleryImages.forEach(function (u) { galleryKeys[galleryImageKey(u)] = true; });
+      // Las fotos grandes del carrusel van primero; el resto se conserva detrás.
+      extractedImages = galleryImages
+        .concat(extractedImages.filter(function (u) { return !galleryKeys[galleryImageKey(u)]; }))
+        .slice(0, 40);
       var jsonDescription = typeof jsonProduct.description === 'string' ? jsonProduct.description : '';
       var aiSummary = '';
       var aiSelectors = [
@@ -662,6 +814,7 @@ async function readPagePayload(tabId, sections) {
           aiSummary: aiSummary,
           ogImage: mi ? (mi.getAttribute('content') || '') : '',
           images: extractedImages,
+          galleryImages: galleryImages,
           priceText: priceTextInitial,
           shippingText: shippingTextInitial,
           descriptionHtml: descriptionHtml,

@@ -248,6 +248,11 @@ class AliExpressProductFetcher
             }
         }
 
+        // La galería del carrusel solo existe en el DOM (miniaturas 220x220) y
+        // el HTML compacto puede no traer imagePathList. El plugin ya la sube
+        // resuelta a su URL original: fusionarla con lo parseado del HTML.
+        $product = $this->mergeSnapshotGalleryImages($product, $snapshot);
+
         // El plugin entrega precios por variante de forma explícita cuando
         // puede leerlos del JSON-LD. Completa las variantes parseadas desde
         // HTML/runParams y conserva el precio publicado para el recálculo.
@@ -435,6 +440,54 @@ class AliExpressProductFetcher
         }
 
         return array_intersect(['reviews', 'description', 'details'], $sections) === [];
+    }
+
+    /**
+     * Añade al producto las fotos del carrusel que el plugin leyó del DOM.
+     *
+     * `snapshot.galleryImages` ya viene normalizada a la URL original por el
+     * plugin; `snapshot.images` es la lista genérica. Se fusionan con lo
+     * parseado del HTML sin perder el orden original (la 1ª es la principal).
+     *
+     * @param  array<string, mixed>  $product
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    protected function mergeSnapshotGalleryImages(array $product, array $snapshot): array
+    {
+        $incoming = [];
+        foreach (['galleryImages', 'images'] as $key) {
+            if (! is_array($snapshot[$key] ?? null)) {
+                continue;
+            }
+            foreach ($snapshot[$key] as $img) {
+                $incoming[] = is_array($img) ? (string) ($img['url'] ?? '') : (string) $img;
+            }
+        }
+        if ($incoming === []) {
+            return $product;
+        }
+
+        $existing = array_values(array_filter(
+            is_array($product['images'] ?? null) ? $product['images'] : [],
+            'is_string'
+        ));
+        $merged = $this->dedupeGalleryImages(array_merge($existing, $incoming));
+        if ($merged === $existing) {
+            return $product;
+        }
+
+        $product['images'] = $merged;
+        if (($product['image'] ?? '') === '' && $merged !== []) {
+            $product['image'] = $merged[0];
+        }
+
+        // Reasignar fotos de variante: el DOM suele dar miniaturas por SKU.
+        if (! empty($product['variants']) && is_array($product['variants'])) {
+            $product['variants'] = $this->assignLargeVariantImages($product['variants'], $merged);
+        }
+
+        return $product;
     }
 
     /**
@@ -1079,17 +1132,19 @@ class AliExpressProductFetcher
             }
         }
 
-        if ($candidates === []) {
-            $candidates = array_merge($candidates, $this->extractImagesFromJson($html));
-        }
+        // El JSON y el DOM son fuentes complementarias: la PDP nueva carga el
+        // carrusel por JS (imagePathList ausente) y la antigua al revés. Se
+        // fusionan para no perder fotos; el dedupe final descarta repetidas.
+        $candidates = array_merge($candidates, $this->extractImagesFromJson($html));
+        $candidates = array_merge($candidates, $this->extractGalleryImagesFromDom($html));
 
-        if ($candidates === []) {
-            $candidates = array_merge($candidates, $this->extractGalleryImagesFromDom($html));
-        }
-
-        $ogImage = $this->absUrl((string) $this->matchOne($html, '/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i'));
-        if ($ogImage !== '') {
-            array_unshift($candidates, $ogImage);
+        // og:image va al final: en la PDP actual suele ser una miniatura de la
+        // portada, y adelantarla convertía un thumbnail en la foto principal.
+        $ogImage = $this->normalizeGalleryImageUrl(
+            $this->absUrl(html_entity_decode((string) $this->matchOne($html, '/<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i'), ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+        );
+        if ($ogImage !== '' && $this->isGalleryImageUrl($ogImage)) {
+            $candidates[] = $ogImage;
         }
 
         if ($candidates === [] && is_array($jsonLd) && ! empty($jsonLd['image'])) {
@@ -1144,16 +1199,36 @@ class AliExpressProductFetcher
     protected function extractGalleryImagesFromDom(string $html): array
     {
         $out = [];
-        foreach ([
+        // El carrusel actual (image-view-v2 / slider--*) deja la clase del
+        // gallery en el <div> contenedor y el <img> solo con la miniatura
+        // 220x220, así que los patrones tienen que mirar los dos niveles.
+        $patterns = [
+            // <img> con la clase de galería en su propio atributo class.
             '/<img[^>]+class="[^"]*(?:slider--img|magnifier--image|image-view-v2--img|images-view-item)[^"]*"[^>]+src="([^"]+)"/i',
             '/<img[^>]+src="([^"]+)"[^>]+class="[^"]*(?:slider--img|magnifier--image|image-view-v2--img)[^"]*"/i',
             '/<img[^>]+data-src="([^"]+)"[^>]+class="[^"]*(?:slider--img|magnifier--image)[^"]*"/i',
-        ] as $re) {
-            if (! preg_match_all($re, $html, $m)) {
+            // <img> sin clase propia con la galería como contenedor inmediato.
+            '/(?:slider--item|slider--img|image-view-v2|main-image|magnifier|images-view)[^"]{0,160}"[^>]{0,120}>\s*(?:<(?!img\b)[a-z][a-z0-9-]*[^>]*>\s*){0,3}<img[^>]+(?:src|data-src)="([^"]+)"/i',
+            // Red de seguridad: cualquier <img> servido por el CDN de producto.
+            '/<img[^>]+src="([^"]*(?:\/kf\/S|ahtimg|imgextra)[^"]*)"/i',
+        ];
+        $excluded = '/review--|feedback--|shipping--|sku-item--|seller--|comment--|avatar|favicon/i';
+
+        foreach ($patterns as $re) {
+            $found = preg_match_all($re, $html, $m, PREG_OFFSET_CAPTURE | PREG_SET_ORDER);
+            if (! $found) {
                 continue;
             }
-            foreach ($m[1] as $u) {
-                $abs = $this->normalizeGalleryImageUrl($this->absUrl($u));
+            foreach ($m as $row) {
+                $offset = (int) $row[0][1];
+                // Reseñas/envíos/tienda comparten CDN: se descartan por el bloque.
+                $before = substr($html, max(0, $offset - 260), 260);
+                if (preg_match($excluded, $before)) {
+                    continue;
+                }
+                $abs = $this->normalizeGalleryImageUrl(
+                    $this->absUrl(html_entity_decode((string) $row[1][0], ENT_QUOTES | ENT_HTML5, 'UTF-8'))
+                );
                 if ($abs !== '' && $this->isGalleryImageUrl($abs)) {
                     $out[] = $abs;
                 }
@@ -1193,15 +1268,22 @@ class AliExpressProductFetcher
             return '';
         }
 
-        // Algunas páginas entregan el formato `foto.jpg.jpg`; el CDN sirve
-        // el recurso real con una sola extensión.
-        $url = preg_replace('/\.(jpe?g|png|webp|avif)\.\1(?=(?:[?#].*)?$)/i', '.$1', $url) ?? $url;
+        // La query se descarta antes de limpiar sufijos (igual que absUrl):
+        // `?has_lang=1&ver=2_220x220q75.jpg_.avif` rompería los patrones.
+        $url = strtok($url, '?#');
+        if ($url === false || $url === '') {
+            return '';
+        }
 
-        // Patrones CDN AE: foo.jpg_220x220.jpg / foo.png_50x50.png / foo.jpg_.webp
-        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(jpe?g|png|webp|avif)(?:\?.*)?$/i', '.$1', $url) ?? $url;
-        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\.(avif|webp)$/i', '.$1', $url) ?? $url;
-        $url = preg_replace('/_\.(avif|webp)$/i', '', $url) ?? $url;
-        $url = preg_replace('/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpe?g|png|webp|avif)(?:\?.*)?$/i', '.$1', $url) ?? $url;
+        // El CDN encadena los sufijos (`foo.jpg_220x220q75.jpg_.avif`), así que
+        // hay que limpiar hasta que la URL deje de cambiar en una sola pasada.
+        for ($i = 0; $i < 4; $i++) {
+            $next = $this->stripGalleryImageSuffix($url);
+            if ($next === $url) {
+                break;
+            }
+            $url = $next;
+        }
 
         // /kf/S… → URL full conservando la extensión real (muchas son .png; forzar .jpg da 404).
         if (preg_match('#^(https?://[^/]+/kf/S[a-zA-Z0-9]+)(?:\.(jpe?g|png|webp|avif))?$#i', $url, $m)) {
@@ -1217,10 +1299,32 @@ class AliExpressProductFetcher
         return $url;
     }
 
+    /**
+     * Elimina los sufijos de tamaño/formato del CDN de AliExpress.
+     * `foo.jpg_220x220q75.jpg_.avif` → `foo.jpg`
+     */
+    protected function stripGalleryImageSuffix(string $url): string
+    {
+        // Algunas páginas entregan el formato `foo.jpg.jpg`; el CDN sirve el
+        // recurso real con una sola extensión.
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)\.(?:jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
+
+        // Patrones CDN AE: foo.jpg_220x220.jpg / foo.png_50x50.png / foo.jpg_.webp
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(?:jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
+        $url = preg_replace('/\.(jpe?g|png|webp|avif)_\.(?:avif|webp)$/i', '.$1', $url) ?? $url;
+        $url = preg_replace('/_\.(?:avif|webp)$/i', '', $url) ?? $url;
+        $url = preg_replace('/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpe?g|png|webp|avif)$/i', '.$1', $url) ?? $url;
+
+        return $url;
+    }
+
     protected function galleryImageKey(string $url): string
     {
         if (preg_match('/\/(kf\/[A-Za-z0-9._-]+)/i', $url, $m)) {
-            return preg_replace('/\.(jpe?g|png|webp|avif)$/i', '', preg_replace('/_\d+x\d+.*$/', '', $m[1]) ?? $m[1]) ?? $m[1];
+            $base = preg_replace('/_\d+x\d+.*$/', '', $m[1]) ?? $m[1];
+
+            // Varias extensiones encadenadas (`S1.jpg.jpg`) son el mismo recurso.
+            return preg_replace('/(\.(?:jpe?g|png|webp|avif))+$/i', '', $base) ?? $base;
         }
 
         return md5($url);
@@ -1246,6 +1350,14 @@ class AliExpressProductFetcher
         }
         // Thumbs pequeños fuera; full (sin _NxM) o lado ≥ 300px OK.
         if (preg_match('/_(\d+)x(\d+)/i', $url, $m)) {
+            $side = max((int) $m[1], (int) $m[2]);
+            if ($side > 0 && $side < 300) {
+                return false;
+            }
+        }
+
+        // Iconos y sprites: /kf/S…/48x48.png (ícono de video), /…/16x16.png, etc.
+        if (preg_match('#/(\d+)x(\d+)\.(?:jpe?g|png|webp|avif)$#i', $url, $m)) {
             $side = max((int) $m[1], (int) $m[2]);
             if ($side > 0 && $side < 300) {
                 return false;

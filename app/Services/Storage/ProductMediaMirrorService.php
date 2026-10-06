@@ -366,6 +366,9 @@ class ProductMediaMirrorService
                 $candidates[] = $candidate;
             }
         };
+        // Primero el original a tamaño completo (si la URL traía sufijo
+        // `_220x220`), luego la URL tal cual y por último sin query.
+        $push($this->normalizeRemoteImageUrl($url));
         $push($url);
         $base = preg_replace('/[?#].*$/', '', $url) ?? $url;
         $push($base);
@@ -505,7 +508,35 @@ class ProductMediaMirrorService
 
     protected function normalizeRemoteImageUrl(string $url): string
     {
-        return preg_replace('/\.(jpe?g|png|webp|avif)\.\1(?=(?:[?#].*)?$)/i', '.$1', trim($url)) ?? trim($url);
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        // El CDN de AliExpress encadena sufijos de tamaño
+        // (`foo.jpg_220x220q75.jpg_.avif`): quitarlos es lo que hace que se
+        // descargue la foto grande en vez de la miniatura. Se limita a hosts de
+        // AE porque en otros CDN `_640x640` puede ser la única variante, y allí
+        // la query puede ir firmada: no se toca.
+        if (! preg_match('#(alicdn\.com|aliexpress-media\.com|aliexpress\.com|ahtimg\.com|imgextra)#i', $url)) {
+            // Solo el doble extension que ya se soportaba: `foo.jpg.jpg`.
+            return preg_replace('/\.(jpe?g|png|webp|avif)\.\1(?=(?:[?#].*)?$)/i', '.$1', $url) ?? $url;
+        }
+
+        $base = preg_replace('/[?#].*$/', '', $url) ?? $url;
+        for ($i = 0; $i < 4; $i++) {
+            $next = preg_replace('/\.(jpe?g|png|webp|avif)_\d+x\d+q?\d*\.(?:jpe?g|png|webp|avif)$/i', '.$1', $base) ?? $base;
+            $next = preg_replace('/\.(jpe?g|png|webp|avif)_\.(?:avif|webp)$/i', '.$1', $next) ?? $next;
+            $next = preg_replace('/_\.(?:avif|webp)$/i', '', $next) ?? $next;
+            $next = preg_replace('/_(?:[0-9]+x[0-9]+q?[0-9]*|summ)\.(jpe?g|png|webp|avif)$/i', '.$1', $next) ?? $next;
+            $next = preg_replace('/\.(jpe?g|png|webp|avif)\.(?:jpe?g|png|webp|avif)$/i', '.$1', $next) ?? $next;
+            if ($next === $base) {
+                break;
+            }
+            $base = $next;
+        }
+
+        return $base !== '' ? $base : $url;
     }
 
     /**

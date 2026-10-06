@@ -427,9 +427,12 @@ class ProductSimilarImportService
                 return ['success' => false, 'error' => 'No se encontró información de producto en la página.'];
             }
             $variants = array_values(array_filter($snapshot['variants'] ?? [], 'is_array'));
+            // galleryImages: el plugin ya sube el carrusel en URL original y sin
+            // miniaturas; va primero para que la 1ª sea la foto principal.
             $images = array_values(array_filter(array_map('strval', array_merge(
-                ! empty($snapshot['ogImage']) ? [(string) $snapshot['ogImage']] : [],
-                is_array($snapshot['images'] ?? null) ? $snapshot['images'] : []
+                is_array($snapshot['galleryImages'] ?? null) ? $snapshot['galleryImages'] : [],
+                is_array($snapshot['images'] ?? null) ? $snapshot['images'] : [],
+                ! empty($snapshot['ogImage']) ? [(string) $snapshot['ogImage']] : []
             ))));
 
             return [

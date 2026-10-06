@@ -1,2 +1,5 @@
 faster-whisper>=1.0.3
 edge-tts>=6.1.9
+# av 19 eliminó av.open(metadata_errors=...) que faster-whisper 1.2.x aún invoca
+# (TypeError en decode_audio al transcribir). Mantener <19 hasta que suba faster-whisper.
+av>=11,<19

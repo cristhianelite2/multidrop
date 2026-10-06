@@ -62,7 +62,15 @@ class RemotionAdsRenderService
             }
         }
 
-        return 'python3';
+        // Último recurso antes era devolver 'python3' y fallar en sh con el
+        // críptico "exec: python3: not found" (p. ej. contenedor sin Python en
+        // mode=local). Falla acá con instrucciones claras.
+        throw new \RuntimeException(
+            'No se encontró Python para el pipeline Remotion (ni .venv, ni python3/python en el PATH). '
+            .'Instala Python y ejecuta `pip install -r python/requirements.txt` en tools/remotion-ads, '
+            .'configura REMOTION_ADS_PYTHON con la ruta absoluta al intérprete, '
+            .'o usa REMOTION_ADS_MODE=remote con el bridge (start-bridge.cmd).'
+        );
     }
 
     protected function resolveExecutableOnPath(string $name): ?string
@@ -115,7 +123,22 @@ class RemotionAdsRenderService
 
     public function remoteToken(): string
     {
-        return trim((string) config('multidrop.marketing.remotion.remote_token', ''));
+        $token = trim((string) config('multidrop.marketing.remotion.remote_token', ''));
+        if ($token !== '') {
+            return $token;
+        }
+        // Render siempre en local: el bridge y la app comparten el volumen, así que
+        // el token puede viajar en bridge/token.txt (gitignored) sin commitear secretos.
+        // En el VPS (sin ese archivo) se usa REMOTION_ADS_TOKEN del entorno.
+        $file = $this->root().DIRECTORY_SEPARATOR.'bridge'.DIRECTORY_SEPARATOR.'token.txt';
+        if (is_file($file)) {
+            $fromFile = trim((string) @file_get_contents($file));
+            if ($fromFile !== '') {
+                return $fromFile;
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -501,7 +524,13 @@ class RemotionAdsRenderService
                 throw new \RuntimeException('No se pudo crear '.$outDir);
             }
             $mp4 = $outDir.DIRECTORY_SEPARATOR.'final.mp4';
-            $this->downloadRemoteMp4($jobId, $base, $token, $mp4);
+            // Con app y bridge en la misma máquina (volumen jobs/ compartido) el
+            // MP4 ya existe localmente. Descargarlo por HTTP sobre el mismo path
+            // lo truncaba (fopen 'wb') mientras el bridge lo leía: el archivo
+            // quedaba en 2 MiB sin átomo moov (video corrupto).
+            if (! (is_file($mp4) && filesize($mp4) >= 1024)) {
+                $this->downloadRemoteMp4($jobId, $base, $token, $mp4);
+            }
 
             return $mp4;
         } finally {
@@ -623,11 +652,16 @@ class RemotionAdsRenderService
             throw new \RuntimeException('El bridge no entregó final.mp4: '.mb_substr((string) $resp->body(), 0, 400));
         }
 
+        $expected = (int) $resp->header('Content-Length', 0);
         $body = $resp->toPsrResponse()->getBody();
-        $fh = @fopen($dest, 'wb');
+        // Escribir a un .part y renombrar: si destino y origen son el mismo
+        // archivo (jobs/ compartido), fopen('wb') truncaría el que sirve el bridge.
+        $tmp = $dest.'.part';
+        $fh = @fopen($tmp, 'wb');
         if (! is_resource($fh)) {
-            throw new \RuntimeException('No se pudo escribir '.$dest);
+            throw new \RuntimeException('No se pudo escribir '.$tmp);
         }
+        $written = 0;
         try {
             while (! $body->eof()) {
                 $chunk = $body->read(1048576);
@@ -637,10 +671,22 @@ class RemotionAdsRenderService
                     }
                     continue;
                 }
-                fwrite($fh, $chunk);
+                $written += (int) fwrite($fh, $chunk);
             }
         } finally {
             fclose($fh);
+        }
+
+        if ($written < 1024 || ($expected > 0 && $written !== $expected)) {
+            @unlink($tmp);
+            throw new \RuntimeException('Descarga incompleta del MP4 remoto ('.$written.' de '.$expected.' bytes).');
+        }
+        if (is_file($dest)) {
+            @unlink($dest);
+        }
+        if (! @rename($tmp, $dest)) {
+            @unlink($tmp);
+            throw new \RuntimeException('No se pudo mover el MP4 descargado a '.$dest);
         }
     }
 

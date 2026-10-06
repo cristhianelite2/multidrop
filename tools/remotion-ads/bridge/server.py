@@ -135,7 +135,8 @@ def run_pipeline(job_id: str, job_dir: Path, preset: str) -> None:
             if not err:
                 err = "El pipeline remoto devolvió exit code %d" % proc.returncode
             log(f"JOB {job_id}: pipeline falló ({proc.returncode})")
-            set_status(job_dir, "failed", err[-1500:], message=err[-1500:])
+            log(f"JOB {job_id}: stderr: {err[-1200:]}")
+            set_status(job_dir, "failed", err[-1500:])
             return
         out = job_dir / "out" / "final.mp4"
         if not out.is_file() or out.stat().st_size < 1024:
@@ -242,9 +243,10 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
         job_dir = JOBS_DIR / job_id
         if job_dir.exists():
-            release_job(job_id)
-            self.send_json(409, {"ok": False, "message": "El job ya existe"})
-            return
+            # App y bridge pueden compartir tools/remotion-ads/jobs (mismo host /
+            # mismo volumen): Laravel ya creó el dir antes de subir el zip.
+            # El zip se extrae encima (UUID fresco, sin colisión de archivos).
+            log(f"JOB {job_id}: dir ya existe (volumen compartido); se extrae el zip encima")
         try:
             tmp_zip = (JOBS_DIR / f".{job_id}.upload.zip")
             self.read_body_to(tmp_zip)

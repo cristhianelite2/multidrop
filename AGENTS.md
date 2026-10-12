@@ -88,3 +88,13 @@ npm run dev
 // config/shipping.php - Zonas y métodos de envío
 // config/ai.php - Configuración de IA (Creatify, Remotion, etc.)
 ```
+
+## Reglas comunes (vault Obsidian)
+
+> **Fuente común:** `_sistema/Workflow.md` del vault Obsidian. La memoria oficial vive en `Proyectos/multidrop/` (ficha, Bitácora, To-Do, Decisiones).
+
+- **Antes de programar:** leer ficha + Bitácora + To-Do + Decisiones en `Proyectos/multidrop/`.
+- **Rama:** desarrollo en `test` (push silencioso); `main` solo cuando el usuario pida subir.
+- **CHANGELOG:** actualizar `CHANGELOG.md` antes de publicar a `test`.
+- **Cierre:** registrar la tarea en la Bitácora del vault.
+- **Límites:** no sobrescribir trabajo ajeno ni ejecutar comandos destructivos sin autorización; no afirmar pruebas sin evidencia.

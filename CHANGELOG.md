@@ -2,6 +2,13 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-10-11
+
+### Reglas de coordinación (AGENTS.md)
+
+- Se añade a `AGENTS.md` la sección de reglas comunes de desarrollo (fuente: `_sistema/Workflow.md` del vault Obsidian).
+- Desarrollo en `test` con push silencioso; `main` solo al pedir subir; CHANGELOG obligatorio antes de publicar a `test`.
+
 ## 2026-09-28
 
 ### Marketing · Remotion Ads

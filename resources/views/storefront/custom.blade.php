@@ -263,10 +263,12 @@
             background: var(--md-mod-button, var(--md-checkout-button, var(--md-checkout-primary, #0f766e)));
             color: var(--md-mod-button-text, var(--md-on-primary, #fff));
         }
-        .md-atc-modal__actions .md-btn--ghost {
-            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #fff));
-            color: var(--md-mod-text, #0f172a);
-            border: 1px solid var(--md-mod-line, color-mix(in srgb, var(--md-mod-text, #0f172a) 22%, transparent));
+        .md-atc-modal__actions .md-btn--ghost,
+        #md-atc-continue {
+            background: var(--md-panel-2, color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #fff))) !important;
+            color: var(--md-primary, var(--md-mod-primary, var(--md-mod-text, #0f172a))) !important;
+            border: 1.5px solid var(--md-line-strong, var(--md-mod-line, color-mix(in srgb, var(--md-mod-text, #0f172a) 22%, transparent))) !important;
+            box-shadow: none !important;
         }
         /* Qty en carrito / checkout / PDP (contraste en temas oscuros) */
         .md-qty,
@@ -1194,10 +1196,12 @@
             background: var(--md-mod-button, var(--md-checkout-button, var(--md-primary, #0f766e)));
             color: var(--md-mod-button-text, var(--md-on-primary, #fff));
         }
-        #md-atc-modal .md-atc-modal__actions .md-btn--ghost {
-            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #f8fafc));
-            color: var(--md-mod-text, #0f172a);
-            border: 1px solid var(--md-mod-line, #cbd5e1);
+        #md-atc-modal .md-atc-modal__actions .md-btn--ghost,
+        #md-atc-modal #md-atc-continue {
+            background: var(--md-panel-2, color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #f8fafc))) !important;
+            color: var(--md-primary, var(--md-mod-primary, var(--md-mod-text, #0f172a))) !important;
+            border: 1.5px solid var(--md-line-strong, var(--md-mod-line, #cbd5e1)) !important;
+            box-shadow: none !important;
         }
         [data-md-module="urgency"]:not(.md-mod-bar):not(.md-mod-urgency) {
             display: none !important;

@@ -2495,6 +2495,16 @@ CSS;
             $css
         ) ?? $css;
 
+        // Si el diseñador definió .md-btn--ghost con menor especificidad que a.md-btn o button.md-btn,
+        // expandir el selector para que a.md-btn--ghost y button.md-btn--ghost no queden con color blanco forzado.
+        $css = preg_replace_callback(
+            '/(^|[\}\s,])\.md-btn--ghost\b(?!\w)/m',
+            static function (array $m): string {
+                return $m[1].'.md-btn--ghost, a.md-btn--ghost, button.md-btn--ghost, .md-btn.md-btn--ghost';
+            },
+            $css
+        ) ?? $css;
+
         return trim(preg_replace("/\n{3,}/", "\n\n", $css) ?? $css);
     }
 
@@ -2612,6 +2622,31 @@ CSS;
   aspect-ratio: 4 / 5;
   padding: 0 !important;
   overflow: hidden !important;
+}
+
+/* Protección de contraste para botones ghost/secundarios:
+   Evita que reglas globales de botones primarios ('a.md-btn', 'button.md-btn') con '!important'
+   fuercen texto blanco sobre enlaces o botones secundarios en fondos claros o suaves. */
+a.md-btn--ghost,
+button.md-btn--ghost,
+.md-btn.md-btn--ghost,
+#md-atc-modal .md-atc-modal__actions .md-btn--ghost,
+#md-atc-continue,
+.md-mod-cookies .md-btn--ghost {
+  color: var(--md-primary, var(--md-mod-primary, var(--md-ink, #0f172a))) !important;
+  background: var(--md-panel-2, var(--md-mod-surface, transparent)) !important;
+  border-color: var(--md-line-strong, var(--md-line, rgba(15, 23, 42, 0.18))) !important;
+  box-shadow: none !important;
+}
+a.md-btn--ghost:hover,
+button.md-btn--ghost:hover,
+.md-btn.md-btn--ghost:hover,
+#md-atc-modal .md-atc-modal__actions .md-btn--ghost:hover,
+#md-atc-continue:hover,
+.md-mod-cookies .md-btn--ghost:hover {
+  color: var(--md-primary, var(--md-mod-primary, var(--md-ink, #0f172a))) !important;
+  background: color-mix(in srgb, var(--md-primary, #0f766e) 12%, var(--md-panel-2, #ffffff)) !important;
+  border-color: var(--md-primary, var(--md-mod-primary, currentColor)) !important;
 }
 CSS;
     }

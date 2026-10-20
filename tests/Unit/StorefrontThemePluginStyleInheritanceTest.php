@@ -126,4 +126,38 @@ CSS;
         $layoutDisabled = $registry->layoutFor($disabledUrgencyPage, 'desktop');
         $this->assertSame(['header', 'hero_star', 'footer'], $layoutDisabled);
     }
+
+    public function test_ghost_button_selectors_are_protected_against_white_text_override(): void
+    {
+        $service = app(DesignThemeService::class);
+
+        $themeCss = <<<'CSS'
+.md-btn, button.md-btn, a.md-btn {
+  background: #F59E0B;
+  color: #FFFFFF !important;
+}
+.md-btn--ghost {
+  background: var(--md-panel-2) !important;
+  color: var(--md-primary) !important;
+}
+CSS;
+
+        $sanitized = $service->sanitizeThemeCss($themeCss);
+
+        // Standalone .md-btn--ghost must be expanded so a.md-btn and button.md-btn don't override its color
+        $this->assertStringContainsString('a.md-btn--ghost', $sanitized);
+        $this->assertStringContainsString('button.md-btn--ghost', $sanitized);
+        $this->assertStringContainsString('.md-btn.md-btn--ghost', $sanitized);
+
+        $composed = $service->composeStorefrontCss([
+            'global_css' => $themeCss,
+            'modules_css' => '',
+            'checkout' => $service->defaults()['checkout'],
+        ]);
+
+        // Platform guard must ensure ghost buttons keep primary/readable text
+        $this->assertStringContainsString('a.md-btn--ghost', $composed);
+        $this->assertStringContainsString('button.md-btn--ghost', $composed);
+        $this->assertStringContainsString('#md-atc-continue', $composed);
+    }
 }

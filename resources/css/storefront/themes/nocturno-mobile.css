@@ -117,7 +117,7 @@ body.md-visit-mobile .md-grid[data-md-products] {
   gap: 8px !important;
 }
 body.md-visit-mobile .md-locale-currency {
-  display: none !important;
+  display: inline-flex !important;
 }
 body.md-visit-mobile .md-nav__burger,
 body.md-visit-mobile [data-md-nav-toggle] {
@@ -276,7 +276,7 @@ body.md-visit-mobile .md-mod-roulette-fab-wrap {
     color: #f2f5f9 !important;
   }
   .md-locale-currency {
-    display: none !important;
+    display: inline-flex !important;
   }
 
   .md-cart-link {

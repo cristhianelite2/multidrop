@@ -183,7 +183,7 @@ body.md-visit-mobile .md-hero__visual img {
     inset: auto !important;
   }
   .md-locale-currency {
-    display: none !important;
+    display: inline-flex !important;
   }
 
   .md-cart-link {

@@ -166,44 +166,208 @@
             transition: opacity 0.15s ease;
         }
         .md-locale-currency {
+            position: relative;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
         }
         .md-locale-currency[hidden],
         .md-locale-currency.is-empty { display: none !important; }
-        .md-locale-currency__item {
+
+        /* Compressed Pill Trigger */
+        .md-locale-currency__pill {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin: 0;
-            min-width: 0;
+            height: 32px;
+            padding: 0 10px;
+            background: var(--md-panel, var(--md-surface, #ffffff));
+            color: var(--md-ink, var(--md-mod-text, #0f172a));
+            border: 1px solid var(--md-line, var(--md-mod-line, rgba(15, 23, 42, 0.15)));
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.15s ease;
+            white-space: nowrap;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            font-family: inherit;
+        }
+        .md-locale-currency__pill:hover,
+        .md-locale-currency.is-open .md-locale-currency__pill {
+            border-color: var(--md-primary, var(--md-checkout-primary, #0f766e));
+            background: var(--md-panel-2, var(--md-surface, #f8fafc));
+            color: var(--md-primary, var(--md-checkout-primary, #0f766e));
         }
         .md-locale-currency__flag {
             flex: none;
-            width: 1.35rem;
-            height: 1.05rem;
+            width: 1.25rem;
+            height: 0.95rem;
             border-radius: 2px;
             box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
             overflow: hidden;
             background-size: cover;
             user-select: none;
+            display: inline-block;
+            vertical-align: middle;
         }
         .md-locale-currency__flag.fi {
-            font-size: 0.78rem;
+            font-size: 0.72rem;
             line-height: 1;
         }
-        select[data-md-locale-select],
-        select[data-md-currency-select] {
-            max-width: 8.5rem;
-            font-size: 12px;
-            line-height: 1.2;
-            padding: 0.4rem 0.5rem;
-            border-radius: var(--md-radius-sm, 6px);
-            border: 1px solid var(--md-mod-line, rgba(15, 23, 42, 0.18));
-            background: var(--md-mod-bg, #fff);
-            color: var(--md-mod-text, inherit);
+        .md-locale-currency__text {
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+        }
+        .md-locale-currency__arrow {
+            flex: none;
+            opacity: 0.65;
+            transition: transform 0.2s ease;
+        }
+        .md-locale-currency.is-open .md-locale-currency__arrow {
+            transform: rotate(180deg);
+        }
+
+        /* Dropdown Popover / Modal Sheet */
+        .md-locale-currency__dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            min-width: 250px;
+            max-width: min(340px, calc(100vw - 24px));
+            background: var(--md-panel, var(--md-surface, #ffffff));
+            color: var(--md-ink, var(--md-mod-text, #0f172a));
+            border: 1px solid var(--md-line-strong, var(--md-line, rgba(15, 23, 42, 0.14)));
+            border-radius: var(--md-radius, 14px);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 14px;
+            z-index: 2147483600;
+            box-sizing: border-box;
+            animation: md-dropdown-fade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes md-dropdown-fade {
+            from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .md-locale-currency.is-open .md-locale-currency__dropdown {
+            display: block;
+        }
+        .md-locale-currency__backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 2147483590;
+            background: rgba(15, 23, 42, 0.3);
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
+        }
+        .md-locale-currency.is-open .md-locale-currency__backdrop {
+            display: block;
+        }
+        .md-locale-currency__dropdown-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid var(--md-line, rgba(15, 23, 42, 0.08));
+        }
+        .md-locale-currency__dropdown-title {
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            color: var(--md-ink, inherit);
+        }
+        .md-locale-currency__dropdown-close {
+            background: transparent;
+            border: 0;
+            font-size: 16px;
+            line-height: 1;
+            padding: 6px;
+            color: var(--md-muted, #64748b);
             cursor: pointer;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .md-locale-currency__dropdown-close:hover {
+            background: var(--md-panel-2, rgba(15, 23, 42, 0.06));
+            color: var(--md-ink, #0f172a);
+        }
+        .md-locale-currency__dropdown-body {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .md-locale-currency__dropdown-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .md-locale-currency__field-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--md-muted, #64748b);
+        }
+        .md-locale-currency__item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid var(--md-line, rgba(15, 23, 42, 0.15));
+            border-radius: var(--md-radius-sm, 8px);
+            background: var(--md-mod-bg, var(--md-panel-2, #ffffff));
+            margin: 0;
+            min-width: 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .md-locale-currency__item select {
+            flex: 1;
+            min-width: 0;
+            width: 100%;
+            border: 0 !important;
+            background: transparent !important;
+            font-size: 14px !important;
+            font-weight: 600;
+            color: var(--md-ink, var(--md-mod-text, inherit));
+            outline: none;
+            cursor: pointer;
+            padding: 4px 0;
+            font-family: inherit;
+        }
+
+        /* On mobile, open as an elegant bottom sheet */
+        @media (max-width: 560px) {
+            .md-locale-currency__dropdown {
+                position: fixed !important;
+                top: auto !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 100% !important;
+                border-radius: 20px 20px 0 0 !important;
+                padding: 18px 20px max(24px, env(safe-area-inset-bottom, 24px)) !important;
+                box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.28) !important;
+                animation: md-sheet-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+            }
+            @keyframes md-sheet-slide-up {
+                from { transform: translateY(100%); }
+                to { transform: translateY(0); }
+            }
+            .md-locale-currency__item select {
+                min-height: 44px;
+                font-size: 16px !important;
+            }
         }
         .md-atc-modal {
             position: fixed;
@@ -2020,9 +2184,148 @@ function mdHideCheckoutRedirect() {
     sel._mdPrefsBound = true;
     sel.addEventListener('change', function () {
       syncFlagBadge(sel, kind);
+      updateLocalePill(sel.closest('[data-md-locale-currency]'));
       reloadWithParam(paramKey, sel.value);
     });
   }
+
+  function updateLocalePill(box) {
+    if (!box) return;
+    var pill = box.querySelector('[data-md-locale-trigger]');
+    if (!pill) return;
+    var locSel = box.querySelector('[data-md-locale-select]');
+    var curSel = box.querySelector('[data-md-currency-select]');
+
+    var locVal = '';
+    if (locSel && !locSel.hidden && locSel.selectedIndex >= 0 && locSel.options.length) {
+      locVal = (locSel.options[locSel.selectedIndex] ? locSel.options[locSel.selectedIndex].text : locSel.value) || '';
+    }
+    var curVal = '';
+    if (curSel && !curSel.hidden && curSel.selectedIndex >= 0 && curSel.options.length) {
+      curVal = (curSel.options[curSel.selectedIndex] ? curSel.options[curSel.selectedIndex].text : curSel.value) || '';
+    }
+
+    var flagCode = '';
+    if (curSel && curSel.value) flagCode = normalizeIso(currencyIso(curSel.value));
+    if (!flagCode && locSel && locSel.value) flagCode = normalizeIso(localeIso(locSel.value));
+
+    var flagBadge = pill.querySelector('[data-md-locale-active-flag]');
+    if (flagBadge) {
+      setFlagClass(flagBadge, flagCode);
+    }
+
+    var summaryText = pill.querySelector('[data-md-locale-active-text]');
+    if (summaryText) {
+      var parts = [];
+      if (locVal) parts.push(locVal.toUpperCase());
+      if (curVal) parts.push(curVal.toUpperCase());
+      summaryText.textContent = parts.length ? parts.join(' · ') : 'ES · MXN';
+    }
+  }
+
+  function setupCompressedLocaleCurrency(box) {
+    if (!box) return;
+    if (box.getAttribute('data-md-locale-compressed') === '1') {
+      updateLocalePill(box);
+      return;
+    }
+
+    var items = Array.prototype.slice.call(box.querySelectorAll('.md-locale-currency__item'));
+    if (!items.length) return;
+    box.setAttribute('data-md-locale-compressed', '1');
+
+    var pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'md-locale-currency__pill';
+    pill.setAttribute('data-md-locale-trigger', '');
+    pill.setAttribute('aria-haspopup', 'dialog');
+    pill.setAttribute('aria-expanded', 'false');
+    pill.setAttribute('aria-label', 'Seleccionar idioma y moneda');
+    pill.innerHTML = '<span class="md-locale-currency__flag fi" data-md-locale-active-flag aria-hidden="true"></span>' +
+      '<span class="md-locale-currency__text" data-md-locale-active-text></span>' +
+      '<svg class="md-locale-currency__arrow" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg>';
+
+    var dropdown = document.createElement('div');
+    dropdown.className = 'md-locale-currency__dropdown';
+    dropdown.setAttribute('data-md-locale-dropdown', '');
+    dropdown.setAttribute('role', 'dialog');
+    dropdown.setAttribute('aria-modal', 'true');
+    dropdown.setAttribute('aria-label', 'Idioma y Moneda');
+
+    var header = document.createElement('div');
+    header.className = 'md-locale-currency__dropdown-header';
+    header.innerHTML = '<span class="md-locale-currency__dropdown-title">Idioma y Moneda</span>' +
+      '<button type="button" class="md-locale-currency__dropdown-close" data-md-locale-close aria-label="Cerrar">✕</button>';
+    dropdown.appendChild(header);
+
+    var body = document.createElement('div');
+    body.className = 'md-locale-currency__dropdown-body';
+
+    items.forEach(function (item) {
+      var isCur = item.querySelector('[data-md-currency-select]');
+      var field = document.createElement('div');
+      field.className = 'md-locale-currency__dropdown-field';
+      var label = document.createElement('span');
+      label.className = 'md-locale-currency__field-label';
+      label.textContent = isCur ? 'Moneda' : 'Idioma';
+      field.appendChild(label);
+      field.appendChild(item);
+      body.appendChild(field);
+    });
+    dropdown.appendChild(body);
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'md-locale-currency__backdrop';
+    backdrop.setAttribute('data-md-locale-backdrop', '');
+
+    box.appendChild(pill);
+    box.appendChild(dropdown);
+    box.appendChild(backdrop);
+
+    pill.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var isOpen = box.classList.contains('is-open');
+      closeAllLocaleDropdowns();
+      if (!isOpen) {
+        box.classList.add('is-open');
+        pill.setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    dropdown.addEventListener('click', function (e) {
+      if (e.target.closest('[data-md-locale-close]')) {
+        e.preventDefault();
+        box.classList.remove('is-open');
+        pill.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    backdrop.addEventListener('click', function (e) {
+      e.preventDefault();
+      box.classList.remove('is-open');
+      pill.setAttribute('aria-expanded', 'false');
+    });
+
+    updateLocalePill(box);
+  }
+
+  function closeAllLocaleDropdowns() {
+    document.querySelectorAll('[data-md-locale-currency].is-open').forEach(function (b) {
+      b.classList.remove('is-open');
+      var p = b.querySelector('[data-md-locale-trigger]');
+      if (p) p.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeAllLocaleDropdowns();
+  });
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('[data-md-locale-currency]')) {
+      closeAllLocaleDropdowns();
+    }
+  });
 
   function initLocaleCurrency() {
     var md = window.Multidrop || {};
@@ -2070,6 +2373,7 @@ function mdHideCheckoutRedirect() {
       var any = (loc && !loc.hidden && loc.options.length) || (cur && !cur.hidden && cur.options.length);
       box.hidden = !any;
       box.classList.toggle('is-empty', !any);
+      if (any) setupCompressedLocaleCurrency(box);
     });
   }
   if (document.readyState === 'loading') {
@@ -4711,13 +5015,15 @@ function mdHideCheckoutRedirect() {
             (was ? '<s style="opacity:.6;margin-right:6px">' + money(was) + '</s>' : '') +
             '<strong>' + money(unit) + '</strong> ' + mdT('cart.each') + ' · <span data-md-cart-line-total>' + money(lineTotal) + '</span>' +
           '</div>' +
-          '<div class="md-qty" data-md-cart-qty-wrap>' +
-            '<button type="button" data-md-cart-qty-minus aria-label="Restar">−</button>' +
-            '<input type="number" min="0" step="1" value="' + qty + '" data-md-cart-qty aria-label="Cantidad">' +
-            '<button type="button" data-md-cart-qty-plus aria-label="Sumar">+</button>' +
+          '<div class="md-cart-line__bottom" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;flex-wrap:wrap;">' +
+            '<div class="md-qty" data-md-cart-qty-wrap>' +
+              '<button type="button" data-md-cart-qty-minus aria-label="Restar">−</button>' +
+              '<input type="number" min="0" step="1" value="' + qty + '" data-md-cart-qty aria-label="Cantidad">' +
+              '<button type="button" data-md-cart-qty-plus aria-label="Sumar">+</button>' +
+            '</div>' +
+            '<button type="button" class="md-btn md-btn--ghost md-cart-row__remove" data-md-cart-remove="' + id + '" data-cart-remove="' + id + '" data-product-id="' + id + '" data-variant-id="' + vid + '" data-cart-line-index="' + index + '" aria-label="' + mdT('cart.remove') + '">' + mdT('cart.remove') + '</button>' +
           '</div>' +
         '</div>' +
-        '<button type="button" class="md-btn md-btn--ghost md-cart-row__remove" data-md-cart-remove="' + id + '" data-cart-remove="' + id + '" data-product-id="' + id + '" data-variant-id="' + vid + '" data-cart-line-index="' + index + '" aria-label="' + mdT('cart.remove') + '">' + mdT('cart.remove') + '</button>' +
       '</div>';
   }
 

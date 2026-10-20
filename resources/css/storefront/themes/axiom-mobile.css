@@ -160,7 +160,7 @@ body.md-visit-mobile .md-hero__visual img {
     filter: none !important;
   }
   .md-locale-currency {
-    display: none !important;
+    display: inline-flex !important;
   }
   .md-cart-link {
     font-size: 0 !important;

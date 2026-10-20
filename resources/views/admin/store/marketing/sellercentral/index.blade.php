@@ -86,6 +86,30 @@
             @endif
         </div>
 
+        {{-- Remotion Studio API key --}}
+        <div class="admin-card overflow-hidden">
+            <div class="border-b border-line px-4 py-3">
+                <h3 class="font-semibold text-ink">Remotion Studio</h3>
+                <p class="mt-0.5 text-xs text-ink-soft/55">
+                    Generación remota de videos desde <code>remotion.ceballosleon.com</code>.
+                    Necesitas la API key para usar la Opción 5 en las campañas.
+                </p>
+            </div>
+            <form method="post" action="{{ route('admin.store.marketing.sellercentral.settings') }}" class="space-y-4 p-4 sm:p-6">
+                @csrf
+                <input type="hidden" name="base_url" value="{{ old('base_url', $state['base_url']) }}">
+                <input type="hidden" name="embed_url" value="{{ old('embed_url', $embedUrl) }}">
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">API key de Remotion Studio</label>
+                    <input type="password" name="remotion_studio_api_key" value="" class="admin-input" maxlength="200" placeholder="{{ $remotionStudioApiKey ? 'Guardada: '.str_repeat('•', 12) : 'Pega aquí la API key de Remotion Studio…' }}" autocomplete="off">
+                    <p class="mt-1 text-xs text-ink-soft/55">Dejalo vacío para conservar la actual. Se guarda cifrada por tienda.</p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button class="admin-btn">Guardar API key</button>
+                </div>
+            </form>
+        </div>
+
         {{-- Calendario remoto --}}
         @if(($connection['ok'] ?? false) || $calendar !== [])
             <div class="admin-card overflow-hidden">

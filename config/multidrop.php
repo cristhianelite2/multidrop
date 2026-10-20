@@ -201,6 +201,15 @@ return [
             ),
         ],
         /*
+         * Remotion Studio API (https://remotion.ceballosleon.com): generación de videos
+         * remotos desde URL de producto, sin herramientas locales.
+         * mode=remote: llama directamente a la API de Remotion Studio.
+         */
+        'remotion_studio' => [
+            'base_url' => rtrim((string) env('REMOTION_STUDIO_URL', 'https://remotion.ceballosleon.com'), '/'),
+            // La API key se guarda por tienda en stores.settings -> marketing.remotion_studio_api_key
+        ],
+        /*
          * HyperFrames Ads (tools/hyperframes-ads): composición HTML → render local.
          * mode=remote (default): Multidrop llama al bridge por túnel
          *   https://hyperframes.ceballosleon.com (máquina local con HyperFrames/Node).

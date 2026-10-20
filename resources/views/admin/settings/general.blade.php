@@ -15,6 +15,7 @@
                 <a href="#sec-cf-browser">Browser Rendering</a>
                 <a href="#sec-r2">R2 almacenamiento</a>
                 <a href="#sec-ai">Inteligencia artificial</a>
+                <a href="#sec-remotion">Remotion Studio</a>
                 <a href="#sec-payments">Pagos</a>
                 <a href="#sec-security">Seguridad</a>
                 <a href="#sec-currency">Monedas</a>
@@ -561,59 +562,97 @@
                     ])
                 </div>
 
-                <div>
-                    <h3 class="text-sm font-semibold text-ink">Peticiones → motor</h3>
-                    <p class="mt-1 text-xs text-ink-soft/65">Cada petición usa solo motores de su tipo. Texto → <strong>free</strong>. Imágenes → <strong>gpt-image-1.5</strong> (size 1024×1536, quality high, PNG).</p>
-                    <div class="mt-3 overflow-x-auto rounded-xl border border-line">
-                        <table class="w-full text-sm">
-                            <thead class="bg-mist/50 text-left text-xs uppercase tracking-wide text-ink-soft/70">
-                                <tr>
-                                    <th class="px-3 py-2 font-medium">Petición</th>
-                                    <th class="px-3 py-2 font-medium w-24">Tipo</th>
-                                    <th class="px-3 py-2 font-medium">Motor</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach(($ai['tasks'] ?? []) as $task)
-                                    <tr class="border-t border-line">
-                                        <td class="px-3 py-2 align-top">
-                                            <span class="font-medium text-ink">{{ $task['label'] }}</span>
-                                            @if(!empty($task['hint']))
-                                                <span class="block text-xs text-ink-soft/60">{{ $task['hint'] }}</span>
-                                            @endif
-                                        </td>
-                                        <td class="px-3 py-2 align-top">
-                                            @if(($task['kind'] ?? '') === 'image')
-                                                <span class="inline-block rounded-full bg-teal/10 px-2 py-0.5 text-[11px] font-medium text-teal">Imagen</span>
-                                            @else
-                                                <span class="inline-block rounded-full bg-mist px-2 py-0.5 text-[11px] font-medium text-ink-soft">Texto</span>
-                                            @endif
-                                        </td>
-                                        <td class="px-3 py-2 align-top">
-                                            <select name="ai_task_engines[{{ $task['key'] }}]"
-                                                    class="admin-input js-ai-engine text-sm"
-                                                    data-kind="{{ $task['kind'] }}"
-                                                    data-current="{{ $task['engine'] }}">
-                                                @php
-                                                    $opts = (($task['kind'] ?? '') === 'image')
-                                                        ? ($ai['engines_image'] ?? [])
-                                                        : ($ai['engines_chat'] ?? []);
-                                                    $ids = collect($opts)->pluck('id')->all();
-                                                    if ($task['engine'] && ! in_array($task['engine'], $ids, true)) {
-                                                        $opts = array_merge([['id' => $task['engine'], 'label' => $task['engine'], 'kind' => $task['kind']]], $opts);
-                                                    }
-                                                @endphp
-                                                @foreach($opts as $eng)
-                                                    <option value="{{ $eng['id'] }}" @selected($task['engine'] === $eng['id'])>
-                                                        {{ $eng['id'] }}
-                                                    </option>
-                                                @endforeach
-                                            </select>
-                                        </td>
+                <div class="rounded-2xl border border-line bg-mist/40">
+                    <button type="button" class="js-ai-accordion-toggle w-full flex items-center justify-between gap-3 p-4 text-left" aria-expanded="true">
+                        <div class="min-w-0">
+                            <h3 class="text-sm font-semibold text-ink">Peticiones → motor</h3>
+                            <p class="mt-0.5 text-xs text-ink-soft/65">Cada petición usa solo motores de su tipo. Texto → <strong>free</strong>. Imágenes → <strong>gpt-image-1.5</strong> (size 1024×1536, quality high, PNG).</p>
+                        </div>
+                        <span class="js-ai-accordion-chevron mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="js-ai-accordion-body px-4 pb-4">
+                        <div class="overflow-x-auto rounded-xl border border-line">
+                            <table class="w-full text-sm">
+                                <thead class="bg-mist/50 text-left text-xs uppercase tracking-wide text-ink-soft/70">
+                                    <tr>
+                                        <th class="px-3 py-2 font-medium">Petición</th>
+                                        <th class="px-3 py-2 font-medium w-24">Tipo</th>
+                                        <th class="px-3 py-2 font-medium">Motor</th>
                                     </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody>
+                                    @foreach(($ai['tasks'] ?? []) as $task)
+                                        <tr class="border-t border-line">
+                                            <td class="px-3 py-2 align-top">
+                                                <span class="font-medium text-ink">{{ $task['label'] }}</span>
+                                                @if(!empty($task['hint']))
+                                                    <span class="block text-xs text-ink-soft/60">{{ $task['hint'] }}</span>
+                                                @endif
+                                            </td>
+                                            <td class="px-3 py-2 align-top">
+                                                @if(($task['kind'] ?? '') === 'image')
+                                                    <span class="inline-block rounded-full bg-teal/10 px-2 py-0.5 text-[11px] font-medium text-teal">Imagen</span>
+                                                @else
+                                                    <span class="inline-block rounded-full bg-mist px-2 py-0.5 text-[11px] font-medium text-ink-soft">Texto</span>
+                                                @endif
+                                            </td>
+                                            <td class="px-3 py-2 align-top">
+                                                <select name="ai_task_engines[{{ $task['key'] }}]"
+                                                        class="admin-input js-ai-engine text-sm"
+                                                        data-kind="{{ $task['kind'] }}"
+                                                        data-current="{{ $task['engine'] }}">
+                                                    @php
+                                                        $opts = (($task['kind'] ?? '') === 'image')
+                                                            ? ($ai['engines_image'] ?? [])
+                                                            : ($ai['engines_chat'] ?? []);
+                                                        $ids = collect($opts)->pluck('id')->all();
+                                                        if ($task['engine'] && ! in_array($task['engine'], $ids, true)) {
+                                                            $opts = array_merge([['id' => $task['engine'], 'label' => $task['engine'], 'kind' => $task['kind']]], $opts);
+                                                        }
+                                                    @endphp
+                                                    @foreach($opts as $eng)
+                                                        <option value="{{ $eng['id'] }}" @selected($task['engine'] === $eng['id'])>
+                                                            {{ $eng['id'] }}
+                                                        </option>
+                                                    @endforeach
+                                                </select>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="admin-card p-5 sm:p-6 space-y-4 h-full" id="sec-remotion">
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <h2 class="font-display text-lg font-bold text-ink">Remotion Studio</h2>
+                        <p class="text-sm text-ink-soft/70">Generación remota de videos desde <a class="text-teal hover:underline" href="https://remotion.ceballosleon.com/app/docs" target="_blank" rel="noopener">remotion.ceballosleon.com</a>. Usa la API key para generar reels/videos por URL de producto.</p>
+                    </div>
+                    @include('admin.settings.partials.api-test-btn', ['provider' => 'remotion_studio'])
+                </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-ink-soft">API Key {{ $remotionStudio['has_api_key'] ? '(guardada · deja ******** para no cambiar)' : '' }}</label>
+                    <input name="remotion_studio_api_key" value="{{ old('remotion_studio_api_key', $remotionStudio['api_key']) }}" class="admin-input font-mono text-sm" autocomplete="off" placeholder="rs_...">
+                    <p class="mt-1 text-xs text-ink-soft/55">Se guarda cifrada por plataforma. Pruébala con el botón «Probar API».</p>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Base URL</label>
+                        <input name="remotion_studio_base_url" id="remotion_studio_base_url" value="{{ old('remotion_studio_base_url', $remotionStudio['base_url']) }}" class="admin-input" placeholder="https://remotion.ceballosleon.com">
+                    </div>
+                    <div>
+                        <label class="mb-1.5 block text-sm font-medium text-ink-soft">Estado</label>
+                        @if($remotionStudio['last_test_at'])
+                            <p class="js-api-test-last text-xs {{ $remotionStudio['last_test_ok'] ? 'text-teal' : 'text-coral' }}">
+                                Última prueba: {{ $remotionStudio['last_test_at'] }} — {{ $remotionStudio['last_test_message'] }}
+                            </p>
+                        @else
+                            <p class="js-api-test-last text-xs text-ink-soft/55 hidden"></p>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -1140,6 +1179,10 @@
       payload.r2_secret_access_key = $('#r2_secret_access_key').val() || '';
       payload.r2_bucket = $('#r2_bucket').val() || '';
       payload.r2_endpoint = $('#r2_endpoint').val() || '';
+    } else if (provider === 'remotion_studio') {
+      payload.provider = 'remotion_studio';
+      payload.remotion_studio_api_key = $('#remotion_studio_api_key').val() || '';
+      payload.remotion_studio_base_url = $('#remotion_studio_base_url').val() || '';
     } else {
       payload.provider = provider;
     }

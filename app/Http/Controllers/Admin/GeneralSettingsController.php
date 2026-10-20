@@ -59,6 +59,7 @@ class GeneralSettingsController extends Controller
             'aliexpress_app_secret' => (bool) PlatformSetting::getValue('aliexpress.app_secret') || (bool) config('aliexpress.app_secret'),
             'cf_api_token' => (bool) PlatformSetting::getValue('cloudflare.api_token') || (bool) config('cloudflare.api_token'),
             'cf_account_id' => (bool) PlatformSetting::getValue('cloudflare.account_id') || (bool) config('cloudflare.account_id'),
+            'remotion_studio_api_key' => (bool) PlatformSetting::getValue('marketing.remotion_studio_api_key'),
         ];
 
         $accessToken = PlatformSetting::getValue('cj.access_token', config('cj.access_token'));
@@ -132,6 +133,15 @@ class GeneralSettingsController extends Controller
             'engines_image' => $aiRouter->enginesForKind('image', $aiEngines),
             'tasks' => $this->aiTasksForView($aiRouter, $aiEngines),
             'engines_url' => route('admin.settings.general.ai.engines'),
+        ];
+
+        $remotionStudio = [
+            'api_key' => $hasDb['remotion_studio_api_key'] ? '********' : '',
+            'base_url' => rtrim((string) (PlatformSetting::getValue('multidrop.marketing.remotion_studio.base_url') ?: config('multidrop.marketing.remotion_studio.base_url', env('REMOTION_STUDIO_URL', 'https://remotion.ceballosleon.com'))), '/'),
+            'has_api_key' => $hasDb['remotion_studio_api_key'],
+            'last_test_at' => PlatformSetting::getValue('marketing.remotion_studio_last_test_at'),
+            'last_test_ok' => filter_var(PlatformSetting::getValue('marketing.remotion_studio_last_test_ok', '0'), FILTER_VALIDATE_BOOLEAN),
+            'last_test_message' => PlatformSetting::getValue('marketing.remotion_studio_last_test_message'),
         ];
 
         $security = [
@@ -250,6 +260,7 @@ class GeneralSettingsController extends Controller
                 'stores' => $storeSalesRows,
                 'ga_tracking_on' => (bool) PlatformSetting::getValue('marketing.ga_measurement_id', ''),
             ],
+            'remotionStudio' => $remotionStudio,
         ]);
     }
 
@@ -270,6 +281,8 @@ class GeneralSettingsController extends Controller
             'miia_model' => ['nullable', 'string', 'max:120'],
             'ai_task_engines' => ['nullable', 'array'],
             'ai_task_engines.*' => ['nullable', 'string', 'max:120'],
+            'remotion_studio_api_key' => ['nullable', 'string', 'max:255'],
+            'remotion_studio_base_url' => ['nullable', 'url', 'max:255'],
             'currency_base' => ['required', 'string', 'size:3'],
             'fx_rates' => ['nullable', 'array'],
             'fx_rates.*' => ['nullable', 'numeric', 'min:0'],
@@ -307,6 +320,9 @@ class GeneralSettingsController extends Controller
         PlatformSetting::put('ai.miia.base_url', $data['miia_base_url'] ?: 'https://ia.ceballosleon.com', 'ai');
         PlatformSetting::put('ai.miia.model', $data['miia_model'] ?: 'auto', 'ai');
         $this->putSecretIfPresent('ai.miia.api_key', $data['miia_api_key'] ?? null, 'ai');
+
+        $this->putSecretIfPresent('marketing.remotion_studio_api_key', $data['remotion_studio_api_key'] ?? null, 'marketing');
+        PlatformSetting::put('multidrop.marketing.remotion_studio.base_url', rtrim((string) ($data['remotion_studio_base_url'] ?? ''), '/') ?: 'https://remotion.ceballosleon.com', 'multidrop');
 
         $taskMap = [];
         foreach (array_keys(config('ai.tasks', [])) as $taskKey) {
@@ -549,7 +565,7 @@ class GeneralSettingsController extends Controller
     public function testApi(Request $request)
     {
         $data = $request->validate([
-            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile', 'aliexpress', 'cloudflare_browser', 'r2'])],
+            'provider' => ['required', Rule::in(['miia', 'stripe', 'paypal', 'mercadopago', 'resend', 'turnstile', 'aliexpress', 'cloudflare_browser', 'r2', 'remotion_studio'])],
         ]);
 
         $ok = false;
@@ -704,6 +720,19 @@ class GeneralSettingsController extends Controller
                     PlatformSetting::put('storage.r2.last_test_message', mb_substr($message, 0, 240), 'storage');
 
                     return $this->testJson($request, $ok, $message);
+                case 'remotion_studio':
+                    $key = PlatformSetting::getValue('marketing.remotion_studio_api_key');
+                    if (! $key) {
+                        return $this->testJson($request, false, 'Guarda primero la API key de Remotion Studio.');
+                    }
+                    $base = rtrim((string) (PlatformSetting::getValue('multidrop.marketing.remotion_studio.base_url') ?: config('multidrop.marketing.remotion_studio.base_url', env('REMOTION_STUDIO_URL', 'https://remotion.ceballosleon.com'))), '/');
+                    $res = \Illuminate\Support\Facades\Http::timeout(15)->withHeader('Authorization', 'Bearer ' . $key)->get($base . '/api/v1/videos/styles');
+                    $ok = $res->successful();
+                    $message = $ok ? 'Remotion Studio OK (estilos)' : ('HTTP ' . $res->status());
+                    PlatformSetting::put('marketing.remotion_studio_last_test_at', now()->toIso8601String(), 'marketing');
+                    PlatformSetting::put('marketing.remotion_studio_last_test_ok', $ok ? '1' : '0', 'marketing');
+                    PlatformSetting::put('marketing.remotion_studio_last_test_message', mb_substr($message, 0, 240), 'marketing');
+                    break;
             }
         } catch (\Throwable $e) {
             return $this->testJson($request, false, 'Prueba falló: '.$e->getMessage());

@@ -241,6 +241,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
                     Route::post('remotion/generate', [MarketingRemotionController::class, 'generate'])->name('remotion.generate');
                     Route::post('remotion/poll', [MarketingRemotionController::class, 'poll'])->name('remotion.poll');
                     Route::post('remotion/active', [MarketingRemotionController::class, 'active'])->name('remotion.active');
+                    Route::get('remotion/remote/options', [MarketingRemotionController::class, 'remoteOptions'])->name('remotion.remote.options');
+                    Route::post('remotion/remote/generate', [MarketingRemotionController::class, 'remoteGenerate'])->name('remotion.remote.generate');
+                    Route::post('remotion/remote/status', [MarketingRemotionController::class, 'remoteStatus'])->name('remotion.remote.status');
                     Route::post('hyperframes/generate', [MarketingHyperFramesController::class, 'generate'])->name('hyperframes.generate');
                     Route::post('hyperframes/poll', [MarketingHyperFramesController::class, 'poll'])->name('hyperframes.poll');
                     Route::post('hyperframes/confirm', [MarketingHyperFramesController::class, 'confirm'])->name('hyperframes.confirm');
@@ -288,6 +291,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
                 Route::get('design/editor/{page}', [DesignController::class, 'editor'])->name('design.editor');
                 Route::post('design/editor/{page}', [DesignController::class, 'saveEditor'])->name('design.editor.save');
                 Route::get('products.json', [DesignController::class, 'productsJson'])->name('products.json');
+                Route::get('designs/{storeDesign}/zip', [DesignController::class, 'downloadDesignZip'])->name('designs.zip');
                 Route::post('designs/{storeDesign}/activate', [DesignController::class, 'activateDesign'])->name('designs.activate');
                 Route::post('designs/{storeDesign}/duplicate', [DesignController::class, 'duplicateDesign'])->name('designs.duplicate');
                 Route::post('designs/{storeDesign}/reset', [DesignController::class, 'resetDesignFromLibrary'])->name('designs.reset');

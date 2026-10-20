@@ -36,6 +36,10 @@
     $collapseUpload = $uploadedVideos->isEmpty();
     $collapseHyperframes = $hyperframesVideos->isEmpty();
     $collapseNotebook = $notebooklmVideos->isEmpty() && ! $displayNotebookJob;
+    $productUrl = url('/s/'.$product->store->slug.'/pages/'.$product->slug);
+    $remotionStudio = $remotionStudio ?? ['ok' => false];
+    $remotionStudioVideos = $productVideos->filter(fn ($v) => ($v->source ?: '') === 'remotion_studio')->values();
+    $collapseRemotionStudio = $remotionStudioVideos->isEmpty();
 @endphp
 <div class="space-y-5" id="md-product-{{ $product->id }}">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -331,4 +335,67 @@
             @endif
         </div>
     </div>
-</div>
+
+    <p class="text-center text-[11px] font-semibold uppercase tracking-widest text-ink-soft/40">o</p>
+
+    <div class="rounded-xl border border-line overflow-hidden bg-white" data-md-fold @if($collapseRemotionStudio) data-md-fold-collapsed @endif>
+        <button type="button" class="flex w-full items-start gap-3 border-b border-line bg-mist/30 px-4 py-3 text-left" data-md-fold-toggle aria-expanded="{{ $collapseRemotionStudio ? 'false' : 'true' }}">
+            <div class="min-w-0 flex-1">
+                <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Opción 5</p>
+                <h3 class="mt-0.5 font-semibold text-ink">Generar con Remotion remoto</h3>
+                <p class="mt-1 text-sm text-ink-soft/70">Genera el MP4 en la nube para <strong>{{ $product->name ?: ('producto #'.$product->id) }}</strong>.</p>
+            </div>
+            <span class="mt-1 shrink-0 text-ink-soft/50 transition-transform duration-150 md-fold-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="p-4 space-y-4" data-md-fold-body @if($collapseRemotionStudio) hidden @endif>
+            @unless($remotionStudio['ok'] ?? false)
+                <p class="text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                    Remotion Studio no está configurado.
+                    <a href="{{ $remotionStudio['settings_url'] ?? route('admin.store.marketing.sellercentral.index') }}" class="underline text-teal">Configura la API key</a>
+                    en Marketing → Publicaciones.
+                </p>
+            @endunless
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button
+                    type="button"
+                    class="admin-btn !px-3 !py-1.5 text-sm md-remotion-studio-go"
+                    data-campaign-id="{{ $campaign->id }}"
+                    data-product-id="{{ $product->id }}"
+                    data-product-url="{{ $productUrl }}"
+                    @disabled(! ($remotionStudio['ok'] ?? false))
+                >Generar con Remotion remoto</button>
+            </div>
+
+            <p class="text-xs text-ink-soft/55 md-remotion-studio-msg" data-product-id="{{ $product->id }}" role="status" aria-live="polite"></p>
+            <div class="hidden rounded-lg border border-line bg-mist/40 px-3 py-2 md-remotion-studio-progress" data-product-id="{{ $product->id }}">
+                <div class="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-soft/55">
+                    <span>Progreso</span>
+                    <span class="md-remotion-studio-step" data-product-id="{{ $product->id }}">—</span>
+                </div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-white">
+                    <div class="h-full w-0 rounded-full bg-teal transition-all duration-300 md-remotion-studio-bar" data-product-id="{{ $product->id }}"></div>
+                </div>
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p class="mt-1 text-[11px] text-ink-soft/55 md-remotion-studio-progress-hint">Consultando estado del job…</p>
+                    <button
+                        type="button"
+                        class="admin-btn-danger !px-2.5 !py-1 !text-[11px] md-remotion-studio-cancel"
+                        data-product-id="{{ $product->id }}"
+                        disabled
+                    >Detener</button>
+                </div>
+            </div>
+
+            <div class="md-remotion-studio-result space-y-2" data-product-id="{{ $product->id }}"></div>
+
+            @if($remotionStudioVideos->isNotEmpty())
+                <div class="space-y-2 border-t border-line pt-4">
+                    <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Videos Remotion Studio ({{ $remotionStudioVideos->count() }})</p>
+                    @foreach($remotionStudioVideos as $v)
+                        @include('admin.store.marketing.campaigns._video_item', ['v' => $v, 'redirectTab' => 'productos', 'redirectProduct' => $product->id])
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    </div>

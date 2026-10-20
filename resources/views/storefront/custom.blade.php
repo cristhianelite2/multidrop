@@ -104,10 +104,10 @@
             font-size: 12px;
             line-height: 1.2;
             padding: 0.4rem 0.5rem;
-            border-radius: 6px;
-            border: 1px solid rgba(15, 23, 42, 0.18);
-            background: #fff;
-            color: inherit;
+            border-radius: var(--md-radius-sm, 6px);
+            border: 1px solid var(--md-mod-line, rgba(15, 23, 42, 0.18));
+            background: var(--md-mod-bg, #fff);
+            color: var(--md-mod-text, inherit);
             cursor: pointer;
         }
         .md-atc-modal {
@@ -132,11 +132,13 @@
             position: relative;
             z-index: 1;
             width: min(420px, 100%);
-            background: #ffffff;
-            color: #0f172a;
-            border-radius: 18px;
+            background: var(--md-mod-bg, #ffffff);
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, #e2e8f0);
+            border-radius: var(--md-mod-radius, 18px);
             box-shadow: 0 24px 60px rgba(15, 23, 42, .28);
             padding: 22px 20px 18px;
+            font-family: var(--md-mod-font, inherit);
             animation: md-atc-in .22s ease;
         }
         @keyframes md-atc-in {
@@ -152,7 +154,7 @@
             font-size: 22px;
             line-height: 1;
             cursor: pointer;
-            color: #64748b;
+            color: var(--md-mod-muted, #64748b);
             padding: 4px 8px;
         }
         .md-atc-modal__mark {
@@ -162,22 +164,24 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            background: color-mix(in srgb, var(--md-checkout-primary, #0f766e) 18%, #fff);
-            color: var(--md-checkout-primary, #0f766e);
+            background: color-mix(in srgb, var(--md-mod-primary, var(--md-checkout-primary, #0f766e)) 18%, var(--md-mod-bg, #fff));
+            color: var(--md-mod-primary, var(--md-checkout-primary, #0f766e));
             font-size: 22px;
             font-weight: 800;
             margin-bottom: 12px;
         }
         .md-atc-modal__title {
             margin: 0 0 6px;
+            font-family: var(--md-mod-font-display, inherit);
             font-size: 1.2rem;
             font-weight: 800;
             line-height: 1.25;
+            color: var(--md-mod-text, #0f172a);
         }
         .md-atc-modal__sub {
             margin: 0 0 16px;
             font-size: 14px;
-            color: #64748b;
+            color: var(--md-mod-muted, #64748b);
             line-height: 1.4;
         }
         .md-atc-modal__product {
@@ -186,17 +190,18 @@
             gap: 12px;
             align-items: center;
             padding: 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
+            border: 1px solid var(--md-mod-line, #e2e8f0);
+            border-radius: var(--md-mod-radius-sm, 14px);
             margin-bottom: 16px;
-            background: #f8fafc;
+            background: var(--md-mod-surface, #f8fafc);
+            color: var(--md-mod-text, #0f172a);
         }
         .md-atc-modal__media {
             width: 64px;
             height: 64px;
-            border-radius: 10px;
+            border-radius: var(--md-mod-radius-sm, 10px);
             overflow: hidden;
-            background: #e2e8f0;
+            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #e2e8f0));
             flex: none;
             position: relative;
         }
@@ -207,9 +212,9 @@
             height: 64px !important;
             max-width: none !important;
             max-height: none !important;
-            border-radius: 10px;
+            border-radius: var(--md-mod-radius-sm, 10px);
             object-fit: cover !important;
-            background: #e2e8f0;
+            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #e2e8f0));
             display: block !important;
             position: static !important;
             opacity: 1 !important;
@@ -223,16 +228,18 @@
             font-weight: 700;
             font-size: 14px;
             line-height: 1.3;
+            color: var(--md-mod-text, #0f172a);
         }
         .md-atc-modal__meta {
             font-size: 12px;
-            color: #64748b;
+            color: var(--md-mod-muted, #64748b);
             margin-top: 2px;
         }
         .md-atc-modal__price {
             font-weight: 800;
             font-size: 14px;
             white-space: nowrap;
+            color: var(--md-mod-primary, var(--md-mod-text, #0f172a));
         }
         .md-atc-modal__actions {
             display: grid;
@@ -243,7 +250,7 @@
             width: 100%;
             text-align: center;
             box-sizing: border-box;
-            border-radius: 12px;
+            border-radius: var(--md-mod-radius-sm, 12px);
             padding: 12px 16px;
             font-weight: 800;
             font-size: 14px;
@@ -253,13 +260,13 @@
             font-family: inherit;
         }
         .md-atc-modal__actions .md-btn--primary {
-            background: var(--md-checkout-button, var(--md-checkout-primary, #0f766e));
-            color: #fff;
+            background: var(--md-mod-button, var(--md-checkout-button, var(--md-checkout-primary, #0f766e)));
+            color: var(--md-mod-button-text, var(--md-on-primary, #fff));
         }
         .md-atc-modal__actions .md-btn--ghost {
-            background: color-mix(in srgb, var(--md-checkout-text, #0f172a) 10%, var(--md-checkout-bg, #fff));
-            color: var(--md-checkout-text, #0f172a);
-            border: 1px solid color-mix(in srgb, var(--md-checkout-text, #0f172a) 28%, transparent);
+            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #fff));
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, color-mix(in srgb, var(--md-mod-text, #0f172a) 22%, transparent));
         }
         /* Qty en carrito / checkout / PDP (contraste en temas oscuros) */
         .md-qty,
@@ -949,7 +956,7 @@
         .md-photo-lightbox__counter { position:absolute; left:50%; bottom:-28px; transform:translateX(-50%); color:#fff; font-size:12px; opacity:.85; }
     </style>
     <style id="md-qty-contrast">
-        /* Stepper claro + texto oscuro (legible en temas oscuros y en summary arena) */
+        /* Stepper adaptado a los tokens de la plantilla activa (con contraste garantizado) */
         .md-qty,
         .md-pdp__row .md-qty,
         [data-md-qty-wrap],
@@ -969,12 +976,24 @@
             flex: none !important;
             height: 36px !important;
             min-height: 36px !important;
-            border: 1px solid rgba(36, 28, 16, 0.28) !important;
-            border-radius: 999px !important;
+            border: 1px solid var(--md-mod-line, rgba(36, 28, 16, 0.28)) !important;
+            border-radius: var(--md-mod-radius-sm, 999px) !important;
             overflow: hidden !important;
             box-sizing: border-box !important;
+            color: var(--md-mod-text, #241C10) !important;
+            background: var(--md-mod-bg, var(--md-sand, #EFE6D3)) !important;
+        }
+        body.md-theme-ep .md-qty,
+        body.md-theme-ep .md-pdp__row .md-qty,
+        body.md-theme-ep [data-md-qty-wrap],
+        body.md-theme-ep [data-md-checkout-lines] .md-qty,
+        body.md-theme-ep .md-checkout-summary .md-qty,
+        body.md-theme-ep .md-checkout-summary__qty,
+        body.md-theme-ep [data-md-cart] .md-qty,
+        body.md-theme-ep .md-cart-line .md-qty {
             color: #241C10 !important;
             background: var(--md-sand, #EFE6D3) !important;
+            border-color: rgba(36, 28, 16, 0.28) !important;
         }
         .md-pdp__row .md-qty { margin-top: 0 !important; }
         [data-md-checkout-lines] .md-qty,
@@ -986,7 +1005,7 @@
             align-self: flex-start !important;
             height: 34px !important;
             min-height: 34px !important;
-            border-radius: 10px !important;
+            border-radius: var(--md-mod-radius-sm, 10px) !important;
         }
         .md-qty button,
         .md-qty [data-md-qty-minus],
@@ -1013,7 +1032,7 @@
             border: 0 !important;
             border-radius: 0 !important;
             background: transparent !important;
-            color: #241C10 !important;
+            color: inherit !important;
             box-shadow: none !important;
             outline: none !important;
             font: inherit !important;
@@ -1027,8 +1046,8 @@
         [data-md-qty-plus]:hover,
         [data-md-cart-qty-minus]:hover,
         [data-md-cart-qty-plus]:hover {
-            background: color-mix(in srgb, var(--md-checkout-primary, #D98B3F) 16%, transparent) !important;
-            color: #241C10 !important;
+            background: color-mix(in srgb, var(--md-mod-primary, #D98B3F) 16%, transparent) !important;
+            color: inherit !important;
         }
         .md-qty input,
         .md-qty [data-md-qty],
@@ -1047,11 +1066,11 @@
             margin: 0 !important;
             padding: 0 2px !important;
             border: 0 !important;
-            border-left: 1px solid rgba(36, 28, 16, 0.22) !important;
-            border-right: 1px solid rgba(36, 28, 16, 0.22) !important;
+            border-left: 1px solid var(--md-mod-line, rgba(36, 28, 16, 0.22)) !important;
+            border-right: 1px solid var(--md-mod-line, rgba(36, 28, 16, 0.22)) !important;
             border-radius: 0 !important;
             background: transparent !important;
-            color: #241C10 !important;
+            color: inherit !important;
             box-shadow: none !important;
             outline: none !important;
             font-family: inherit !important;
@@ -1110,33 +1129,39 @@
         }
     </style>
     <style id="md-atc-contrast">
-        #md-atc-modal.md-atc-modal,
-        #md-atc-modal .md-atc-modal__card {
-            background: #ffffff !important;
-            color: #0f172a !important;
+        #md-atc-modal.md-atc-modal {
+            background: transparent !important;
         }
-        #md-atc-modal .md-atc-modal__card,
-        #md-atc-modal .md-atc-modal__card * {
-            color: #0f172a;
+        #md-atc-modal .md-atc-modal__card {
+            background: var(--md-mod-bg, #ffffff);
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, #e2e8f0);
+            border-radius: var(--md-mod-radius, 18px);
+        }
+        #md-atc-modal .md-atc-modal__card {
+            color: var(--md-mod-text, #0f172a);
         }
         #md-atc-modal .md-atc-modal__title,
         #md-atc-modal .md-atc-modal__name,
-        #md-atc-modal .md-atc-modal__price,
         #md-atc-modal h1,
         #md-atc-modal h2,
         #md-atc-modal h3 {
-            color: #0f172a !important;
+            color: var(--md-mod-text, #0f172a);
+        }
+        #md-atc-modal .md-atc-modal__price {
+            color: var(--md-mod-primary, var(--md-mod-text, #0f172a));
         }
         #md-atc-modal .md-atc-modal__sub,
         #md-atc-modal .md-atc-modal__meta,
         #md-atc-modal .md-atc-modal__close {
-            color: #64748b !important;
+            color: var(--md-mod-muted, #64748b);
         }
         #md-atc-modal .md-atc-modal__product {
             display: grid !important;
-            background: #f1f5f9 !important;
-            color: #0f172a !important;
-            border: 1px solid #e2e8f0 !important;
+            background: var(--md-mod-surface, #f1f5f9);
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, #e2e8f0);
+            border-radius: var(--md-mod-radius-sm, 14px);
             grid-template-columns: 64px minmax(0, 1fr) auto !important;
             align-items: center !important;
         }
@@ -1144,8 +1169,8 @@
             width: 64px !important;
             height: 64px !important;
             overflow: hidden !important;
-            border-radius: 10px;
-            background: #e2e8f0;
+            border-radius: var(--md-mod-radius-sm, 10px);
+            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #e2e8f0));
         }
         #md-atc-modal .md-atc-modal__media img,
         #md-atc-modal #md-atc-img {
@@ -1166,12 +1191,13 @@
             overflow-wrap: anywhere;
         }
         #md-atc-modal .md-atc-modal__actions .md-btn--primary {
-            color: #fff !important;
+            background: var(--md-mod-button, var(--md-checkout-button, var(--md-primary, #0f766e)));
+            color: var(--md-mod-button-text, var(--md-on-primary, #fff));
         }
         #md-atc-modal .md-atc-modal__actions .md-btn--ghost {
-            background: #f8fafc !important;
-            color: #0f172a !important;
-            border: 1px solid #cbd5e1 !important;
+            background: color-mix(in srgb, var(--md-mod-text, #0f172a) 8%, var(--md-mod-bg, #f8fafc));
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, #cbd5e1);
         }
         [data-md-module="urgency"]:not(.md-mod-bar):not(.md-mod-urgency) {
             display: none !important;
@@ -1228,11 +1254,11 @@
                 min-height: 44px !important;
                 padding: 0 !important;
                 margin: 0 !important;
-                background: #eaf0ff !important;
-                background-color: #eaf0ff !important;
-                color: #05070d !important;
-                border: 1px solid #eaf0ff !important;
-                border-radius: 12px !important;
+                background: var(--md-primary, #eaf0ff) !important;
+                background-color: var(--md-primary, #eaf0ff) !important;
+                color: var(--md-on-primary, #05070d) !important;
+                border: 1px solid var(--md-primary, #eaf0ff) !important;
+                border-radius: var(--md-radius-sm, 12px) !important;
                 box-shadow: none !important;
                 opacity: 1 !important;
                 filter: none !important;
@@ -1246,8 +1272,8 @@
                 height: 2px !important;
                 margin: 0 !important;
                 padding: 0 !important;
-                background: #05070d !important;
-                background-color: #05070d !important;
+                background: var(--md-on-primary, #05070d) !important;
+                background-color: var(--md-on-primary, #05070d) !important;
                 opacity: 1 !important;
                 visibility: visible !important;
             }
@@ -1269,11 +1295,11 @@
             height: 44px !important;
             min-height: 44px !important;
             padding: 0 !important;
-            background: #eaf0ff !important;
-            background-color: #eaf0ff !important;
-            color: #05070d !important;
-            border: 1px solid #eaf0ff !important;
-            border-radius: 12px !important;
+            background: var(--md-primary, #eaf0ff) !important;
+            background-color: var(--md-primary, #eaf0ff) !important;
+            color: var(--md-on-primary, #05070d) !important;
+            border: 1px solid var(--md-primary, #eaf0ff) !important;
+            border-radius: var(--md-radius-sm, 12px) !important;
         }
         body.md-visit-mobile button.md-nav__burger > span,
         body.md-visit-mobile button[data-md-nav-toggle] > span,
@@ -1282,9 +1308,21 @@
             width: 18px !important;
             height: 2px !important;
             margin: 0 !important;
+            background: var(--md-on-primary, #05070d) !important;
+            background-color: var(--md-on-primary, #05070d) !important;
+            opacity: 1 !important;
+        }
+        body.md-theme-axiom button.md-nav__burger,
+        body.md-theme-axiom button[data-md-nav-toggle] {
+            background: #eaf0ff !important;
+            background-color: #eaf0ff !important;
+            color: #05070d !important;
+            border-color: #eaf0ff !important;
+        }
+        body.md-theme-axiom button.md-nav__burger > span,
+        body.md-theme-axiom button[data-md-nav-toggle] > span {
             background: #05070d !important;
             background-color: #05070d !important;
-            opacity: 1 !important;
         }
         body.md-visit-mobile button.md-burger[data-md-nav-toggle] {
             background: #f2a93b !important;
@@ -1404,9 +1442,10 @@
         .md-checkout-redirect__card {
             width: min(420px, 100%);
             padding: 28px 24px;
-            border-radius: 18px;
-            background: #fff;
-            color: #0f172a;
+            border-radius: var(--md-mod-radius, 18px);
+            background: var(--md-mod-bg, #fff);
+            color: var(--md-mod-text, #0f172a);
+            border: 1px solid var(--md-mod-line, transparent);
             text-align: center;
             box-shadow: 0 24px 64px rgba(0, 0, 0, .35);
         }
@@ -1414,8 +1453,8 @@
             width: 44px;
             height: 44px;
             margin: 0 auto 16px;
-            border: 3px solid #e2e8f0;
-            border-top-color: var(--md-checkout-primary, var(--md-primary, #0f766e));
+            border: 3px solid var(--md-mod-line, #e2e8f0);
+            border-top-color: var(--md-mod-primary, var(--md-checkout-primary, var(--md-primary, #0f766e)));
             border-radius: 50%;
             animation: md-checkout-spin .8s linear infinite;
         }
@@ -1423,13 +1462,13 @@
             margin: 0 0 6px;
             font-size: 1.15rem;
             font-weight: 800;
-            color: #0f172a;
+            color: var(--md-mod-text, #0f172a);
         }
         .md-checkout-redirect__hint {
             margin: 0;
             font-size: .95rem;
             line-height: 1.4;
-            color: #475569;
+            color: var(--md-mod-muted, #475569);
         }
         @keyframes md-checkout-spin {
             to { transform: rotate(360deg); }
@@ -1951,13 +1990,19 @@ function mdHideCheckoutRedirect() {
     var open = false;
     if (links) {
       open = links.classList.toggle('md-open');
+      links.classList.toggle('is-open', open);
+      links.classList.toggle('is-active', open);
     }
     if (mobile) {
       open = mobile.classList.toggle('is-open');
+      mobile.classList.toggle('md-open', open);
+      mobile.classList.toggle('is-active', open);
     }
     if (nav) {
       nav.classList.toggle('is-open', open);
+      nav.classList.toggle('md-open', open);
     }
+    burger.classList.toggle('is-open', open);
     burger.setAttribute('aria-expanded', open ? 'true' : 'false');
     e.stopImmediatePropagation();
   }, true);

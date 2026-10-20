@@ -16,6 +16,7 @@ use App\Services\Marketing\CampaignOptimizerService;
 use App\Services\Marketing\CampaignService;
 use App\Services\Marketing\HyperFramesAdsRenderService;
 use App\Services\Marketing\RemotionMusicCatalog;
+use App\Services\Marketing\RemotionStudioClient;
 use App\Services\Marketing\RemotionStyleCatalog;
 use App\Services\Marketing\VideoIngestService;
 use App\Services\SellerCentral\SellerCentralApi;
@@ -102,6 +103,7 @@ class CampaignController extends Controller
         HyperFramesAdsRenderService $hyperframes,
         RemotionMusicCatalog $remotionMusic,
         RemotionStyleCatalog $remotionStyles,
+        RemotionStudioClient $remotionStudioClient,
         MarketingCampaign $campaign
     ) {
         $store = $this->currentStoreOrFail($storeContext);
@@ -125,6 +127,11 @@ class CampaignController extends Controller
             ->limit(100)
             ->get()
             ->groupBy(fn (SellerCentralVideoJob $j) => (string) $j->product_id);
+
+        $remotionStudio = [
+            'ok' => $remotionStudioClient->withStore($store)->configured(),
+            'settings_url' => route('admin.store.marketing.sellercentral.index'),
+        ];
 
         return view('admin.store.marketing.campaigns.show', [
             'store' => $store,
@@ -173,6 +180,7 @@ class CampaignController extends Controller
                 ->orderByDesc('updated_at')
                 ->limit(250)
                 ->get(['id', 'name', 'slug', 'status', 'image_url']),
+            'remotionStudio' => $remotionStudio,
         ]);
     }
 

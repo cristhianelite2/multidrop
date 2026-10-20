@@ -2,6 +2,18 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-10-19
+
+### Storefront · Herencia automática de estilos de plantillas en plugins y módulos
+- **Base CSS de plugins siempre activa (`DesignThemeService::resolveModulesCss` y `composeStorefrontCss`):** `starterModulesCss()` ahora se inyecta siempre como base antes de `modules.css` de la plantilla, evitando que plantillas con un `modules.css` parcial dejen sin estructura ni estilos a `roulette`, `upsell`, `social_proof`, `cross_sell`, `cookies`, `newsletter`, `urgency` o `country-picker`.
+- **Puente reactivo de tokens (`extractThemeTokens`, `resolveEffectiveCheckoutTokens`, `buildThemeTokenBridgeCss`):** extracción automática de paleta (`--md-primary`, `--md-accent`, `--md-bg`, `--md-panel`, `--md-ink`, `--md-muted`, `--md-line`), radios (`--md-radius`, `--md-radius-sm`), tipografías (`--md-font-body`, `--md-font-display`, `--md-font-mono`) y contraste automático (`--md-on-primary`, `--md-on-accent`, `--md-mod-text`) desde `:root` y selectores de la plantilla hacia `--md-mod-*` y `--md-checkout-*`.
+- **Sanitización y guardas estructurales (`sanitizeThemeCss` y `platformOverlayGuardCss`):** corrección automática de reglas mal dirigidas en plantillas (como estilizar `#md-atc-modal` o `.md-mod-cookies` en el contenedor raíz en vez de `.md-atc-modal__card` y `.md-mod-cookies__bar`, o colapsar `.md-hero .md-niche` como badge en lugar del contenedor de imagen del producto estrella).
+- **Módulo de urgencia (`ModuleRegistry::layoutFor` y `urgency.twig`):** inyección automática de `urgency` tras `header` en páginas `landing` y `product` cuando `layout.json` lo omite (salvo desactivación explícita), y unificación de clases `.md-mod-urgency.md-mod-bar`.
+- ** Componentes de plataforma (`custom.blade.php`, `platform.css`, `mobile.css`):** el modal `#md-atc-modal`, el stepper `.md-qty`, el botón hamburguesa móvil y el overlay de redirección de checkout ahora heredan los tokens `--md-mod-*` / `--md-*` de la plantilla activa en lugar de colores fijos.
+
+### Diseño de tienda · Descarga ZIP de copias de plantillas
+- Se habilitó el botón **Descargar ZIP** (GET /admin/store/designs/{storeDesign}/zip, ruta dmin.store.designs.zip) en /admin/store/design tanto para la plantilla asignada activa como para las otras copias guardadas en la tienda (ej. emergency-power-theme-template), exportando 	heme.css, modules.css, mobile.css, 	heme.js, layout.json, pages/*.twig y ssets/* mediante DesignZipExporter::exportStoreDesign.
+
 ## 2026-10-11
 
 ### Reglas de coordinación (AGENTS.md)

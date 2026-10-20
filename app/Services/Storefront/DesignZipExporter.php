@@ -2,6 +2,7 @@
 
 namespace App\Services\Storefront;
 
+use App\Models\StoreDesign;
 use App\Models\Theme;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
@@ -33,6 +34,29 @@ class DesignZipExporter
         );
 
         return $this->buildZip($design, (string) $theme->slug);
+    }
+
+    /**
+     * Genera un ZIP compatible con DesignZipImporter a partir de la copia de una tienda.
+     *
+     * @return string|null Ruta absoluta al archivo temporal
+     */
+    public function exportStoreDesign(StoreDesign $storeDesign): ?string
+    {
+        if (! class_exists(ZipArchive::class)) {
+            return null;
+        }
+
+        $design = $this->themes->forDisplay(
+            $this->themes->normalizeDesign(
+                is_array($storeDesign->design) ? $storeDesign->design : [],
+                $storeDesign->name
+            )
+        );
+
+        $folder = $storeDesign->theme?->slug ?: $storeDesign->name;
+
+        return $this->buildZip($design, (string) $folder);
     }
 
     /**

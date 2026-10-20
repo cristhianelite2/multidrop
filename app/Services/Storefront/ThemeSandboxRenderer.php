@@ -106,7 +106,7 @@ class ThemeSandboxRenderer
             'html' => $html,
             'css' => $css,
             'js' => $js,
-            'checkout' => $design['checkout'] ?? [],
+            'checkout' => $this->themes->resolveEffectiveCheckoutTokens($design),
             'page' => $page,
             'preview' => false,
             'sandbox' => true,

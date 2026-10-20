@@ -39,6 +39,8 @@ class SellerCentralController extends Controller
             $calendar = $this->remoteCalendar($store);
         }
 
+        $remotionStudioApiKey = (string) data_get($store->settings, 'marketing.remotion_studio_api_key', '');
+
         return view('admin.store.marketing.sellercentral.index', [
             'store' => $store,
             'connection' => $connection,
@@ -46,6 +48,7 @@ class SellerCentralController extends Controller
             'calendar' => $calendar,
             'embedUrl' => $this->embedUrl($store),
             'connectionErrors' => $connection['ok'] ? [] : [$connection['error']],
+            'remotionStudioApiKey' => $remotionStudioApiKey,
         ]);
     }
 
@@ -99,6 +102,7 @@ class SellerCentralController extends Controller
             'base_url' => ['nullable', 'url', 'max:500'],
             'api_key' => ['nullable', 'string', 'max:200'],
             'embed_url' => ['nullable', 'url', 'max:500'],
+            'remotion_studio_api_key' => ['nullable', 'string', 'max:200'],
         ]);
 
         $this->saveCredentials(
@@ -108,6 +112,16 @@ class SellerCentralController extends Controller
             updateApiKey: trim((string) ($data['api_key'] ?? '')) !== ''
         );
         $this->saveEmbedUrl($store, (string) ($data['embed_url'] ?? ''));
+
+        $rsKey = trim((string) ($data['remotion_studio_api_key'] ?? ''));
+        if ($rsKey !== '') {
+            $store->settings = array_replace($store->settings ?? [], [
+                'marketing' => array_replace($store->settings['marketing'] ?? [], [
+                    'remotion_studio_api_key' => $rsKey,
+                ]),
+            ]);
+            $store->save();
+        }
 
         return redirect()->route('admin.store.marketing.sellercentral.index')
             ->with('success', 'Conexión con Seller Central guardada.');

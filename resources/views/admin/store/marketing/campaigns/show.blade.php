@@ -91,6 +91,9 @@
         #md-hf-review-modal.flex {
             display: flex !important;
         }
+        #md-remotion-studio-modal.flex {
+            display: flex !important;
+        }
         /* Tailwind no genera h/w-[140px] en este build; sin esto el label colapsa a ~2px. */
         .md-hf-asset {
             display: block;
@@ -241,6 +244,7 @@
                     'hyperframes' => $hyperframes ?? ['ok' => false],
                     'notebooklm' => $notebooklm ?? ['ok' => false],
                     'notebookJobs' => ($notebookJobsByProduct ?? collect())->get((string) $focusProduct->id, collect()),
+                    'remotionStudio' => $remotionStudio ?? ['ok' => false],
                 ])
             @else
                 <div class="flex flex-wrap items-center justify-between gap-3">
@@ -567,6 +571,46 @@
             <div class="flex flex-wrap justify-end gap-2 border-t border-line px-4 py-3">
                 <button type="button" class="admin-btn-secondary !px-3 !py-1.5 text-sm" data-md-publication-copy>Copiar</button>
                 <button type="button" class="admin-btn !px-3 !py-1.5 text-sm" data-md-publication-download>Descargar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="md-remotion-studio-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50" role="dialog" aria-modal="true" aria-hidden="true">
+        <div class="w-full max-w-lg rounded-xl border border-line bg-white shadow-xl">
+            <div class="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+                <div>
+                    <h3 class="font-semibold text-ink">Generar video con Remotion remoto</h3>
+                    <p class="mt-0.5 text-xs text-ink-soft/55">Elige estilo, música y duración. El video se generará en la nube.</p>
+                </div>
+                <button type="button" data-md-remotion-studio-close class="admin-btn-secondary !px-2.5 !py-1 text-xs">Cerrar</button>
+            </div>
+            <div class="p-4 space-y-3">
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-ink-soft" for="md-rs-modal-style">Estilo</label>
+                    <select id="md-rs-modal-style" class="admin-input !py-1.5 !px-2 !text-sm w-full max-w-md">
+                        <option value="random">Aleatorio</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-ink-soft" for="md-rs-modal-music">Música</label>
+                    <select id="md-rs-modal-music" class="admin-input !py-1.5 !px-2 !text-sm w-full max-w-md">
+                        <option value="random">Aleatoria</option>
+                        <option value="none">Sin música</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-ink-soft" for="md-rs-modal-volume">Volumen</label>
+                    <input type="range" id="md-rs-modal-volume" min="0" max="60" value="30" class="w-full">
+                    <p class="mt-0.5 text-[11px] text-ink-soft/50" id="md-rs-modal-volume-label">30%</p>
+                </div>
+                <div>
+                    <label class="mb-1 block text-xs font-medium text-ink-soft" for="md-rs-modal-length">Duración (segundos)</label>
+                    <input type="number" id="md-rs-modal-length" min="6" max="120" value="21" class="admin-input !py-1.5 !px-2 !text-sm w-full max-w-md">
+                </div>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2 border-t border-line px-4 py-3">
+                <button type="button" class="admin-btn-secondary !px-3 !py-1.5 text-sm" data-md-remotion-studio-close>Cancelar</button>
+                <button type="button" class="admin-btn !px-3 !py-1.5 text-sm" id="md-rs-modal-submit">Generar video</button>
             </div>
         </div>
     </div>
@@ -2540,6 +2584,242 @@
       if (card) card.classList.add('pointer-events-none');
     });
   }
+
+  var rsOptionsUrl = @json(route('admin.store.marketing.remotion.remote.options', absolute: false));
+  var rsGenerateUrl = @json(route('admin.store.marketing.remotion.remote.generate', absolute: false));
+  var rsStatusUrl = @json(route('admin.store.marketing.remotion.remote.status', absolute: false));
+  var rsPollers = {};
+  var rsPending = { btn: null, productId: null, campaignId: null, jobId: null };
+
+  function rsEls(productId) {
+    return {
+      msg: document.querySelector('.md-remotion-studio-msg[data-product-id="' + productId + '"]'),
+      progress: document.querySelector('.md-remotion-studio-progress[data-product-id="' + productId + '"]'),
+      step: document.querySelector('.md-remotion-studio-step[data-product-id="' + productId + '"]'),
+      bar: document.querySelector('.md-remotion-studio-bar[data-product-id="' + productId + '"]'),
+      cancel: document.querySelector('.md-remotion-studio-cancel[data-product-id="' + productId + '"]'),
+      hint: document.querySelector('.md-remotion-studio-progress-hint[data-product-id="' + productId + '"]'),
+      result: document.querySelector('.md-remotion-studio-result[data-product-id="' + productId + '"]'),
+      go: document.querySelector('.md-remotion-studio-go[data-product-id="' + productId + '"]'),
+    };
+  }
+  function rsStopPoll(productId) {
+    if (rsPollers[productId]) {
+      clearTimeout(rsPollers[productId]);
+      delete rsPollers[productId];
+    }
+  }
+  function rsSetProgress(productId, visible, jobId) {
+    var els = rsEls(productId);
+    if (!els.progress) return;
+    els.progress.classList.toggle('hidden', !visible);
+    if (els.cancel) {
+      els.cancel.hidden = !visible;
+      els.cancel.disabled = !visible;
+      if (jobId) els.cancel.setAttribute('data-job-id', jobId);
+    }
+  }
+  function rsSetMsg(productId, message, isError) {
+    var el = rsEls(productId).msg;
+    if (!el) return;
+    el.textContent = message || '';
+    el.classList.toggle('text-red-700', !!isError);
+    el.classList.toggle('font-medium', !!isError);
+    el.classList.toggle('text-ink-soft/55', !isError);
+  }
+  function rsRenderResult(productId, outputUrl, downloadUrl, fileName) {
+    var el = rsEls(productId).result;
+    if (!el) return;
+    var html = '<div class="space-y-2 border-t border-line pt-4">';
+    html += '<p class="text-[11px] font-semibold uppercase tracking-wide text-ink-soft/50">Video generado</p>';
+    if (outputUrl) {
+      html += '<div class="flex flex-wrap items-center gap-2">';
+      html += '<button type="button" class="admin-btn !px-3 !py-1.5 text-sm md-open-video-modal" data-url="' + outputUrl + '" data-title="Remotion Studio">Ver video</button>';
+      if (downloadUrl) {
+        html += '<a href="' + downloadUrl + '" target="_blank" rel="noopener" class="admin-btn-secondary !px-3 !py-1.5 text-sm">Descargar MP4</a>';
+      }
+      html += '</div>';
+      if (fileName) {
+        html += '<p class="text-xs text-ink-soft/55">Archivo: ' + fileName + '</p>';
+      }
+    } else {
+      html += '<p class="text-sm text-ink-soft/60">El video se generó pero no hay URL pública disponible.</p>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  }
+  function rsOpenModal(productId) {
+    var modal = document.getElementById('md-remotion-studio-modal');
+    if (!modal) return;
+    var btn = document.querySelector('.md-remotion-studio-go[data-product-id="' + productId + '"]');
+    var productUrl = btn ? btn.getAttribute('data-product-url') : '';
+    if (!productUrl) {
+      rsSetMsg(productId, 'Este producto no tiene URL para generar el video.', true);
+      return;
+    }
+    rsPending.productId = productId;
+    rsPending.jobId = null;
+    rsPending.btn = btn;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    modal.setAttribute('aria-hidden', 'false');
+    rsFetchOptions();
+  }
+  function rsCloseModal() {
+    var modal = document.getElementById('md-remotion-studio-modal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  function rsFetchOptions() {
+    var styleSelect = document.getElementById('md-rs-modal-style');
+    var musicSelect = document.getElementById('md-rs-modal-music');
+    if (styleSelect) {
+      styleSelect.innerHTML = '<option value="random">Aleatorio</option>';
+      Object.entries(@json($remotionStyles ?? [])).forEach(function (entry) {
+        var opt = document.createElement('option');
+        opt.value = entry[0];
+        opt.textContent = entry[1];
+        styleSelect.appendChild(opt);
+      });
+    }
+    if (musicSelect) {
+      musicSelect.innerHTML = '<option value="random">Aleatoria</option><option value="none">Sin música</option>';
+      Object.values(@json($remotionMusic ?? [])).forEach(function (track) {
+        var opt = document.createElement('option');
+        opt.value = track.id || track;
+        opt.textContent = (track.title || track.id || track);
+        musicSelect.appendChild(opt);
+      });
+    }
+  }
+  function rsSend() {
+    var productId = rsPending.productId;
+    var btn = rsPending.btn;
+    if (!productId || !btn) return;
+    rsCloseModal();
+    var els = rsEls(productId);
+    var productUrl = btn.getAttribute('data-product-url') || '';
+    if (!productUrl) {
+      rsSetMsg(productId, 'Este producto no tiene URL para generar el video.', true);
+      return;
+    }
+    var styleId = document.getElementById('md-rs-modal-style') ? document.getElementById('md-rs-modal-style').value : 'random';
+    var musicId = document.getElementById('md-rs-modal-music') ? document.getElementById('md-rs-modal-music').value : 'random';
+    var volume = document.getElementById('md-rs-modal-volume') ? parseFloat(document.getElementById('md-rs-modal-volume').value) / 100 : 0.3;
+    var length = document.getElementById('md-rs-modal-length') ? parseInt(document.getElementById('md-rs-modal-length').value, 10) : 21;
+    btn.disabled = true;
+    rsSetMsg(productId, 'Enviando a Remotion…', false);
+    rsSetProgress(productId, true);
+    if (els.hint) els.hint.textContent = 'Enviando petición…';
+    fetch(rsGenerateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({
+        product_id: parseInt(productId, 10),
+        product_url: productUrl,
+        style_id: styleId,
+        music_id: musicId,
+        music_volume: volume,
+        video_length: length,
+      })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () { return { ok: false, j: { ok: false, message: 'Respuesta inválida (HTTP ' + r.status + ')' } }; }); })
+      .then(function (pack) {
+        if (!pack.j || !pack.j.ok) {
+          rsSetMsg(productId, (pack.j && pack.j.message) || 'No se pudo iniciar Remotion', true);
+          rsSetProgress(productId, false);
+          btn.disabled = false;
+          return;
+        }
+        rsPending.jobId = pack.j.jobId;
+        rsSetMsg(productId, 'Job ' + pack.j.jobId + ' — consultando estado…', false);
+        rsPoll(pack.j.jobId, productId, btn);
+      })
+      .catch(function () {
+        rsSetMsg(productId, 'Error de red al iniciar Remotion', true);
+        rsSetProgress(productId, false);
+        btn.disabled = false;
+      });
+  }
+  function rsPoll(jobId, productId, btn) {
+    rsStopPoll(productId);
+    fetch(rsStatusUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+      body: JSON.stringify({ job_id: jobId })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }).catch(function () { return { ok: false, j: { state: 'failed', message: 'Respuesta inválida (HTTP ' + r.status + ')' } }; }); })
+      .then(function (pack) {
+        var state = pack.j || {};
+        var els = rsEls(productId);
+        if (state.state === 'failed' || (!pack.ok && state.message)) {
+          rsSetMsg(productId, state.message || 'Falló Remotion', true);
+          rsSetProgress(productId, false);
+          if (btn) btn.disabled = false;
+          return;
+        }
+        if (state.state === 'done') {
+          rsSetProgress(productId, false);
+          if (els.hint) els.hint.textContent = 'Video listo.';
+          rsRenderResult(productId, state.outputUrl, state.downloadUrl, state.fileName);
+          rsSetMsg(productId, 'Video generado.', false);
+          if (btn) btn.disabled = false;
+          return;
+        }
+        var step = state.step != null ? parseInt(state.step, 10) : 0;
+        var steps = state.steps != null ? parseInt(state.steps, 10) : 6;
+        if (els.step) els.step.textContent = step + '/' + steps;
+        if (els.bar) els.bar.style.width = Math.max(4, Math.min(100, Math.round((step / steps) * 100))) + '%';
+        if (els.hint) els.hint.textContent = state.message || 'Procesando…';
+        rsSetMsg(productId, state.message || 'Procesando…', false);
+        if (btn) btn.disabled = true;
+        rsPollers[productId] = setTimeout(function () { rsPoll(jobId, productId, btn); }, 3000);
+      })
+      .catch(function () {
+        rsSetMsg(productId, 'Error de red al consultar Remotion', true);
+        rsSetProgress(productId, false);
+        if (btn) btn.disabled = false;
+      });
+  }
+  $(document).on('click', '.md-remotion-studio-go', function (e) {
+    e.preventDefault();
+    var productId = this.getAttribute('data-product-id');
+    if (!productId) return;
+    rsPending.campaignId = this.getAttribute('data-campaign-id') || campaignId;
+    rsOpenModal(productId);
+  });
+  $(document).on('click', '[data-md-remotion-studio-close]', function (e) {
+    e.preventDefault();
+    rsCloseModal();
+  });
+  $(document).on('click', '#md-remotion-studio-modal', function (e) {
+    if (e.target === this) rsCloseModal();
+  });
+  $(document).on('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var modal = document.getElementById('md-remotion-studio-modal');
+    if (modal && !modal.classList.contains('hidden')) {
+      rsCloseModal();
+    }
+  });
+  $(document).on('input', '#md-rs-modal-volume', function () {
+    var label = document.getElementById('md-rs-modal-volume-label');
+    if (label) label.textContent = this.value + '%';
+  });
+  $(document).on('click', '#md-rs-modal-submit', function () {
+    rsSend();
+  });
+  $(document).on('click', '.md-remotion-studio-cancel', function () {
+    var productId = this.getAttribute('data-product-id');
+    var jobId = rsPending.jobId;
+    if (!productId || !jobId) return;
+    this.disabled = true;
+    rsStopPoll(productId);
+    rsSetMsg(productId, 'Deteniendo consulta…', false);
+    rsSetProgress(productId, false);
+    var goBtn = document.querySelector('.md-remotion-studio-go[data-product-id="' + productId + '"]');
+    if (goBtn) goBtn.disabled = false;
+  });
 
   // NotebookLM handlers ya registrados al inicio del script.
 })(jQuery);

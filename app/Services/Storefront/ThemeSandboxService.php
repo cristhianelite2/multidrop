@@ -800,13 +800,7 @@ class ThemeSandboxService
                 'handle' => $page['handle'] ?? null,
                 'title' => $page['title'] ?? null,
             ],
-            'checkout' => [
-                'primary' => data_get($theme->design, 'checkout.primary', '#0f766e'),
-                'accent' => data_get($theme->design, 'checkout.accent', '#f59e0b'),
-                'button' => data_get($theme->design, 'checkout.button', '#0f766e'),
-                'bg' => data_get($theme->design, 'checkout.bg', '#ffffff'),
-                'text' => data_get($theme->design, 'checkout.text', '#0f172a'),
-            ],
+            'checkout' => app(DesignThemeService::class)->resolveEffectiveCheckoutTokens($design),
             'urls' => [
                 'home' => route('theme.sandbox.show', $slug),
                 'catalog' => route('theme.sandbox.page', ['theme' => $slug, 'handle' => 'catalog']),

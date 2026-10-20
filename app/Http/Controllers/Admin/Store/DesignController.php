@@ -11,6 +11,7 @@ use App\Services\Storefront\CustomDesignRenderer;
 use App\Services\Storefront\DesignAiFixService;
 use App\Services\Storefront\DesignAssetUrl;
 use App\Services\Storefront\DesignThemeService;
+use App\Services\Storefront\DesignZipExporter;
 use App\Services\Storefront\DesignZipImporter;
 use App\Services\Storefront\ThemeLibraryService;
 use Illuminate\Http\Request;
@@ -392,6 +393,23 @@ class DesignController extends Controller
         }
 
         return back()->with('success', $result['message'] ?? 'ZIP importado.');
+    }
+
+    public function downloadDesignZip(StoreDesign $storeDesign, StoreContext $storeContext, DesignZipExporter $exporter)
+    {
+        $store = $storeContext->current();
+        abort_unless($store && $storeDesign->store_id === $store->id, 404);
+
+        $storeDesign->loadMissing('theme:id,name,slug');
+        $path = $exporter->exportStoreDesign($storeDesign);
+        if (! $path || ! is_file($path)) {
+            return back()->with('error', 'No se pudo generar el ZIP de la copia.');
+        }
+
+        $base = Str::slug($storeDesign->name ?: ($storeDesign->theme?->slug ?? 'plantilla')) ?: 'plantilla';
+        $filename = $base.'.zip';
+
+        return response()->download($path, $filename)->deleteFileAfterSend(true);
     }
 
     public function activateDesign(StoreDesign $storeDesign, StoreContext $storeContext)

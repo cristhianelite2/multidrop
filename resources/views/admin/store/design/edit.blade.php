@@ -96,6 +96,7 @@
                     </div>
                 </div>
                 <div class="flex flex-wrap gap-1.5">
+                    <a href="{{ route('admin.store.designs.zip', $activeDesign) }}" class="admin-btn-secondary !py-1 !px-2 text-xs" title="Descargar ZIP de esta copia">Descargar ZIP</a>
                     <form method="post" action="{{ route('admin.store.designs.duplicate', $activeDesign) }}">
                         @csrf
                         <button class="admin-btn-secondary !py-1 !px-2 text-xs" title="Guarda esta personalización en la tienda antes de cambiar de plantilla">Guardar copia</button>
@@ -125,6 +126,7 @@
                             <div class="text-[11px] text-ink-soft/55">{{ $sd->originLabel() }} · {{ $sd->pagesCount() }} pág. · {{ $sd->assetsCount() }} assets</div>
                         </div>
                         <div class="flex flex-wrap gap-1.5">
+                            <a href="{{ route('admin.store.designs.zip', $sd) }}" class="admin-btn-secondary !py-1 !px-2 text-xs" title="Descargar ZIP de esta copia">Descargar ZIP</a>
                             <form method="post" action="{{ route('admin.store.designs.activate', $sd) }}">
                                 @csrf
                                 <button class="admin-btn !py-1 !px-2 text-xs">Usar esta</button>

@@ -1001,25 +1001,30 @@ CSS;
     public function starterModulesCss(): string
     {
         return <<<'CSS'
-/* MÃ³dulos Multidrop â€” hereda --md-primary / --md-checkout-* del theme */
+/* Módulos Multidrop — hereda tokens de la plantilla (--md-*, --md-mod-*, --md-checkout-*) */
 :root {
-  --md-mod-primary: var(--md-primary, var(--md-checkout-primary, #0f766e));
-  --md-mod-accent: var(--md-accent, var(--md-checkout-accent, #f59e0b));
-  --md-mod-button: var(--md-checkout-button, var(--md-mod-primary));
-  --md-mod-bg: var(--md-panel, var(--md-checkout-bg, #ffffff));
-  --md-mod-text: var(--md-ink, var(--md-checkout-text, #0f172a));
-  --md-mod-muted: var(--md-muted, #64748b);
-  --md-mod-line: var(--md-line, #e2e8f0);
-  --md-mod-radius: 14px;
-  --md-mod-font: inherit;
+  --md-mod-primary: var(--md-primary, var(--md-amber, var(--md-accent-cyan, var(--md-checkout-primary, #0f766e))));
+  --md-mod-accent: var(--md-accent, var(--md-signal, var(--md-accent-lamp, var(--md-amber, var(--md-checkout-accent, var(--md-mod-primary))))));
+  --md-mod-button: var(--md-primary, var(--md-checkout-button, var(--md-mod-primary)));
+  --md-mod-button-text: var(--md-on-primary, #ffffff);
+  --md-mod-bg: var(--md-panel, var(--md-surface, var(--md-checkout-bg, #ffffff)));
+  --md-mod-surface: var(--md-bg, var(--md-graphite, #f8fafc));
+  --md-mod-text: var(--md-ink, var(--md-paper, var(--md-text, var(--md-checkout-text, #0f172a))));
+  --md-mod-muted: var(--md-muted, var(--md-text-muted, #64748b));
+  --md-mod-line: var(--md-line, var(--md-border, #e2e8f0));
+  --md-mod-radius: var(--md-radius, 14px);
+  --md-mod-radius-sm: var(--md-radius-sm, 10px);
+  --md-mod-font: var(--md-font-body, var(--font-body, inherit));
+  --md-mod-font-display: var(--md-font-display, var(--font-display, var(--md-mod-font)));
+  --md-mod-shadow: var(--md-shadow-md, 0 16px 40px color-mix(in srgb, var(--md-mod-text) 18%, rgba(0, 0, 0, .24)));
 }
 
 .md-mod-bar {
   font-family: var(--md-mod-font);
-  font-size: .82rem;
+  font-size: .85rem;
   line-height: 1.45;
   color: var(--md-mod-text, inherit);
-  padding: 10px 14px;
+  padding: 10px 16px;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
@@ -1027,10 +1032,20 @@ CSS;
   justify-content: space-between;
 }
 .md-mod-urgency {
-  background: color-mix(in srgb, var(--md-mod-accent) 82%, #000 18%);
+  background: color-mix(in srgb, var(--md-mod-primary) 14%, var(--md-mod-bg));
+  border: 1px solid color-mix(in srgb, var(--md-mod-primary) 34%, var(--md-mod-line));
+  border-radius: var(--md-mod-radius-sm);
   justify-content: center;
   text-align: center;
   color: var(--md-mod-text, inherit);
+  font-family: var(--md-mod-font);
+  font-weight: 600;
+  padding: 10px 16px;
+}
+.md-mod-urgency b,
+.md-mod-urgency strong {
+  color: currentColor;
+  font-weight: 800;
 }
 .md-mod-urgency [data-md-urgency-copy] {
   display: inline;
@@ -1038,7 +1053,7 @@ CSS;
   text-align: center;
 }
 .md-mod-roulette {
-  /* legado barra â€” la ruleta real usa overlay */
+  /* legado barra — la ruleta real usa overlay */
   display: none !important;
 }
 .md-mod-roulette-fab-wrap {
@@ -1048,13 +1063,14 @@ CSS;
   z-index: 99991;
   max-width: min(240px, calc(100vw - 32px));
   transition: bottom .25s ease;
+  font-family: var(--md-mod-font);
 }
 .md-mod-roulette-fab {
   border: 0;
   cursor: pointer;
-  font: 800 .78rem/1.1 inherit;
+  font: 800 .78rem/1.1 var(--md-mod-font);
   letter-spacing: .02em;
-  color: #fff;
+  color: var(--md-mod-button-text, #fff);
   padding: 10px 14px;
   border-radius: 999px;
   background: linear-gradient(135deg, var(--md-mod-accent), var(--md-mod-primary));
@@ -1070,16 +1086,16 @@ CSS;
 }
 .md-mod-roulette-won {
   background: linear-gradient(145deg, var(--md-mod-primary), color-mix(in srgb, var(--md-mod-accent) 70%, var(--md-mod-primary)));
-  color: #fff;
-  border-radius: 12px;
+  color: var(--md-mod-button-text, #fff);
+  border-radius: var(--md-mod-radius-sm);
   padding: 7px 9px;
   box-shadow:
     0 0 0 3px color-mix(in srgb, var(--md-mod-accent) 30%, transparent),
     0 10px 24px color-mix(in srgb, var(--md-mod-primary) 40%, transparent);
-  font: 600 .7rem/1.25 inherit;
+  font: 600 .7rem/1.25 var(--md-mod-font);
 }
 .md-mod-roulette-won-kicker {
-  opacity: .8;
+  opacity: .85;
   font-size: .58rem;
   text-transform: uppercase;
   letter-spacing: .03em;
@@ -1107,7 +1123,7 @@ CSS;
   border: 1px dashed rgba(255,255,255,.4);
   border-radius: 7px;
   padding: 4px 7px;
-  font: 800 .72rem/1.1 ui-monospace, monospace;
+  font: 800 .72rem/1.1 var(--md-font-mono, ui-monospace, monospace);
   letter-spacing: .03em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1117,9 +1133,9 @@ CSS;
   cursor: pointer;
   border-radius: 999px;
   padding: 4px 9px;
-  font: 800 .65rem/1 inherit;
-  color: #0f172a;
-  background: #fff;
+  font: 800 .65rem/1 var(--md-mod-font);
+  color: var(--md-mod-text, #0f172a);
+  background: var(--md-mod-bg, #fff);
   white-space: nowrap;
 }
 .md-mod-roulette-copy.is-copied {
@@ -1135,14 +1151,13 @@ CSS;
   font-variant-numeric: tabular-nums;
 }
 .md-mod-roulette-miss {
-  background: linear-gradient(145deg, #475569, #334155);
-  color: #fff;
-  border-radius: 12px;
+  background: var(--md-mod-bg, #334155);
+  color: var(--md-mod-text, #fff);
+  border: 1px solid var(--md-mod-line);
+  border-radius: var(--md-mod-radius-sm);
   padding: 7px 9px;
-  box-shadow:
-    0 0 0 3px rgba(148, 163, 184, .3),
-    0 10px 24px rgba(15, 23, 42, .32);
-  font: 600 .7rem/1.25 inherit;
+  box-shadow: var(--md-mod-shadow);
+  font: 600 .7rem/1.25 var(--md-mod-font);
   text-align: center;
 }
 .md-mod-roulette-miss-face {
@@ -1162,9 +1177,9 @@ CSS;
   cursor: pointer;
   border-radius: 999px;
   padding: 5px 10px;
-  font: 800 .65rem/1 inherit;
-  color: #0f172a;
-  background: #fff;
+  font: 800 .65rem/1 var(--md-mod-font);
+  color: var(--md-mod-button-text, #fff);
+  background: var(--md-mod-button);
 }
 .md-mod-roulette-overlay {
   position: fixed;
@@ -1191,6 +1206,7 @@ CSS;
 }
 .md-mod-roulette-stage h2 {
   margin: 0 0 6px;
+  font-family: var(--md-mod-font-display);
   font-size: clamp(1.6rem, 5vw, 2.4rem);
   font-weight: 900;
   letter-spacing: -.02em;
@@ -1296,6 +1312,7 @@ CSS;
   padding: 16px 36px !important;
   border-radius: 999px !important;
   background: linear-gradient(135deg, var(--md-mod-accent), var(--md-mod-primary)) !important;
+  color: var(--md-mod-button-text, #fff) !important;
   box-shadow: 0 10px 30px color-mix(in srgb, var(--md-mod-accent) 50%, transparent);
   text-transform: uppercase;
   letter-spacing: .06em;
@@ -1307,7 +1324,7 @@ CSS;
 .md-mod-roulette-result {
   margin-top: 16px;
   padding: 16px;
-  border-radius: 18px;
+  border-radius: var(--md-mod-radius);
   background: rgba(255,255,255,.12);
   border: 1px solid rgba(255,255,255,.25);
   animation: md-roulette-pop .45s ease;
@@ -1384,25 +1401,25 @@ CSS;
   margin-top: 8px;
   width: 100%;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--md-mod-radius-sm);
   padding: 6px;
   background: var(--md-mod-button);
-  color: #fff;
+  color: var(--md-mod-button-text, #fff);
   font-weight: 600;
   cursor: pointer;
   font-size: .75rem;
 }
 
-/* Cross-sell mÃ¡gico compacto encima de Contact + Order summary */
+/* Cross-sell mágico compacto encima de Contact + Order summary */
 .md-mod-cross-checkout {
   grid-column: 1 / -1;
   background: linear-gradient(120deg,
-    color-mix(in srgb, var(--md-checkout-accent, var(--md-mod-primary)) 14%, var(--md-checkout-bg, var(--md-mod-bg))),
-    var(--md-checkout-bg, var(--md-mod-bg)) 55%);
-  border: 1px solid color-mix(in srgb, var(--md-checkout-primary, var(--md-mod-primary)) 35%, transparent);
-  border-radius: 14px;
-  padding: 10px 12px;
-  color: var(--md-checkout-text, var(--md-mod-text));
+    color-mix(in srgb, var(--md-mod-accent) 14%, var(--md-mod-bg)),
+    var(--md-mod-bg) 55%);
+  border: 1px solid color-mix(in srgb, var(--md-mod-primary) 35%, var(--md-mod-line));
+  border-radius: var(--md-mod-radius);
+  padding: 12px 14px;
+  color: var(--md-mod-text);
   font-family: var(--md-mod-font);
   margin: 0;
 }
@@ -1434,14 +1451,15 @@ CSS;
   font-weight: 800;
   letter-spacing: .04em;
   text-transform: uppercase;
-  color: #fff;
-  background: var(--md-checkout-primary, var(--md-mod-primary));
+  color: var(--md-mod-button-text, #fff);
+  background: var(--md-mod-primary);
   border-radius: 999px;
   padding: 3px 8px;
   line-height: 1.2;
 }
 .md-mod-cross-checkout__title {
   margin: 0;
+  font-family: var(--md-mod-font-display);
   font-size: .92rem;
   font-weight: 800;
   line-height: 1.2;
@@ -1449,7 +1467,7 @@ CSS;
 .md-mod-cross-checkout__hint {
   font-size: .72rem;
   font-weight: 600;
-  color: var(--md-checkout-accent, #b45309);
+  color: var(--md-mod-accent);
   opacity: .95;
 }
 .md-mod-cross-checkout__timer {
@@ -1457,7 +1475,8 @@ CSS;
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
-  background: color-mix(in srgb, var(--md-checkout-text, #0f172a) 8%, transparent);
+  background: color-mix(in srgb, var(--md-mod-text) 8%, transparent);
+  border: 1px solid var(--md-mod-line);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: .7rem;
@@ -1467,7 +1486,7 @@ CSS;
 .md-mod-cross-checkout__timer b {
   font-variant-numeric: tabular-nums;
   font-size: .85rem;
-  color: var(--md-checkout-primary, var(--md-mod-primary));
+  color: var(--md-mod-primary);
 }
 .md-mod-cross-checkout__timer.is-urgent b,
 .md-mod-cross-checkout__timer.is-expired b { color: #b91c1c; }
@@ -1487,16 +1506,16 @@ CSS;
   max-width: 340px;
   flex: 0 0 auto;
   padding: 6px 8px;
-  border-radius: 12px;
-  background: var(--md-checkout-bg, var(--md-mod-bg));
-  border: 1px solid color-mix(in srgb, var(--md-checkout-text, #0f172a) 10%, transparent);
+  border-radius: var(--md-mod-radius-sm);
+  background: var(--md-mod-surface, var(--md-mod-bg));
+  border: 1px solid var(--md-mod-line);
 }
 .md-mod-cross-checkout__img {
   width: 44px;
   height: 44px;
   object-fit: cover;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--md-checkout-text, #0f172a) 8%, transparent);
+  background: color-mix(in srgb, var(--md-mod-text) 8%, transparent);
 }
 .md-mod-cross-checkout__img--ph { display: block; }
 .md-mod-cross-checkout__meta { min-width: 0; }
@@ -1523,22 +1542,22 @@ CSS;
 .md-mod-cross-checkout__now {
   font-size: .82rem;
   font-weight: 800;
-  color: var(--md-checkout-primary, var(--md-mod-primary));
+  color: var(--md-mod-primary);
 }
 .md-mod-cross-checkout__save {
   font-size: .62rem;
   font-weight: 800;
-  color: #fff;
-  background: var(--md-checkout-accent, #b45309);
+  color: var(--md-on-accent, #fff);
+  background: var(--md-mod-accent);
   border-radius: 999px;
   padding: 1px 6px;
 }
 .md-mod-cross-checkout__cta {
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--md-mod-radius-sm);
   padding: 8px 10px;
-  background: var(--md-checkout-button, var(--md-mod-button));
-  color: #fff;
+  background: var(--md-mod-button);
+  color: var(--md-mod-button-text, #fff);
   font-weight: 800;
   font-size: .68rem;
   cursor: pointer;
@@ -1552,7 +1571,7 @@ CSS;
   opacity: .75;
 }
 .md-checkout-summary__row--magic {
-  color: var(--md-checkout-accent, #b45309);
+  color: var(--md-mod-accent);
   font-weight: 700;
 }
 .md-checkout-summary__line {
@@ -1598,26 +1617,26 @@ CSS;
   flex: 1 1 auto;
   min-width: 0;
   border: 1px solid var(--md-mod-line, #e2e8f0);
-  background: var(--md-checkout-bg, #fff);
-  color: var(--md-checkout-text, var(--md-mod-text));
+  background: var(--md-mod-surface, var(--md-mod-bg));
+  color: var(--md-mod-text);
   padding: 6px 8px;
   font: inherit;
   font-size: 12px;
-  border-radius: 6px;
+  border-radius: var(--md-mod-radius-sm, 6px);
   height: 32px;
   box-sizing: border-box;
 }
 .md-checkout-summary__coupon--inline [data-md-coupon-apply] {
   flex: 0 0 auto;
-  background: var(--md-checkout-button, var(--md-mod-button));
-  color: #fff;
+  background: var(--md-mod-button);
+  color: var(--md-mod-button-text, #fff);
   border: 0;
   padding: 0 10px;
   height: 32px;
   font-weight: 700;
   font-size: 11px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--md-mod-radius-sm, 6px);
   white-space: nowrap;
 }
 .md-checkout-summary__coupon--inline .md-checkout-summary__coupon-applied {
@@ -1627,7 +1646,7 @@ CSS;
   margin: 0;
   font-size: 11px;
   white-space: nowrap;
-  color: var(--md-checkout-primary, var(--md-mod-primary));
+  color: var(--md-mod-primary);
 }
 .md-checkout-summary__coupon--inline .md-checkout-summary__coupon-applied button {
   border: 0;
@@ -1648,10 +1667,10 @@ CSS;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--md-mod-line, #e2e8f0);
-  background: var(--md-checkout-bg, #fff);
-  color: var(--md-checkout-text, var(--md-mod-text));
+  background: var(--md-mod-surface, var(--md-mod-bg));
+  color: var(--md-mod-text);
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--md-mod-radius-sm, 8px);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -1674,10 +1693,11 @@ CSS;
   z-index: 40;
   left: 0; right: 0;
   top: calc(100% + 4px);
-  background: var(--md-checkout-bg, #fff);
+  background: var(--md-mod-bg);
+  color: var(--md-mod-text);
   border: 1px solid var(--md-mod-line, #e2e8f0);
-  border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, .16);
+  border-radius: var(--md-mod-radius-sm, 10px);
+  box-shadow: var(--md-mod-shadow);
   overflow: hidden;
 }
 .md-country-picker__search {
@@ -1714,7 +1734,7 @@ CSS;
 }
 .md-country-picker__option:hover,
 .md-country-picker__option.is-active {
-  background: color-mix(in srgb, var(--md-checkout-primary, var(--md-mod-primary)) 12%, transparent);
+  background: color-mix(in srgb, var(--md-mod-primary) 12%, transparent);
 }
 .md-country-picker__option img {
   width: 20px;
@@ -1728,7 +1748,7 @@ CSS;
   opacity: .45;
 }
 .md-country-picker__empty { padding: 12px; font-size: 12px; opacity: .7; }
-.md-country-picker__msg { margin: 6px 0 0; font-size: 12px; color: var(--md-checkout-primary, var(--md-mod-primary)); }
+.md-country-picker__msg { margin: 6px 0 0; font-size: 12px; color: var(--md-mod-primary); }
 .md-country-picker__msg:empty { display: none; }
 .md-country-picker__msg.is-error { color: #b91c1c; }
 
@@ -1737,17 +1757,17 @@ CSS;
   right: 16px;
   bottom: 88px;
   z-index: 99990;
-  max-width: 300px;
+  max-width: 320px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  background: var(--md-panel, var(--md-mod-bg));
+  background: var(--md-mod-bg);
   color: var(--md-mod-text);
-  border: 1px solid var(--md-line, var(--md-mod-line));
-  border-radius: 16px;
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--md-mod-text) 18%, transparent);
-  padding: 14px;
+  border: 1px solid var(--md-mod-line);
+  border-radius: var(--md-mod-radius);
+  box-shadow: var(--md-mod-shadow);
+  padding: 16px;
   font-family: var(--md-mod-font);
   font-size: .85rem;
 }
@@ -1756,12 +1776,14 @@ CSS;
   justify-content: space-between;
   gap: 8px;
   align-items: start;
+  font-family: var(--md-mod-font-display);
   font-weight: 700;
   margin-bottom: 4px;
 }
 .md-mod-upsell .md-mod-upsell-body {
   width: 100%;
   box-sizing: border-box;
+  padding: 0;
 }
 .md-mod-upsell p { margin: 8px 0; color: var(--md-mod-muted); }
 .md-mod-upsell-product {
@@ -1769,9 +1791,9 @@ CSS;
   gap: 10px;
   align-items: center;
   margin: 8px 0 12px;
-  padding: 8px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--md-mod-primary) 8%, transparent);
+  padding: 10px;
+  border-radius: var(--md-mod-radius-sm);
+  background: color-mix(in srgb, var(--md-mod-primary) 8%, var(--md-mod-surface, transparent));
   border: 1px solid var(--md-mod-line);
 }
 .md-mod-upsell-product > div {
@@ -1782,8 +1804,8 @@ CSS;
   width: 48px;
   height: 48px;
   object-fit: cover;
-  border-radius: 10px;
-  background: #e2e8f0;
+  border-radius: var(--md-mod-radius-sm);
+  background: color-mix(in srgb, var(--md-mod-text) 8%, transparent);
   flex: 0 0 auto;
 }
 .md-mod-upsell-name {
@@ -1810,10 +1832,10 @@ CSS;
 .md-mod-upsell button[type="button"]:not(.md-mod-close) {
   width: 100%;
   background: var(--md-mod-button);
-  color: #fff;
+  color: var(--md-mod-button-text, #fff);
   border: 0;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: var(--md-mod-radius-sm);
+  padding: 10px 14px;
   font-weight: 700;
   cursor: pointer;
   font: inherit;
@@ -1836,7 +1858,7 @@ CSS;
   background: var(--md-mod-bg);
   border: 1px solid var(--md-mod-line);
   border-radius: var(--md-mod-radius);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--md-mod-text) 16%, transparent);
+  box-shadow: var(--md-mod-shadow);
   padding: 10px 12px;
   font-family: var(--md-mod-font);
   font-size: .75rem;
@@ -1862,7 +1884,7 @@ CSS;
   flex: 0 0 auto;
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: var(--md-mod-radius-sm);
   overflow: hidden;
   background: color-mix(in srgb, var(--md-mod-text) 8%, transparent);
   text-decoration: none;
@@ -1920,7 +1942,7 @@ CSS;
 }
 .md-mod-social .md-sp-product:hover { text-decoration: underline; }
 
-/* Newsletter â€” solo checkbox checkout (popup/FAB ocultos) */
+/* Newsletter — solo checkbox checkout (popup/FAB ocultos) */
 .md-mod-newsletter-fab,
 .md-mod-newsletter-overlay,
 .md-mod-newsletter-card {
@@ -1934,12 +1956,12 @@ CSS;
   margin: 12px 0 0;
   padding: 12px 14px;
   border-radius: var(--md-mod-radius);
-  border: 1px dashed color-mix(in srgb, var(--md-checkout-primary, var(--md-mod-primary)) 45%, var(--md-mod-line));
-  background: color-mix(in srgb, var(--md-checkout-accent, var(--md-mod-accent)) 10%, var(--md-checkout-bg, var(--md-mod-bg)));
+  border: 1px dashed color-mix(in srgb, var(--md-mod-primary) 45%, var(--md-mod-line));
+  background: color-mix(in srgb, var(--md-mod-accent) 10%, var(--md-mod-bg));
   font-family: var(--md-mod-font);
   font-size: .88rem;
   line-height: 1.4;
-  color: var(--md-checkout-text, var(--md-mod-text));
+  color: var(--md-mod-text);
   grid-column: 1 / -1;
   width: 100%;
   max-width: 100%;
@@ -1957,10 +1979,10 @@ CSS;
   margin: 3px 0 0 !important;
   padding: 0 !important;
   flex-shrink: 0;
-  accent-color: var(--md-checkout-primary, var(--md-mod-primary));
+  accent-color: var(--md-mod-primary);
 }
 .md-mod-newsletter-checkout strong {
-  color: var(--md-checkout-primary, var(--md-mod-primary));
+  color: var(--md-mod-primary);
 }
 
 /* Cookies UE — banner + preferencias */
@@ -1987,7 +2009,7 @@ CSS;
   color: var(--md-mod-text);
   border: 1px solid var(--md-mod-line);
   border-radius: var(--md-mod-radius);
-  box-shadow: 0 16px 40px color-mix(in srgb, var(--md-mod-text) 18%, transparent);
+  box-shadow: var(--md-mod-shadow);
 }
 .md-mod-cookies__copy {
   flex: 1 1 280px;
@@ -1995,6 +2017,7 @@ CSS;
 }
 .md-mod-cookies__copy strong {
   display: block;
+  font-family: var(--md-mod-font-display);
   font-size: .95rem;
   margin-bottom: 4px;
 }
@@ -2021,9 +2044,9 @@ CSS;
 }
 .md-mod-cookies .md-btn {
   background: var(--md-mod-button);
-  color: #fff;
+  color: var(--md-mod-button-text, #fff);
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--md-mod-radius-sm);
   padding: 10px 14px;
   font-weight: 700;
   cursor: pointer;
@@ -2039,7 +2062,7 @@ CSS;
   position: fixed;
   inset: 0;
   z-index: 99996;
-  background: color-mix(in srgb, var(--md-mod-text) 45%, transparent);
+  background: color-mix(in srgb, var(--md-mod-text) 45%, rgba(0, 0, 0, .35));
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -2051,13 +2074,14 @@ CSS;
   background: var(--md-mod-bg);
   color: var(--md-mod-text);
   border: 1px solid var(--md-mod-line);
-  border-radius: 16px;
-  box-shadow: 0 20px 48px color-mix(in srgb, var(--md-mod-text) 22%, transparent);
+  border-radius: var(--md-mod-radius);
+  box-shadow: var(--md-mod-shadow);
   padding: 20px 18px 16px;
   font-size: .85rem;
 }
 .md-mod-cookies__card h2 {
   margin: 0 28px 8px 0;
+  font-family: var(--md-mod-font-display);
   font-size: 1.05rem;
 }
 .md-mod-cookies__hint {
@@ -2072,7 +2096,7 @@ CSS;
   align-items: flex-start;
   margin: 0 0 10px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--md-mod-radius-sm);
   border: 1px solid var(--md-mod-line);
   background: color-mix(in srgb, var(--md-mod-primary) 6%, transparent);
   cursor: pointer;
@@ -2101,15 +2125,299 @@ CSS;
     }
 
     /**
-     * CSS efectivo de mÃ³dulos: custom de la plantilla o starter.
+     * CSS efectivo de módulos: combina siempre la base de plataforma (`starterModulesCss`)
+     * con las personalizaciones de `modules_css` de la plantilla para que ningún plugin
+     * quede sin estructura ni estilos al cambiar de plantilla.
      *
      * @param  array<string, mixed>  $design
      */
     public function resolveModulesCss(array $design): string
     {
-        $custom = trim((string) ($design['modules_css'] ?? ''));
+        $base = $this->starterModulesCss();
+        $custom = trim($this->sanitizeThemeCss((string) ($design['modules_css'] ?? '')));
 
-        return $custom !== '' ? $custom : $this->starterModulesCss();
+        return $custom !== '' ? ($base."\n\n".$custom) : $base;
+    }
+
+    /**
+     * Extrae tokens de diseño desde el CSS de la plantilla (`:root`, `body`, `.md-btn`, `.md-card`)
+     * y resuelve equivalencias entre distintas familias de plantillas.
+     *
+     * @param  array<string, mixed>  $design
+     * @return array<string, mixed>
+     */
+    public function extractThemeTokens(array $design): array
+    {
+        $css = ((string) ($design['global_css'] ?? ''))."\n".((string) ($design['modules_css'] ?? ''));
+        $vars = [];
+
+        if (preg_match_all('/(--[a-zA-Z0-9_-]+)\s*:\s*([^;\}]+)\s*;/', $css, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $name = trim($m[1]);
+                $val = trim($m[2]);
+                if ($val !== '' && ! isset($vars[$name])) {
+                    $vars[$name] = $val;
+                }
+            }
+        }
+
+        $resolveVar = function (?string $expr, int $depth = 0) use (&$resolveVar, $vars): ?string {
+            if ($expr === null || $expr === '' || $depth > 6) {
+                return $expr;
+            }
+            $expr = trim((string) preg_replace('/\/\*.*?\*\//s', '', $expr));
+            if (preg_match('/^var\(\s*(--[a-zA-Z0-9_-]+)\s*(?:,\s*([^\)]+))?\)$/', $expr, $m)) {
+                $ref = trim($m[1]);
+                if (isset($vars[$ref])) {
+                    return $resolveVar($vars[$ref], $depth + 1);
+                }
+                if (isset($m[2])) {
+                    return $resolveVar(trim($m[2]), $depth + 1);
+                }
+            }
+
+            return $expr;
+        };
+
+        $pickVar = function (array $candidates) use ($vars, $resolveVar): ?string {
+            foreach ($candidates as $key) {
+                if (isset($vars[$key]) && trim($vars[$key]) !== '') {
+                    return $resolveVar($vars[$key]);
+                }
+            }
+
+            return null;
+        };
+
+        $extractRuleProp = function (string $selectorPattern, array $propNames) use ($css, $resolveVar): ?string {
+            if (! preg_match_all('/(?:^|[\}\s,])(?:'.$selectorPattern.')\s*\{([^}]*)\}/is', $css, $blocks)) {
+                return null;
+            }
+            foreach ($blocks[1] as $body) {
+                foreach ($propNames as $prop) {
+                    if (preg_match('/(?:^|;|\s)'.preg_quote($prop, '/').'\s*:\s*([^;\}]+)/i', $body, $pm)) {
+                        $val = trim((string) preg_replace('/!important/i', '', $pm[1]));
+                        if ($val !== '' && $val !== 'inherit' && $val !== 'initial' && $val !== 'transparent') {
+                            return $resolveVar($val);
+                        }
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        $primary = $pickVar(['--md-primary', '--md-amber', '--md-accent-cyan', '--md-brand', '--primary', '--md-checkout-primary', '--md-mod-primary'])
+            ?? $extractRuleProp('\.md-btn(?:\b|--primary)', ['background-color', 'background'])
+            ?? '#0f766e';
+
+        $accent = $pickVar(['--md-accent', '--md-signal', '--md-accent-lamp', '--md-amber', '--md-accent-fan', '--accent', '--md-checkout-accent', '--md-mod-accent'])
+            ?? $primary;
+
+        $bg = $pickVar(['--md-bg', '--md-graphite', '--md-surface', '--bg', '--background', '--md-checkout-bg'])
+            ?? $extractRuleProp('body', ['background-color', 'background'])
+            ?? '#f8fafc';
+
+        $panel = $pickVar(['--md-panel', '--md-slate', '--md-surface-2', '--md-panel-raised', '--md-surface', '--surface', '--card', '--md-mod-bg'])
+            ?? $extractRuleProp('\.md-card', ['background-color', 'background'])
+            ?? $bg;
+
+        $panel2 = $pickVar(['--md-panel-2', '--md-steel', '--md-panel-raised', '--md-surface-2'])
+            ?? $panel;
+
+        $ink = $pickVar(['--md-ink', '--md-paper', '--md-text', '--text', '--foreground', '--md-checkout-text', '--md-mod-text'])
+            ?? $extractRuleProp('body', ['color'])
+            ?? '#0f172a';
+
+        $panelLum = $this->relativeLuminanceFromCssColor($panel) ?? $this->relativeLuminanceFromCssColor($bg);
+        $inkLum = $this->relativeLuminanceFromCssColor($ink);
+        if ($panelLum !== null && $inkLum !== null && abs($panelLum - $inkLum) < 0.28) {
+            $altInk = $pickVar(['--md-paper', '--md-text', '--text', '--foreground', '--md-checkout-text', '--md-mod-text'])
+                ?? $extractRuleProp('body', ['color']);
+            $altLum = $this->relativeLuminanceFromCssColor($altInk);
+            if ($altInk !== null && $altLum !== null && abs($panelLum - $altLum) >= 0.28) {
+                $ink = $altInk;
+            } else {
+                $ink = $this->resolveContrastTextForColor($panel);
+            }
+        }
+
+        $muted = $pickVar(['--md-muted', '--md-text-muted', '--md-muted-2', '--muted', '--md-mod-muted'])
+            ?? 'color-mix(in srgb, var(--md-ink) 64%, var(--md-bg))';
+
+        $line = $pickVar(['--md-line', '--md-border', '--md-line-strong', '--md-border-strong', '--border', '--md-mod-line'])
+            ?? 'color-mix(in srgb, var(--md-ink) 14%, var(--md-bg))';
+
+        $radius = $pickVar(['--md-radius', '--radius', '--md-mod-radius'])
+            ?? $extractRuleProp('\.md-card', ['border-radius'])
+            ?? '14px';
+
+        $radiusSm = $pickVar(['--md-radius-sm', '--radius-sm', '--md-mod-radius-sm'])
+            ?? $extractRuleProp('\.md-btn', ['border-radius'])
+            ?? '10px';
+
+        $fontBody = $pickVar(['--md-font-body', '--font-body', '--md-font', '--font-sans', '--md-mod-font'])
+            ?? $extractRuleProp('body', ['font-family'])
+            ?? 'system-ui, -apple-system, sans-serif';
+
+        $fontDisplay = $pickVar(['--md-font-display', '--font-display'])
+            ?? $extractRuleProp('(?:\.md-h1|h1)', ['font-family'])
+            ?? $fontBody;
+
+        $fontMono = $pickVar(['--md-font-mono', '--font-mono'])
+            ?? 'ui-monospace, SFMono-Regular, monospace';
+
+        $onPrimary = $this->resolveContrastTextForColor($primary);
+        $onAccent = $this->resolveContrastTextForColor($accent);
+        $bgLum = $this->relativeLuminanceFromCssColor($bg) ?? $this->relativeLuminanceFromCssColor($panel);
+        $isDark = $bgLum !== null && $bgLum < 0.32;
+
+        return [
+            'vars' => $vars,
+            'primary' => $primary,
+            'accent' => $accent,
+            'bg' => $bg,
+            'panel' => $panel,
+            'panel_2' => $panel2,
+            'ink' => $ink,
+            'muted' => $muted,
+            'line' => $line,
+            'radius' => $radius,
+            'radius_sm' => $radiusSm,
+            'font_body' => $fontBody,
+            'font_display' => $fontDisplay,
+            'font_mono' => $fontMono,
+            'on_primary' => $onPrimary,
+            'on_accent' => $onAccent,
+            'is_dark' => $isDark,
+        ];
+    }
+
+    /**
+     * Resuelve los tokens efectivos de checkout: si el diseño conserva los valores
+     * por defecto de fábrica, hereda automáticamente la paleta de la plantilla activa.
+     *
+     * @param  array<string, mixed>  $design
+     * @return array{primary: string, accent: string, button: string, bg: string, text: string}
+     */
+    public function resolveEffectiveCheckoutTokens(array $design): array
+    {
+        $defaults = $this->defaults()['checkout'];
+        $raw = is_array($design['checkout'] ?? null) ? $design['checkout'] : [];
+        $tokens = $this->extractThemeTokens($design);
+        $vars = $tokens['vars'];
+
+        $pick = function (string $key, string $cssVarName, string $fallbackToken) use ($raw, $defaults, $vars): string {
+            $configured = trim((string) ($raw[$key] ?? ''));
+            $defaultVal = strtolower(trim((string) ($defaults[$key] ?? '')));
+            if ($configured !== '' && strtolower($configured) !== $defaultVal) {
+                return $configured;
+            }
+            if (isset($vars[$cssVarName]) && trim($vars[$cssVarName]) !== '') {
+                return trim($vars[$cssVarName]);
+            }
+
+            return $fallbackToken;
+        };
+
+        return [
+            'primary' => $pick('primary', '--md-checkout-primary', $tokens['primary']),
+            'accent' => $pick('accent', '--md-checkout-accent', $tokens['accent']),
+            'button' => $pick('button', '--md-checkout-button', $tokens['primary']),
+            'bg' => $pick('bg', '--md-checkout-bg', $tokens['panel']),
+            'text' => $pick('text', '--md-checkout-text', $tokens['ink']),
+        ];
+    }
+
+    /**
+     * Genera el puente `:root` que garantiza que todas las variables `--md-*`,
+     * `--md-mod-*` y `--md-checkout-*` existan y reflejen el estilo de la plantilla.
+     *
+     * @param  array<string, mixed>  $design
+     */
+    public function buildThemeTokenBridgeCss(array $design): string
+    {
+        $t = $this->extractThemeTokens($design);
+        $ck = $this->resolveEffectiveCheckoutTokens($design);
+        $rawInk = isset($t['vars']['--md-ink']) && trim((string) $t['vars']['--md-ink']) !== ''
+            ? trim((string) $t['vars']['--md-ink'])
+            : $t['ink'];
+        $modBg = isset($t['vars']['--md-mod-bg']) && trim((string) $t['vars']['--md-mod-bg']) !== ''
+            ? trim((string) $t['vars']['--md-mod-bg'])
+            : 'var(--md-panel)';
+        $modText = isset($t['vars']['--md-mod-text']) && trim((string) $t['vars']['--md-mod-text']) !== ''
+            ? trim((string) $t['vars']['--md-mod-text'])
+            : $t['ink'];
+
+        return <<<CSS
+/* Puente automático de tokens de plantilla → módulos y plugins Multidrop */
+:root {
+  --md-primary: {$t['primary']};
+  --md-accent: {$t['accent']};
+  --md-bg: {$t['bg']};
+  --md-panel: {$t['panel']};
+  --md-panel-2: {$t['panel_2']};
+  --md-ink: {$rawInk};
+  --md-muted: {$t['muted']};
+  --md-line: {$t['line']};
+  --md-radius: {$t['radius']};
+  --md-radius-sm: {$t['radius_sm']};
+  --md-font-body: {$t['font_body']};
+  --md-font-display: {$t['font_display']};
+  --md-font-mono: {$t['font_mono']};
+  --md-on-primary: {$t['on_primary']};
+  --md-on-accent: {$t['on_accent']};
+  --md-checkout-primary: {$ck['primary']};
+  --md-checkout-accent: {$ck['accent']};
+  --md-checkout-button: {$ck['button']};
+  --md-checkout-bg: {$ck['bg']};
+  --md-checkout-text: {$ck['text']};
+  --md-mod-primary: var(--md-primary);
+  --md-mod-accent: var(--md-accent);
+  --md-mod-button: var(--md-checkout-button, var(--md-primary));
+  --md-mod-button-text: var(--md-on-primary);
+  --md-mod-bg: {$modBg};
+  --md-mod-surface: var(--md-bg);
+  --md-mod-text: {$modText};
+  --md-mod-muted: var(--md-muted);
+  --md-mod-line: var(--md-line);
+  --md-mod-radius: var(--md-radius);
+  --md-mod-radius-sm: var(--md-radius-sm);
+  --md-mod-font: var(--md-font-body);
+  --md-mod-font-display: var(--md-font-display);
+}
+CSS;
+    }
+
+    protected function relativeLuminanceFromCssColor(?string $color): ?float
+    {
+        if ($color === null) {
+            return null;
+        }
+        if (! preg_match('/#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b/', $color, $m)) {
+            return null;
+        }
+        $hex = $m[1];
+        if (strlen($hex) === 3) {
+            $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
+        }
+        $r = hexdec(substr($hex, 0, 2)) / 255;
+        $g = hexdec(substr($hex, 2, 2)) / 255;
+        $b = hexdec(substr($hex, 4, 2)) / 255;
+
+        $lin = static fn (float $c): float => $c <= 0.03928 ? ($c / 12.92) : pow(($c + 0.055) / 1.055, 2.4);
+
+        return 0.2126 * $lin($r) + 0.7152 * $lin($g) + 0.0722 * $lin($b);
+    }
+
+    protected function resolveContrastTextForColor(?string $color): string
+    {
+        $lum = $this->relativeLuminanceFromCssColor($color);
+        if ($lum !== null && $lum > 0.44) {
+            return '#0f172a';
+        }
+
+        return '#ffffff';
     }
 
     /**
@@ -2118,12 +2426,16 @@ CSS;
      */
     public function composeStorefrontCss(array $design, array $page = []): string
     {
+        $customModulesCss = trim($this->sanitizeThemeCss((string) ($design['modules_css'] ?? '')));
+
         $parts = [
             $this->platformModuleCss(),
             $this->pdpRuntimeCss(),
-            trim($this->sanitizeThemeCss($this->resolveModulesCss($design))),
+            $this->starterModulesCss(),
             trim($this->sanitizeThemeCss((string) ($design['global_css'] ?? ''))),
-            trim((string) ($page['css'] ?? '')),
+            $this->buildThemeTokenBridgeCss($design),
+            $customModulesCss,
+            trim($this->sanitizeThemeCss((string) ($page['css'] ?? ''))),
             $this->platformMobileCss(),
             $this->resolveThemeMobileCss($design),
             $this->platformOverlayGuardCss(),
@@ -2133,7 +2445,8 @@ CSS;
     }
 
     /**
-     * Quita reglas de tema que rompen overlays inyectados por la plataforma.
+     * Quita o corrige reglas de tema que rompen overlays inyectados por la plataforma,
+     * preservando la estética de la plantilla.
      */
     public function sanitizeThemeCss(string $css): string
     {
@@ -2152,21 +2465,65 @@ CSS;
             $css = preg_replace($pattern, '', $css) ?? $css;
         }
 
+        // Si el diseñador estilizó #md-atc-modal directo como tarjeta (fondo opaco/borde),
+        // redirigir al contenedor real de la tarjeta (.md-atc-modal__card) para no tapar el backdrop.
+        $css = preg_replace_callback(
+            '/(^|[\}\s])#md-atc-modal\s*\{([^}]*)\}/m',
+            static function (array $m): string {
+                $body = $m[2];
+                if (preg_match('/\b(?:position\s*:\s*fixed|inset\s*:)/i', $body)) {
+                    return $m[0];
+                }
+
+                return $m[1].'#md-atc-modal .md-atc-modal__card {'.$body.'}';
+            },
+            $css
+        ) ?? $css;
+
+        // Si el diseñador estilizó .md-mod-cookies directo como barra fija con fondo/padding,
+        // redirigir a .md-mod-cookies__bar para no afectar el modal de preferencias ni crear doble barra.
+        $css = preg_replace_callback(
+            '/(^|[\}\s])\.md-mod-cookies\s*\{([^}]*)\}/m',
+            static function (array $m): string {
+                $body = $m[2];
+                if (preg_match('/\b(?:background|padding|box-shadow|bottom\s*:|position\s*:\s*fixed)\b/i', $body)) {
+                    return $m[1].'.md-mod-cookies .md-mod-cookies__bar {'.$body.'}';
+                }
+
+                return $m[0];
+            },
+            $css
+        ) ?? $css;
+
         return trim(preg_replace("/\n{3,}/", "\n\n", $css) ?? $css);
     }
 
     /**
-     * Capa final: protege layout de overlays aunque el tema pise selectores .md-mod-*.
+     * Capa final: protege estructura y posicionamiento de overlays y contenedores
+     * sin sobreescribir la paleta ni tipografía de la plantilla.
      */
     public function platformOverlayGuardCss(): string
     {
         return <<<'CSS'
 [data-md-module="upsell"].md-mod-upsell,
 #md-upsell-demo.md-mod-upsell {
+  position: fixed !important;
+  right: 16px;
+  bottom: 88px;
+  z-index: 99990 !important;
+  width: min(320px, calc(100vw - 32px));
+  max-width: 340px;
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
   gap: 0 !important;
+  box-sizing: border-box !important;
+}
+[data-md-module="upsell"].md-mod-upsell.md-hide,
+#md-upsell-demo.md-mod-upsell.md-hide,
+[data-md-module="upsell"][hidden],
+#md-upsell-demo[hidden] {
+  display: none !important;
 }
 .md-mod-upsell .md-mod-upsell-head,
 .md-mod-upsell .md-mod-upsell-body,
@@ -2175,10 +2532,86 @@ CSS;
   width: 100%;
   box-sizing: border-box;
 }
+.md-mod-upsell .md-mod-upsell-head {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  text-align: left !important;
+}
 .md-mod-upsell .md-mod-upsell-product {
   display: flex !important;
   flex-direction: row !important;
   align-items: center !important;
+}
+.md-mod-upsell .md-mod-upsell-product[hidden] {
+  display: none !important;
+}
+
+/* Protección de visibilidad y layout de Prueba Social */
+#md-social-proof.md-mod-social {
+  position: fixed !important;
+  z-index: 99988 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 10px !important;
+  max-width: min(360px, calc(100vw - 24px)) !important;
+  box-sizing: border-box !important;
+}
+#md-social-proof.md-mod-social:not(.md-sp-visible) {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(12px) !important;
+}
+#md-social-proof.md-mod-social.md-sp-visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
+}
+#md-social-proof.md-mod-social.md-hide,
+#md-social-proof[hidden] {
+  display: none !important;
+}
+
+/* Protección de contenedor exterior de Cookies y Modal ATC */
+#md-cookies.md-mod-cookies {
+  position: static !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+#md-cookies.md-mod-cookies.md-hide,
+#md-cookies[hidden],
+#md-cookies-bar.md-hide,
+#md-cookies-bar[hidden],
+#md-cookies-overlay.md-hide,
+#md-cookies-overlay[hidden] {
+  display: none !important;
+}
+#md-atc-modal.md-atc-modal {
+  position: fixed !important;
+  inset: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+#md-atc-modal.md-hide,
+#md-atc-modal[hidden] {
+  display: none !important;
+}
+
+/* Protección del contenedor de imagen del Hero Estrella si el tema estilizó .md-niche como badge */
+.md-hero .md-niche:has(img),
+.md-mod-hero .md-niche:has(img),
+.md-hero__media:has(img) {
+  display: block !important;
+  position: relative !important;
+  width: 100% !important;
+  aspect-ratio: 4 / 5;
+  padding: 0 !important;
+  overflow: hidden !important;
 }
 CSS;
     }
@@ -2368,7 +2801,7 @@ CSS;
   align-items: center !important;
 }
 #md-atc-modal .md-atc-modal__media {
-  width: 64px !important; height: 64px !important; overflow: hidden !important; border-radius: 10px; background: #e2e8f0;
+  width: 64px !important; height: 64px !important; overflow: hidden !important; border-radius: var(--md-radius-sm, 10px); background: var(--md-mod-surface, #e2e8f0);
 }
 #md-atc-modal #md-atc-img,
 #md-atc-modal .md-atc-modal__media img {
@@ -2379,18 +2812,20 @@ CSS;
 #md-atc-modal .md-atc-modal__ph[hidden],
 #md-atc-modal #md-atc-img[hidden] { display: none !important; }
 #md-atc-modal.md-atc-modal .md-atc-modal__card {
-  background: #ffffff !important;
-  color: #0f172a !important;
+  background: var(--md-mod-bg, var(--md-panel, #ffffff));
+  color: var(--md-mod-text, var(--md-ink, #0f172a));
+  border: 1px solid var(--md-mod-line, var(--md-line, #e2e8f0));
+  border-radius: var(--md-mod-radius, 18px);
 }
 #md-atc-modal .md-atc-modal__title,
 #md-atc-modal .md-atc-modal__name,
-#md-atc-modal .md-atc-modal__price { color: #0f172a !important; }
+#md-atc-modal .md-atc-modal__price { color: var(--md-mod-text, var(--md-ink, #0f172a)); }
 #md-atc-modal .md-atc-modal__sub,
-#md-atc-modal .md-atc-modal__meta { color: #64748b !important; }
+#md-atc-modal .md-atc-modal__meta { color: var(--md-mod-muted, var(--md-muted, #64748b)); }
 #md-atc-modal .md-atc-modal__product {
-  background: #f1f5f9 !important;
-  color: #0f172a !important;
-  border-color: #e2e8f0 !important;
+  background: var(--md-mod-surface, var(--md-bg, #f1f5f9));
+  color: var(--md-mod-text, var(--md-ink, #0f172a));
+  border-color: var(--md-mod-line, var(--md-line, #e2e8f0));
 }
 .md-video-carousel[hidden] { display: none !important; }
 .md-video-carousel__head {
@@ -2826,20 +3261,20 @@ Claves válidas: `{$moduleKeys}`
 |--------|------------------------------|----------------------|
 | `header` | Nav sticky, logo, links, idioma/moneda, carrito | `.md-nav` `.md-header` `.md-logo` `.md-nav__links` `.md-locale-currency` `[data-md-nav-toggle]` |
 | `footer` | Pie con links | `.md-footer` |
-| `hero_star` | Hero del producto estrella (imagen, título, precio, CTA) | `.md-hero` `.md-mod-hero` `.md-niche` |
+| `hero_star` | Hero del producto estrella (imagen, título, precio, CTA) | `.md-hero` `.md-mod-hero` `.md-eyebrow` (badge) `.md-hero__media` / `.md-niche` (contenedor de imagen, nunca `display:inline-block`) |
 | `product_grid` | Grid de tarjetas de producto | `.md-grid` `.md-card` `.md-card__img` `.md-card__price` |
 | `pdp` | Galería, variantes, qty, add-to-cart, descripción | `.md-pdp` `.md-pdp__grid` `.md-qty` `[data-md-add-to-cart]` `.md-variant` |
 | `cart` | Líneas del carrito, qty, totales | `.md-cart` `.md-cart-line` `.md-qty` |
 | `checkout` | Formulario envío + pago + resumen | `.md-checkout` `.md-checkout-layout` `.md-checkout-box` `.md-checkout-summary` |
 | `static` | Cuerpo de página libre (FAQ, legal) | `.md-mod-static` `.md-static-body` |
-| `urgency` | Barra/banner de urgencia | `.md-mod-urgency` |
-| `upsell` | Modal combo post-ATC | `.md-mod-upsell` |
+| `urgency` | Barra/banner de urgencia | `.md-mod-urgency` `.md-mod-bar` |
+| `upsell` | Modal combo post-ATC | `.md-mod-upsell` (modal card) `.md-mod-upsell-backdrop` |
 | `cross_sell` | Oferta mágica en checkout | `.md-mod-cross-checkout` |
-| `roulette` | Ruleta de premios | `.md-mod-roulette-*` |
+| `roulette` | Ruleta de premios | `.md-mod-roulette-fab` `.md-mod-roulette-card` `.md-mod-roulette-backdrop` |
 | `social_proof` | Toast "alguien compró…" | `.md-mod-social` |
-| `newsletter` | Checkbox en checkout (NO popup flotante) | `.md-newsletter-slot` |
-| `atc_modal` | Modal "Agregado al carrito" | `#md-atc-modal` |
-| `cookies` | Banner + preferencias UE (Necesarias / Analítica / Marketing) | `.md-mod-cookies` |
+| `newsletter` | Checkbox en checkout (NO popup flotante) | `.md-newsletter-slot` `.md-mod-newsletter-checkout` |
+| `atc_modal` | Modal "Agregado al carrito" | `#md-atc-modal .md-atc-modal__card` (NUNCA pongas background/padding en `#md-atc-modal`, que es el overlay full-screen) |
+| `cookies` | Banner + preferencias UE (Necesarias / Analítica / Marketing) | `.md-mod-cookies__bar` `.md-mod-cookies__card` (NUNCA estilices `.md-mod-cookies` contenedor raíz como barra fija) |
 
 **Overlays** (`roulette`, `social_proof`, `upsell`, `atc_modal`, `cookies`): la plataforma los inyecta sola. **Estilízalos en `modules.css`**, no dupliques su HTML. **No uses `display:flex` en `.md-mod-upsell` ni clases BEM inventadas (`md-mod-upsell__img`);** la plataforma usa `.md-mod-upsell-head`, `.md-mod-upsell-body`, `.md-mod-upsell-product`, `.md-mod-upsell-name`, `.md-mod-upsell-prices`.
 

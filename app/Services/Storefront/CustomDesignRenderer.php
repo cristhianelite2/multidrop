@@ -158,7 +158,7 @@ class CustomDesignRenderer
         $js = $this->themes->neutralizeThemeCheckoutJs($js);
         $js = $this->copyLocalizer->localize($js, $locale, $design);
         $js = DesignAssetUrl::localize($js);
-        $checkout = $design['checkout'] ?? [];
+        $checkout = $this->themes->resolveEffectiveCheckoutTokens($design);
         $payloadJson = DesignAssetUrl::localize(
             json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}'
         );
@@ -402,13 +402,7 @@ class CustomDesignRenderer
                 'handle' => $page['handle'] ?? null,
                 'title' => $page['title'] ?? null,
             ],
-            'checkout' => [
-                'primary' => data_get($design, 'checkout.primary', '#0f766e'),
-                'accent' => data_get($design, 'checkout.accent', '#f59e0b'),
-                'button' => data_get($design, 'checkout.button', '#0f766e'),
-                'bg' => data_get($design, 'checkout.bg', '#ffffff'),
-                'text' => data_get($design, 'checkout.text', '#0f172a'),
-            ],
+            'checkout' => $this->themes->resolveEffectiveCheckoutTokens($design),
             'turnstile' => [
                 'enabled' => $this->turnstile->enabled(),
                 'site_key' => $this->turnstile->siteKey(),

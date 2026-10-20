@@ -10,6 +10,7 @@ use App\Models\Product;
 use App\Services\Admin\StoreContext;
 use App\Services\Marketing\RemotionAdsRenderService;
 use App\Services\Marketing\RemotionMusicCatalog;
+use App\Services\Marketing\RemotionStudioClient;
 use App\Services\Marketing\RemotionStyleCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -153,5 +154,93 @@ class RemotionController extends Controller
             (int) $campaign->id,
             (int) $data['product_id']
         ));
+    }
+
+    public function remoteOptions(
+        Request $request,
+        StoreContext $storeContext,
+        RemotionStudioClient $client,
+        RemotionStyleCatalog $styleCatalog,
+        RemotionMusicCatalog $musicCatalog
+    ): JsonResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        $studio = $client->withStore($store);
+        if (! $studio->configured()) {
+            return response()->json(['ok' => false, 'message' => 'Configura la API key de Remotion Studio en Ajustes de tienda.'], 422);
+        }
+
+        $music = $musicCatalog->all();
+        $styles = $styleCatalog->all();
+
+        return response()->json([
+            'ok' => true,
+            'styles' => $styles,
+            'music' => $music,
+            'default_style' => $styleCatalog->defaultId(),
+            'default_music' => 'random',
+            'default_volume' => 0.3,
+            'default_length' => 21,
+        ]);
+    }
+
+    public function remoteGenerate(
+        Request $request,
+        StoreContext $storeContext,
+        RemotionStudioClient $client
+    ): JsonResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        $studio = $client->withStore($store);
+        if (! $studio->configured()) {
+            return response()->json(['ok' => false, 'message' => 'Configura la API key de Remotion Studio en Ajustes de tienda.'], 422);
+        }
+
+        $data = $request->validate([
+            'product_id' => ['required', 'integer'],
+            'product_url' => ['required', 'url', 'max:2048'],
+            'style_id' => ['nullable', 'string', 'max:80'],
+            'music_id' => ['nullable', 'string', 'max:80'],
+            'music_volume' => ['nullable', 'numeric', 'min:0', 'max:0.6'],
+            'video_length' => ['nullable', 'integer', 'min:6', 'max:120'],
+        ]);
+
+        $product = Product::query()->where('store_id', $store->id)->whereKey($data['product_id'])->firstOrFail();
+
+        $result = $studio->generateFromUrl(
+            $data['product_url'],
+            $data['style_id'] ?: null,
+            $data['music_id'] ?: null,
+            $data['music_volume'] ?? 0.3,
+            $data['video_length'] ?? 21,
+            $product->name ?: null,
+            $product->image_url ?: null,
+            $product->price ?: null,
+            data_get($product->verified_data, 'description_short') ?: data_get($product->verified_data, 'description_html') ?: null
+        );
+
+        if (! ($result['ok'] ?? false)) {
+            return response()->json($result, 422);
+        }
+
+        return response()->json($result);
+    }
+
+    public function remoteStatus(
+        Request $request,
+        StoreContext $storeContext,
+        RemotionStudioClient $client
+    ): JsonResponse {
+        $store = $this->currentStoreOrFail($storeContext);
+        $data = $request->validate([
+            'job_id' => ['required', 'string', 'max:80'],
+        ]);
+
+        $studio = $client->withStore($store);
+        if (! $studio->configured()) {
+            return response()->json(['state' => 'failed', 'message' => 'API key no configurada'], 422);
+        }
+
+        $status = $studio->status($data['job_id']);
+
+        return response()->json($status);
     }
 }

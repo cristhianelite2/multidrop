@@ -1,6 +1,6 @@
 /* Layout base de módulos comerciales (la plantilla pisa con theme.css / modules.css) */
 .md-module { display: block; }
-.md-wrap { max-width: var(--md-container, 1180px); margin: 0 auto; padding: 0 24px; }
+.md-wrap { width: 100%; max-width: var(--md-container, 1180px); margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
 
 .md-nav {
   position: sticky;
@@ -11,6 +11,7 @@
   color: var(--md-ink, #0f172a);
 }
 .md-nav__row {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -101,7 +102,7 @@
   -webkit-appearance: none;
   appearance: none;
   background: var(--md-primary, var(--md-checkout-button, #0f766e));
-  color: #fff;
+  color: var(--md-on-primary, #fff);
   border: 0;
   cursor: pointer;
   font: inherit;
@@ -116,17 +117,17 @@
   justify-content: center;
   gap: 8px;
   background: var(--md-primary, var(--md-checkout-button, #0f766e));
-  color: #fff;
+  color: var(--md-on-primary, #fff);
   text-decoration: none;
   padding: 12px 18px;
-  border-radius: 12px;
+  border-radius: var(--md-radius-sm, 12px);
   font-weight: 700;
   border: 0;
   cursor: pointer;
   font-family: inherit;
 }
 .md-btn--ghost { background: transparent; color: var(--md-ink, #0f172a); border: 1px solid var(--md-line, #e2e8f0); }
-.md-btn--primary { background: var(--md-primary, var(--md-checkout-button, #0f766e)); color: #fff; }
+.md-btn--primary { background: var(--md-primary, var(--md-checkout-button, #0f766e)); color: var(--md-on-primary, #fff); }
 .md-btn--wide, .md-btn--block { width: 100%; }
 .md-price { font-size: 1.4rem; font-weight: 800; color: var(--md-primary, #0f766e); }
 .md-price-row {
@@ -174,11 +175,11 @@
   max-width: 100%;
   flex: none;
   flex-wrap: nowrap;
-  border: 1px solid color-mix(in srgb, var(--md-checkout-text, #0f172a) 22%, transparent);
-  border-radius: 10px;
+  border: 1px solid var(--md-line, color-mix(in srgb, var(--md-ink, #0f172a) 22%, transparent));
+  border-radius: var(--md-radius-sm, 10px);
   overflow: hidden;
-  background: var(--md-sand, #fff);
-  color: var(--md-checkout-text, #0f172a);
+  background: var(--md-panel, var(--md-bg, #ffffff));
+  color: var(--md-ink, var(--md-checkout-text, #0f172a));
 }
 .md-pdp__row .md-qty { border-radius: 999px; }
 .md-qty button {
@@ -454,7 +455,9 @@
     align-items: flex-start;
     gap: 12px;
   }
-  .md-nav__links.md-open { display: flex; }
+  .md-nav__links.md-open,
+  .md-nav__links.is-open,
+  .md-nav__links.is-active { display: flex; }
   .md-add { width: 44px; height: 44px; }
   .md-checkout-box input:not([type="checkbox"]):not([type="radio"]),
   .md-field input:not([type="checkbox"]):not([type="radio"]),

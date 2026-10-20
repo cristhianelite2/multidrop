@@ -222,15 +222,50 @@ class ModuleRegistry
      */
     public function layoutFor(array $page, ?string $device = null): array
     {
+        $type = (string) ($page['type'] ?? 'page');
         $mods = $page['modules'] ?? null;
         if (! is_array($mods) || $mods === []) {
-            return $this->defaultLayout((string) ($page['type'] ?? 'page'));
+            return $this->defaultLayout($type);
         }
-        $keys = $this->keysOf($mods);
+        $entries = array_values(array_filter(
+            $this->normalizeEntries($mods),
+            static fn (array $e): bool => $e['desktop'] || $e['mobile']
+        ));
+        $keys = array_values(array_map(static fn (array $e): string => $e['key'], $entries));
+        if ($keys === []) {
+            return $this->defaultLayout($type);
+        }
 
-        return $keys !== []
-            ? $keys
-            : $this->defaultLayout((string) ($page['type'] ?? 'page'));
+        if (in_array($type, ['landing', 'product'], true) && ! in_array('urgency', $keys, true) && ! $this->isExplicitlyDisabledInEntries($mods, 'urgency')) {
+            $headerIdx = array_search('header', $keys, true);
+            if ($headerIdx !== false) {
+                array_splice($keys, $headerIdx + 1, 0, ['urgency']);
+            } else {
+                array_unshift($keys, 'urgency');
+            }
+        }
+
+        return array_values($keys);
+    }
+
+    /**
+     * @param  list<mixed>  $modules
+     */
+    protected function isExplicitlyDisabledInEntries(array $modules, string $targetKey): bool
+    {
+        foreach ($modules as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            if (trim((string) ($item['key'] ?? '')) !== $targetKey) {
+                continue;
+            }
+            if (! $this->flagOn($item['desktop'] ?? true) && ! $this->flagOn($item['mobile'] ?? true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

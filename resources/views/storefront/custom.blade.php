@@ -70,6 +70,101 @@
             animation: md-cart-pulse .45s ease;
             display: inline-block;
         }
+        @keyframes md-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .md-btn.is-loading,
+        button.is-loading,
+        .md-add.is-loading,
+        [data-md-add-to-cart].is-loading,
+        [data-md-cart-remove].is-loading,
+        .md-cart-row__remove.is-loading,
+        .md-checkout-summary__remove.is-loading {
+            position: relative !important;
+            color: transparent !important;
+            pointer-events: none !important;
+            cursor: wait !important;
+        }
+        .md-btn.is-loading > *,
+        button.is-loading > *,
+        .md-add.is-loading > *,
+        [data-md-add-to-cart].is-loading > *,
+        [data-md-cart-remove].is-loading > *,
+        .md-cart-row__remove.is-loading > *,
+        .md-checkout-summary__remove.is-loading > * {
+            visibility: hidden !important;
+        }
+        .md-btn.is-loading::after,
+        button.is-loading::after,
+        .md-add.is-loading::after,
+        [data-md-add-to-cart].is-loading::after,
+        [data-md-cart-remove].is-loading::after,
+        .md-cart-row__remove.is-loading::after,
+        .md-checkout-summary__remove.is-loading::after {
+            content: "" !important;
+            position: absolute !important;
+            left: 50% !important;
+            top: 50% !important;
+            width: 16px !important;
+            height: 16px !important;
+            margin-left: -8px !important;
+            margin-top: -8px !important;
+            border-radius: 50% !important;
+            border: 2px solid var(--md-on-primary, #ffffff) !important;
+            border-top-color: transparent !important;
+            animation: md-spin 0.65s linear infinite !important;
+            box-sizing: border-box !important;
+            visibility: visible !important;
+            z-index: 2 !important;
+        }
+        .md-btn--ghost.is-loading::after,
+        .md-cart-row__remove.is-loading::after,
+        .md-checkout-summary__remove.is-loading::after {
+            border-color: var(--md-primary, var(--md-checkout-primary, #0f766e)) !important;
+            border-top-color: transparent !important;
+        }
+        .md-qty.is-loading,
+        [data-md-cart-qty-wrap].is-loading {
+            position: relative !important;
+            pointer-events: none !important;
+            cursor: wait !important;
+        }
+        .md-qty.is-loading button,
+        [data-md-cart-qty-wrap].is-loading button {
+            opacity: 0.3 !important;
+            pointer-events: none !important;
+        }
+        .md-qty.is-loading input,
+        [data-md-cart-qty-wrap].is-loading input {
+            color: transparent !important;
+            pointer-events: none !important;
+        }
+        .md-qty.is-loading::after,
+        [data-md-cart-qty-wrap].is-loading::after {
+            content: "" !important;
+            position: absolute !important;
+            left: 50% !important;
+            top: 50% !important;
+            width: 14px !important;
+            height: 14px !important;
+            margin-left: -7px !important;
+            margin-top: -7px !important;
+            border-radius: 50% !important;
+            border: 2px solid var(--md-primary, var(--md-checkout-primary, #0f766e)) !important;
+            border-top-color: transparent !important;
+            animation: md-spin 0.65s linear infinite !important;
+            box-sizing: border-box !important;
+            pointer-events: none !important;
+            z-index: 5 !important;
+        }
+        .md-cart-row.is-loading,
+        .md-cart-line.is-loading,
+        .md-checkout-summary__line.is-loading {
+            opacity: 0.6 !important;
+            pointer-events: none !important;
+            transition: opacity 0.15s ease;
+        }
         .md-locale-currency {
             display: inline-flex;
             align-items: center;
@@ -4633,11 +4728,24 @@ function mdHideCheckoutRedirect() {
 
   function cartLineMetaFromEl(el) {
     if (!el) return null;
-    var row = el.closest('[data-cart-row], [data-md-cart-row]');
-    if (!row) return null;
-    var productId = parseInt(row.getAttribute('data-product-id') || row.getAttribute('data-cart-row') || row.getAttribute('data-md-cart-row') || '0', 10) || 0;
-    var variantId = parseInt(row.getAttribute('data-variant-id') || '0', 10) || 0;
-    var lineIndex = parseInt(row.getAttribute('data-cart-line-index') || '-1', 10);
+    var row = el.closest('[data-cart-row], [data-md-cart-row], .md-cart-row, .md-cart-line, .md-checkout-summary__line');
+    var productId = 0;
+    var variantId = 0;
+    var lineIndex = -1;
+    if (row) {
+      productId = parseInt(row.getAttribute('data-product-id') || row.getAttribute('data-cart-row') || row.getAttribute('data-md-cart-row') || '0', 10) || 0;
+      variantId = parseInt(row.getAttribute('data-variant-id') || '0', 10) || 0;
+      lineIndex = parseInt(row.getAttribute('data-cart-line-index') || '-1', 10);
+    }
+    if (!productId && el) {
+      productId = parseInt(el.getAttribute('data-product-id') || el.getAttribute('data-md-cart-remove') || el.getAttribute('data-cart-remove') || '0', 10) || 0;
+    }
+    if (!variantId && el) {
+      variantId = parseInt(el.getAttribute('data-variant-id') || '0', 10) || 0;
+    }
+    if (lineIndex < 0 && el) {
+      lineIndex = parseInt(el.getAttribute('data-cart-line-index') || '-1', 10);
+    }
     return {
       row: row,
       product_id: productId,
@@ -4657,15 +4765,64 @@ function mdHideCheckoutRedirect() {
 
   function applyCartQtyFromControl(el, nextQty) {
     var meta = cartLineMetaFromEl(el);
-    if (!meta || !meta.product_id) return;
-    nextQty = parseInt(nextQty, 10);
-    if (isNaN(nextQty)) return;
-    var opts = cartLineOptsFromEl(el);
-    if (nextQty < 1) {
-      Multidrop.Cart.remove(meta.product_id, opts);
-      return;
+    if (!meta || !meta.product_id) return Promise.resolve(null);
+    var row = meta.row;
+    if (row && (row.classList.contains('is-loading') || row.getAttribute('data-md-busy') === '1')) {
+      return Promise.resolve(null);
     }
-    Multidrop.Cart.update(meta.product_id, nextQty, opts);
+    if (el && (el.disabled || el.classList.contains('is-loading') || el.getAttribute('data-md-busy') === '1')) {
+      return Promise.resolve(null);
+    }
+    nextQty = parseInt(nextQty, 10);
+    if (isNaN(nextQty)) return Promise.resolve(null);
+
+    var wrap = (el && el.closest('[data-md-cart-qty-wrap], .md-qty')) || (row ? row.querySelector('[data-md-cart-qty-wrap], .md-qty') : null);
+    var controls = row ? row.querySelectorAll('button, input') : (wrap ? wrap.querySelectorAll('button, input') : []);
+
+    if (row) {
+      row.classList.add('is-loading');
+      row.setAttribute('data-md-busy', '1');
+    }
+    if (wrap) {
+      wrap.classList.add('is-loading');
+      wrap.setAttribute('data-md-busy', '1');
+    }
+    controls.forEach(function (c) { c.disabled = true; });
+
+    var unlock = function () {
+      if (row) {
+        row.classList.remove('is-loading');
+        row.removeAttribute('data-md-busy');
+      }
+      if (wrap) {
+        wrap.classList.remove('is-loading');
+        wrap.removeAttribute('data-md-busy');
+      }
+      controls.forEach(function (c) { c.disabled = false; });
+    };
+
+    var safetyTimer = setTimeout(unlock, 12000);
+
+    var opts = cartLineOptsFromEl(el);
+    var p = (nextQty < 1)
+      ? Multidrop.Cart.remove(meta.product_id, opts)
+      : Multidrop.Cart.update(meta.product_id, nextQty, opts);
+
+    if (p && typeof p.finally === 'function') {
+      return p.finally(function () {
+        clearTimeout(safetyTimer);
+        unlock();
+      });
+    } else if (p && typeof p.then === 'function') {
+      return p.then(
+        function (res) { clearTimeout(safetyTimer); unlock(); return res; },
+        function (err) { clearTimeout(safetyTimer); unlock(); throw err; }
+      );
+    } else {
+      clearTimeout(safetyTimer);
+      unlock();
+      return Promise.resolve(null);
+    }
   }
 
   function checkoutUrl() {
@@ -5151,6 +5308,9 @@ function mdHideCheckoutRedirect() {
       // Un solo dueño del add: runtime. Themes animan vía md:cart:add (no re-agregar).
       e.preventDefault();
       e.stopImmediatePropagation();
+      if (add.disabled || add.classList.contains('is-loading') || add.getAttribute('data-md-busy') === '1') {
+        return;
+      }
       var pid = resolveProductId(add);
       if (!pid) {
         var card = add.closest('[data-md-product-card], .md-card, [data-id], article');
@@ -5158,10 +5318,25 @@ function mdHideCheckoutRedirect() {
       }
       var qty = resolveQty(add);
       if (!pid) return;
+
+      add.disabled = true;
+      add.classList.add('is-loading');
+      add.setAttribute('data-md-busy', '1');
+
+      var unlockAdd = function () {
+        add.disabled = false;
+        add.classList.remove('is-loading');
+        add.removeAttribute('data-md-busy');
+      };
+      var addTimer = setTimeout(unlockAdd, 12000);
+
       var variantId = variantIdForAdd(add);
       var addOpts = { silent: true };
       if (variantId) addOpts.variant_id = variantId;
+
       Multidrop.Cart.add(pid, qty, addOpts).then(function (cart) {
+        clearTimeout(addTimer);
+        unlockAdd();
         if (window.Multidrop && Multidrop.ui && typeof Multidrop.ui.showAddedToCartModal === 'function') {
           Multidrop.ui.showAddedToCartModal(pid, qty, cart || Multidrop.cart);
         }
@@ -5170,7 +5345,10 @@ function mdHideCheckoutRedirect() {
             detail: { product_id: pid, qty: qty, variant_id: variantId, cart: cart, button: add }
           }));
         } catch (err) {}
-      }).catch(function () {});
+      }).catch(function () {
+        clearTimeout(addTimer);
+        unlockAdd();
+      });
       return;
     }
     var rmMd = e.target.closest('[data-md-cart-remove], .md-cart-row__remove, [data-cart-remove]');
@@ -5178,9 +5356,12 @@ function mdHideCheckoutRedirect() {
     if (rm) {
       e.preventDefault();
       e.stopPropagation();
+      if (rm.disabled || rm.classList.contains('is-loading') || rm.getAttribute('data-md-busy') === '1') {
+        return;
+      }
       var lineOpts = cartLineOptsFromEl(rm);
       var rid = parseInt(rm.getAttribute('data-md-cart-remove') || rm.getAttribute('data-cart-remove') || rm.getAttribute('data-product-id') || '', 10);
-      var row = rm.closest('[data-cart-row], [data-md-cart-row], .md-cart-row, .md-cart-line');
+      var row = rm.closest('[data-cart-row], [data-md-cart-row], .md-cart-row, .md-cart-line, .md-checkout-summary__line');
       if (!rid && row) {
         rid = parseInt(row.getAttribute('data-cart-row') || row.getAttribute('data-md-cart-row') || row.getAttribute('data-product-id') || '', 10);
       }
@@ -5198,13 +5379,85 @@ function mdHideCheckoutRedirect() {
       if (!lineOpts.variant_id && row) {
         lineOpts.variant_id = parseInt(row.getAttribute('data-variant-id') || '0', 10) || undefined;
       }
-      Multidrop.Cart.remove(rid || 0, lineOpts);
+
+      // Check current quantity: el botón Quitar solo debe quitar una pieza a la vez
+      var curQty = 1;
+      var qtyInput = row ? row.querySelector('[data-md-cart-qty], input[type="number"]') : null;
+      if (qtyInput) {
+        curQty = parseInt(qtyInput.value, 10) || 1;
+      } else if (lineOpts.line_index != null && Multidrop.cart && Multidrop.cart.items && Multidrop.cart.items[lineOpts.line_index]) {
+        curQty = parseInt(Multidrop.cart.items[lineOpts.line_index].qty, 10) || 1;
+      } else if (Multidrop.cart && Array.isArray(Multidrop.cart.items)) {
+        var matchItem = Multidrop.cart.items.find(function (it) {
+          var mId = Number(it.product_id || it.id) === rid;
+          if (lineOpts.variant_id) {
+            return mId && Number(it.variant_id) === Number(lineOpts.variant_id);
+          }
+          return mId;
+        });
+        if (matchItem) curQty = parseInt(matchItem.qty, 10) || 1;
+      }
+
+      rm.disabled = true;
+      rm.classList.add('is-loading');
+      rm.setAttribute('data-md-busy', '1');
+      if (row) {
+        row.classList.add('is-loading');
+        row.setAttribute('data-md-busy', '1');
+        var wrapQ = row.querySelector('[data-md-cart-qty-wrap], .md-qty');
+        if (wrapQ) {
+          wrapQ.classList.add('is-loading');
+          wrapQ.setAttribute('data-md-busy', '1');
+        }
+        row.querySelectorAll('button, input').forEach(function (el) { el.disabled = true; });
+      }
+
+      var unlockRm = function () {
+        rm.disabled = false;
+        rm.classList.remove('is-loading');
+        rm.removeAttribute('data-md-busy');
+        if (row) {
+          row.classList.remove('is-loading');
+          row.removeAttribute('data-md-busy');
+          var wrapQ2 = row.querySelector('[data-md-cart-qty-wrap], .md-qty');
+          if (wrapQ2) {
+            wrapQ2.classList.remove('is-loading');
+            wrapQ2.removeAttribute('data-md-busy');
+          }
+          row.querySelectorAll('button, input').forEach(function (el) { el.disabled = false; });
+        }
+      };
+
+      var rmTimer = setTimeout(unlockRm, 12000);
+
+      var pAction;
+      if (curQty > 1) {
+        pAction = Multidrop.Cart.update(rid || 0, curQty - 1, lineOpts);
+      } else {
+        pAction = Multidrop.Cart.remove(rid || 0, lineOpts);
+      }
+
+      if (pAction && typeof pAction.finally === 'function') {
+        pAction.finally(function () {
+          clearTimeout(rmTimer);
+          unlockRm();
+        });
+      } else if (pAction && typeof pAction.then === 'function') {
+        pAction.then(
+          function () { clearTimeout(rmTimer); unlockRm(); },
+          function () { clearTimeout(rmTimer); unlockRm(); }
+        );
+      } else {
+        clearTimeout(rmTimer);
+        unlockRm();
+      }
       return;
     }
     var qtyMinus = e.target.closest('[data-md-cart-qty-minus]');
     if (qtyMinus) {
       e.preventDefault();
       e.stopPropagation();
+      if (qtyMinus.disabled || qtyMinus.getAttribute('data-md-busy') === '1') return;
       var wrapM = qtyMinus.closest('[data-md-cart-qty-wrap]') || qtyMinus.parentNode;
       var inputM = wrapM ? wrapM.querySelector('[data-md-cart-qty]') : null;
       var curM = inputM ? (parseInt(inputM.value, 10) || 1) : 1;
@@ -5215,6 +5468,7 @@ function mdHideCheckoutRedirect() {
     if (qtyPlus) {
       e.preventDefault();
       e.stopPropagation();
+      if (qtyPlus.disabled || qtyPlus.getAttribute('data-md-busy') === '1') return;
       var wrapP = qtyPlus.closest('[data-md-cart-qty-wrap]') || qtyPlus.parentNode;
       var inputP = wrapP ? wrapP.querySelector('[data-md-cart-qty]') : null;
       var curP = inputP ? (parseInt(inputP.value, 10) || 1) : 1;
@@ -5267,6 +5521,7 @@ function mdHideCheckoutRedirect() {
   document.addEventListener('change', function (e) {
     var qtyInput = e.target.closest('[data-md-cart-qty]');
     if (!qtyInput) return;
+    if (qtyInput.disabled || qtyInput.getAttribute('data-md-busy') === '1') return;
     var next = parseInt(qtyInput.value, 10);
     if (isNaN(next) || next < 0) next = 0;
     if (next < 1) {

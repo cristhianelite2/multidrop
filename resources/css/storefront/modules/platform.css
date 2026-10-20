@@ -136,6 +136,111 @@ button.md-btn--ghost,
 }
 .md-btn--primary { background: var(--md-primary, var(--md-checkout-button, #0f766e)); color: var(--md-on-primary, #fff); }
 .md-btn--wide, .md-btn--block { width: 100%; }
+
+@keyframes md-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.md-btn.is-loading,
+button.is-loading,
+.md-add.is-loading,
+[data-md-add-to-cart].is-loading,
+[data-md-cart-remove].is-loading,
+.md-cart-row__remove.is-loading,
+.md-checkout-summary__remove.is-loading {
+  position: relative !important;
+  color: transparent !important;
+  pointer-events: none !important;
+  cursor: wait !important;
+}
+
+.md-btn.is-loading > *,
+button.is-loading > *,
+.md-add.is-loading > *,
+[data-md-add-to-cart].is-loading > *,
+[data-md-cart-remove].is-loading > *,
+.md-cart-row__remove.is-loading > *,
+.md-checkout-summary__remove.is-loading > * {
+  visibility: hidden !important;
+}
+
+.md-btn.is-loading::after,
+button.is-loading::after,
+.md-add.is-loading::after,
+[data-md-add-to-cart].is-loading::after,
+[data-md-cart-remove].is-loading::after,
+.md-cart-row__remove.is-loading::after,
+.md-checkout-summary__remove.is-loading::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin-left: -8px !important;
+  margin-top: -8px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--md-on-primary, #ffffff) !important;
+  border-top-color: transparent !important;
+  animation: md-spin 0.65s linear infinite !important;
+  box-sizing: border-box !important;
+  visibility: visible !important;
+  z-index: 2 !important;
+}
+
+.md-btn--ghost.is-loading::after,
+.md-cart-row__remove.is-loading::after,
+.md-checkout-summary__remove.is-loading::after {
+  border-color: var(--md-primary, var(--md-checkout-primary, #0f766e)) !important;
+  border-top-color: transparent !important;
+}
+
+.md-qty.is-loading,
+[data-md-cart-qty-wrap].is-loading {
+  position: relative !important;
+  pointer-events: none !important;
+  cursor: wait !important;
+}
+
+.md-qty.is-loading button,
+[data-md-cart-qty-wrap].is-loading button {
+  opacity: 0.3 !important;
+  pointer-events: none !important;
+}
+
+.md-qty.is-loading input,
+[data-md-cart-qty-wrap].is-loading input {
+  color: transparent !important;
+  pointer-events: none !important;
+}
+
+.md-qty.is-loading::after,
+[data-md-cart-qty-wrap].is-loading::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 14px !important;
+  height: 14px !important;
+  margin-left: -7px !important;
+  margin-top: -7px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--md-primary, var(--md-checkout-primary, #0f766e)) !important;
+  border-top-color: transparent !important;
+  animation: md-spin 0.65s linear infinite !important;
+  box-sizing: border-box !important;
+  pointer-events: none !important;
+  z-index: 5 !important;
+}
+
+.md-cart-row.is-loading,
+.md-cart-line.is-loading,
+.md-checkout-summary__line.is-loading {
+  opacity: 0.6 !important;
+  pointer-events: none !important;
+  transition: opacity 0.15s ease;
+}
 .md-price { font-size: 1.4rem; font-weight: 800; color: var(--md-primary, #0f766e); }
 .md-price-row {
   display: flex;

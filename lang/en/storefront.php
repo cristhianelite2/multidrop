@@ -135,4 +135,12 @@ return [
         'marketing_hint' => 'Meta Pixel. Only if you accept.',
         'link' => 'Cookies',
     ],
+    'locale_modal' => [
+        'title' => 'Language & Currency',
+        'sub' => 'Select your shopping preferences',
+        'language' => 'Language',
+        'currency' => 'Currency',
+        'save' => 'Save preferences',
+        'cancel' => 'Cancel',
+    ],
 ];

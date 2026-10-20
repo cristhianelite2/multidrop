@@ -135,4 +135,12 @@ return [
         'marketing_hint' => 'Meta Pixel. Solo si las aceptas.',
         'link' => 'Cookies',
     ],
+    'locale_modal' => [
+        'title' => 'Idioma y Moneda',
+        'sub' => 'Selecciona tus preferencias de compra',
+        'language' => 'Idioma',
+        'currency' => 'Moneda',
+        'save' => 'Guardar preferencias',
+        'cancel' => 'Cancelar',
+    ],
 ];

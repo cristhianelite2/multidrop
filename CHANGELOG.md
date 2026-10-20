@@ -2,6 +2,15 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-10-20
+
+### Storefront · Modal Global de Idioma y Moneda (`#md-locale-modal`) y Bottom Sheet Móvil
+- **Desacoplamiento del contenedor de cabecera (`custom.blade.php`, `platform.css`):** se trasladó el modal de selección de idioma y moneda fuera de la cabecera (`header.md-header`), renderizándolo directamente como hijo de `document.body` (`#md-locale-modal`). Esto resuelve de raíz el problema de confinamiento y deformación geométrica donde `backdrop-filter: blur(...)` o `overflow: hidden` en los encabezados de las plantillas atrapaban a los elementos con `position: fixed` dentro de la altura de 60px de la barra de navegación.
+- **Experiencia móvil como Bottom Sheet nativo:** en resoluciones móviles (≤ 640px) el selector se abre desde la parte inferior como un bottom sheet con tirador de arrastre táctil (`.md-locale-modal__handle`), respetando los márgenes de seguridad de iPhone/Android (`env(safe-area-inset-bottom)`), con tipografía a 16px en selects para eliminar el zoom involuntario de iOS Safari, y bloqueo de scroll de fondo con `body.md-locale-modal-open`.
+- **Diseño centrado y refinado en escritorio:** tarjeta flotante con sombras suaves, backdrop blur (`rgba(15, 23, 42, 0.48)`), previsualización en tiempo real de banderas de país para idioma y moneda, selector ergonómico con chevrones SVG y nombres amigables (ej. «USD - Dólar estadounidense», «MXN - Peso mexicano», «Español», «English»).
+- **Persistencia atómica de preferencias («Guardar preferencias»):** el botón CTA permite cambiar tanto idioma como moneda en una sola interacción, actualizando ambos parámetros URL (`md_locale` y `md_currency`) simultáneamente con estado de carga animado (`is-loading`), evitando dobles recargas del navegador.
+- **Traducciones multilingües (`lang/{es,en,pt}/storefront.php`):** añadidas claves de localización `storefront.locale_modal` para títulos, subtítulos, etiquetas y botones en español, inglés y portugués.
+
 ## 2026-10-19
 
 ### Storefront · Experiencia Móvil de Alto Impacto y Selector Comprimido de Idioma / Moneda

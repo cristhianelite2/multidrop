@@ -231,142 +231,226 @@
             transform: rotate(180deg);
         }
 
-        /* Dropdown Popover / Modal Sheet */
-        .md-locale-currency__dropdown {
-            display: none;
-            position: absolute;
-            top: calc(100% + 8px);
-            right: 0;
-            min-width: 250px;
-            max-width: min(340px, calc(100vw - 24px));
-            background: var(--md-panel, var(--md-surface, #ffffff));
-            color: var(--md-ink, var(--md-mod-text, #0f172a));
-            border: 1px solid var(--md-line-strong, var(--md-line, rgba(15, 23, 42, 0.14)));
-            border-radius: var(--md-radius, 14px);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
-            padding: 14px;
-            z-index: 2147483600;
-            box-sizing: border-box;
-            animation: md-dropdown-fade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        /* Modal global de Idioma y Moneda (directo a body) */
+        body.md-locale-modal-open {
+            overflow: hidden !important;
         }
-        @keyframes md-dropdown-fade {
-            from { opacity: 0; transform: translateY(-6px) scale(0.97); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        .md-locale-currency.is-open .md-locale-currency__dropdown {
-            display: block;
-        }
-        .md-locale-currency__backdrop {
-            display: none;
+        .md-locale-modal {
             position: fixed;
             inset: 0;
-            z-index: 2147483590;
-            background: rgba(15, 23, 42, 0.3);
-            backdrop-filter: blur(2px);
-            -webkit-backdrop-filter: blur(2px);
-        }
-        .md-locale-currency.is-open .md-locale-currency__backdrop {
-            display: block;
-        }
-        .md-locale-currency__dropdown-header {
+            z-index: 2147483640;
             display: flex;
             align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .md-locale-modal[hidden],
+        .md-locale-modal.md-hide {
+            display: none !important;
+        }
+        .md-locale-modal__backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.48);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+        .md-locale-modal__card {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 420px;
+            background: var(--md-mod-bg, var(--md-panel, var(--md-surface, #ffffff)));
+            color: var(--md-mod-text, var(--md-ink, #0f172a));
+            border: 1px solid var(--md-mod-line, var(--md-line-strong, rgba(15, 23, 42, 0.12)));
+            border-radius: var(--md-mod-radius, var(--md-radius, 20px));
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28), 0 6px 18px rgba(0, 0, 0, 0.08);
+            padding: 24px 22px 20px;
+            font-family: var(--md-mod-font, inherit);
+            box-sizing: border-box;
+            animation: md-modal-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes md-modal-pop {
+            from { opacity: 0; transform: translateY(12px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .md-locale-modal__handle {
+            display: none;
+            width: 40px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, 0.2);
+            margin: -6px auto 16px auto;
+        }
+        .md-locale-modal__header {
+            display: flex;
+            align-items: flex-start;
             justify-content: space-between;
-            padding-bottom: 8px;
-            margin-bottom: 10px;
-            border-bottom: 1px solid var(--md-line, rgba(15, 23, 42, 0.08));
+            gap: 12px;
+            margin-bottom: 20px;
         }
-        .md-locale-currency__dropdown-title {
-            font-size: 13px;
+        .md-locale-modal__header-copy {
+            flex: 1;
+            min-width: 0;
+        }
+        .md-locale-modal__title {
+            margin: 0 0 4px 0;
+            font-family: var(--md-mod-font-display, inherit);
+            font-size: 1.25rem;
             font-weight: 800;
-            letter-spacing: 0.02em;
-            color: var(--md-ink, inherit);
+            line-height: 1.25;
+            letter-spacing: -0.01em;
+            color: var(--md-mod-text, var(--md-ink, #0f172a));
         }
-        .md-locale-currency__dropdown-close {
+        .md-locale-modal__sub {
+            margin: 0;
+            font-size: 13px;
+            color: var(--md-mod-muted, var(--md-muted, #64748b));
+            line-height: 1.4;
+        }
+        .md-locale-modal__close {
+            flex: none;
             background: transparent;
             border: 0;
-            font-size: 16px;
+            font-size: 22px;
             line-height: 1;
-            padding: 6px;
-            color: var(--md-muted, #64748b);
+            color: var(--md-mod-muted, var(--md-muted, #64748b));
             cursor: pointer;
-            border-radius: 6px;
+            padding: 6px;
+            border-radius: 8px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.15s ease;
         }
-        .md-locale-currency__dropdown-close:hover {
+        .md-locale-modal__close:hover {
             background: var(--md-panel-2, rgba(15, 23, 42, 0.06));
-            color: var(--md-ink, #0f172a);
+            color: var(--md-mod-text, #0f172a);
         }
-        .md-locale-currency__dropdown-body {
+        .md-locale-modal__body {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 14px;
+            margin-bottom: 22px;
         }
-        .md-locale-currency__dropdown-field {
+        .md-locale-modal__group {
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 6px;
         }
-        .md-locale-currency__field-label {
+        .md-locale-modal__label {
             font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: var(--md-muted, #64748b);
+            color: var(--md-mod-muted, var(--md-muted, #64748b));
         }
-        .md-locale-currency__item {
+        .md-locale-modal__control {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 10px;
-            border: 1px solid var(--md-line, rgba(15, 23, 42, 0.15));
-            border-radius: var(--md-radius-sm, 8px);
-            background: var(--md-mod-bg, var(--md-panel-2, #ffffff));
-            margin: 0;
-            min-width: 0;
-            width: 100%;
+            gap: 12px;
+            padding: 8px 14px;
+            background: var(--md-panel-2, var(--md-surface, #f8fafc));
+            border: 1.5px solid var(--md-mod-line, var(--md-line, rgba(15, 23, 42, 0.15)));
+            border-radius: var(--md-radius-sm, 12px);
+            cursor: pointer;
+            transition: all 0.15s ease;
             box-sizing: border-box;
         }
-        .md-locale-currency__item select {
+        .md-locale-modal__control:focus-within,
+        .md-locale-modal__control:hover {
+            border-color: var(--md-primary, var(--md-checkout-primary, #0f766e));
+            background: var(--md-panel, #ffffff);
+        }
+        .md-locale-modal__control:focus-within {
+            box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-primary, var(--md-checkout-primary, #0f766e)) 18%, transparent);
+        }
+        .md-locale-modal__control .md-locale-currency__flag {
+            width: 1.35rem;
+            height: 1rem;
+        }
+        .md-locale-modal__select {
             flex: 1;
             min-width: 0;
-            width: 100%;
             border: 0 !important;
             background: transparent !important;
-            font-size: 14px !important;
-            font-weight: 600;
-            color: var(--md-ink, var(--md-mod-text, inherit));
-            outline: none;
+            font-size: 15px !important;
+            font-weight: 700;
+            color: var(--md-mod-text, var(--md-ink, #0f172a)) !important;
+            outline: none !important;
+            box-shadow: none !important;
             cursor: pointer;
-            padding: 4px 0;
             font-family: inherit;
+            padding: 6px 0;
+            appearance: none;
+            -webkit-appearance: none;
+        }
+        .md-locale-modal__arrow {
+            flex: none;
+            color: var(--md-mod-muted, var(--md-muted, #64748b));
+            pointer-events: none;
+            transition: transform 0.15s ease;
+        }
+        .md-locale-modal__actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .md-locale-modal__btn-submit {
+            width: 100%;
+            min-height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: 700;
+            border-radius: var(--md-radius-sm, 12px);
+            cursor: pointer;
+        }
+        .md-locale-modal__btn-cancel {
+            width: 100%;
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            border-radius: var(--md-radius-sm, 12px);
+            cursor: pointer;
+            opacity: 0.85;
+        }
+        .md-locale-modal__btn-cancel:hover {
+            opacity: 1;
         }
 
-        /* On mobile, open as an elegant bottom sheet */
-        @media (max-width: 560px) {
-            .md-locale-currency__dropdown {
-                position: fixed !important;
-                top: auto !important;
-                bottom: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                width: 100% !important;
-                max-width: 100% !important;
-                min-width: 100% !important;
-                border-radius: 20px 20px 0 0 !important;
-                padding: 18px 20px max(24px, env(safe-area-inset-bottom, 24px)) !important;
-                box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.28) !important;
-                animation: md-sheet-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        /* En móvil: Bottom Sheet impecable */
+        @media (max-width: 640px) {
+            .md-locale-modal {
+                align-items: flex-end;
+                padding: 0;
+            }
+            .md-locale-modal__card {
+                max-width: 100%;
+                width: 100%;
+                border-radius: 24px 24px 0 0;
+                border-bottom: 0;
+                border-left: 0;
+                border-right: 0;
+                padding: 16px 20px max(24px, env(safe-area-inset-bottom, 24px));
+                box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.28);
+                animation: md-sheet-slide-up 0.24s cubic-bezier(0.16, 1, 0.3, 1);
             }
             @keyframes md-sheet-slide-up {
                 from { transform: translateY(100%); }
                 to { transform: translateY(0); }
             }
-            .md-locale-currency__item select {
-                min-height: 44px;
+            .md-locale-modal__handle {
+                display: block;
+            }
+            .md-locale-modal__select {
                 font-size: 16px !important;
+                min-height: 36px;
             }
         }
         .md-atc-modal {
@@ -1968,6 +2052,43 @@
         </div>
     </div>
 </div>
+
+{{-- Modal: selector global de idioma y moneda --}}
+<div id="md-locale-modal" class="md-locale-modal md-hide" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="md-locale-modal-title">
+    <div class="md-locale-modal__backdrop" data-md-locale-close></div>
+    <div class="md-locale-modal__card" role="document">
+        <div class="md-locale-modal__handle" aria-hidden="true"></div>
+        <div class="md-locale-modal__header">
+            <div class="md-locale-modal__header-copy">
+                <h2 class="md-locale-modal__title" id="md-locale-modal-title">{{ __('storefront.locale_modal.title') }}</h2>
+                <p class="md-locale-modal__sub">{{ __('storefront.locale_modal.sub') }}</p>
+            </div>
+            <button type="button" class="md-locale-modal__close" data-md-locale-close aria-label="{{ __('storefront.locale_modal.cancel') }}">×</button>
+        </div>
+        <div class="md-locale-modal__body">
+            <div class="md-locale-modal__group" id="md-locale-group-lang">
+                <span class="md-locale-modal__label">{{ __('storefront.locale_modal.language') }}</span>
+                <label class="md-locale-modal__control" for="md-locale-modal-select-lang">
+                    <span class="md-locale-currency__flag fi" id="md-locale-flag-preview-lang" aria-hidden="true"></span>
+                    <select id="md-locale-modal-select-lang" class="md-locale-modal__select" aria-label="{{ __('storefront.locale_modal.language') }}"></select>
+                    <svg class="md-locale-modal__arrow" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg>
+                </label>
+            </div>
+            <div class="md-locale-modal__group" id="md-locale-group-curr">
+                <span class="md-locale-modal__label">{{ __('storefront.locale_modal.currency') }}</span>
+                <label class="md-locale-modal__control" for="md-locale-modal-select-curr">
+                    <span class="md-locale-currency__flag fi" id="md-locale-flag-preview-curr" aria-hidden="true"></span>
+                    <select id="md-locale-modal-select-curr" class="md-locale-modal__select" aria-label="{{ __('storefront.locale_modal.currency') }}"></select>
+                    <svg class="md-locale-modal__arrow" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg>
+                </label>
+            </div>
+        </div>
+        <div class="md-locale-modal__actions">
+            <button type="button" class="md-btn md-btn--primary md-locale-modal__btn-submit" id="md-locale-modal-submit">{{ __('storefront.locale_modal.save') }}</button>
+            <button type="button" class="md-btn md-btn--ghost md-locale-modal__btn-cancel" data-md-locale-close>{{ __('storefront.locale_modal.cancel') }}</button>
+        </div>
+    </div>
+</div>
 @endunless
 
 {!! $html !!}
@@ -2189,25 +2310,237 @@ function mdHideCheckoutRedirect() {
     });
   }
 
+  var LOCALE_NAMES = {
+    es: 'Español',
+    en: 'English',
+    pt: 'Português',
+    fr: 'Français',
+    de: 'Deutsch',
+    it: 'Italiano'
+  };
+
+  function localeFullName(code) {
+    var s = String(code || '').trim();
+    if (!s) return '';
+    var parts = s.split(/[_-]/);
+    var lang = (parts[0] || '').toLowerCase();
+    var name = LOCALE_NAMES[lang] || lang.toUpperCase();
+    var region = parts.length > 1 ? parts[parts.length - 1].toUpperCase() : '';
+    return region ? (name + ' (' + region + ')') : name;
+  }
+
+  var CURRENCY_NAMES = {
+    USD: 'USD - Dólar estadounidense',
+    MXN: 'MXN - Peso mexicano',
+    EUR: 'EUR - Euro',
+    GBP: 'GBP - Libra esterlina',
+    CAD: 'CAD - Dólar canadiense',
+    AUD: 'AUD - Dólar australiano',
+    BRL: 'BRL - Real brasileño',
+    ARS: 'ARS - Peso argentino',
+    CLP: 'CLP - Peso chileno',
+    COP: 'COP - Peso colombiano',
+    PEN: 'PEN - Sol peruano',
+    UYU: 'UYU - Peso uruguayo',
+    BOB: 'BOB - Boliviano',
+    PYG: 'PYG - Guaraní paraguayo',
+    CRC: 'CRC - Colón costarricense',
+    GTQ: 'GTQ - Quetzal guatemalteco',
+    HNL: 'HNL - Lempira hondureño',
+    NIO: 'NIO - Córdoba nicaragüense',
+    PAB: 'PAB - Balboa panameño',
+    DOP: 'DOP - Peso dominicano'
+  };
+
+  function currencyFullName(code) {
+    var c = String(code || '').toUpperCase();
+    return CURRENCY_NAMES[c] || c;
+  }
+
+  function getOrEnsureLocaleModal() {
+    var modal = document.getElementById('md-locale-modal');
+    if (modal) return modal;
+
+    modal = document.createElement('div');
+    modal.id = 'md-locale-modal';
+    modal.className = 'md-locale-modal md-hide';
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'md-locale-modal-title');
+    modal.innerHTML = '<div class="md-locale-modal__backdrop" data-md-locale-close></div>' +
+      '<div class="md-locale-modal__card" role="document">' +
+        '<div class="md-locale-modal__handle" aria-hidden="true"></div>' +
+        '<div class="md-locale-modal__header">' +
+          '<div class="md-locale-modal__header-copy">' +
+            '<h2 class="md-locale-modal__title" id="md-locale-modal-title">Idioma y Moneda</h2>' +
+            '<p class="md-locale-modal__sub">Selecciona tus preferencias de compra</p>' +
+          '</div>' +
+          '<button type="button" class="md-locale-modal__close" data-md-locale-close aria-label="Cerrar">✕</button>' +
+        '</div>' +
+        '<div class="md-locale-modal__body">' +
+          '<div class="md-locale-modal__group" id="md-locale-group-lang">' +
+            '<span class="md-locale-modal__label">Idioma</span>' +
+            '<label class="md-locale-modal__control" for="md-locale-modal-select-lang">' +
+              '<span class="md-locale-currency__flag fi" id="md-locale-flag-preview-lang" aria-hidden="true"></span>' +
+              '<select id="md-locale-modal-select-lang" class="md-locale-modal__select" aria-label="Idioma"></select>' +
+              '<svg class="md-locale-modal__arrow" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg>' +
+            '</label>' +
+          '</div>' +
+          '<div class="md-locale-modal__group" id="md-locale-group-curr">' +
+            '<span class="md-locale-modal__label">Moneda</span>' +
+            '<label class="md-locale-modal__control" for="md-locale-modal-select-curr">' +
+              '<span class="md-locale-currency__flag fi" id="md-locale-flag-preview-curr" aria-hidden="true"></span>' +
+              '<select id="md-locale-modal-select-curr" class="md-locale-modal__select" aria-label="Moneda"></select>' +
+              '<svg class="md-locale-modal__arrow" width="12" height="8" viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg>' +
+            '</label>' +
+          '</div>' +
+        '</div>' +
+        '<div class="md-locale-modal__actions">' +
+          '<button type="button" class="md-btn md-btn--primary md-locale-modal__btn-submit" id="md-locale-modal-submit">Guardar preferencias</button>' +
+          '<button type="button" class="md-btn md-btn--ghost md-locale-modal__btn-cancel" data-md-locale-close>Cancelar</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  function openLocaleModal() {
+    var modal = getOrEnsureLocaleModal();
+    if (!modal) return;
+
+    var md = window.Multidrop || {};
+    var locales = Array.isArray(md.locales) ? md.locales : [];
+    var currencies = Array.isArray(md.currencies) ? md.currencies : [];
+    if (locales.length === 0 && md.locale) locales = [md.locale];
+    if (currencies.length === 0 && md.currency) currencies = [md.currency];
+
+    var langSelect = modal.querySelector('#md-locale-modal-select-lang');
+    var currSelect = modal.querySelector('#md-locale-modal-select-curr');
+    var langGroup = modal.querySelector('#md-locale-group-lang');
+    var currGroup = modal.querySelector('#md-locale-group-curr');
+    var langFlag = modal.querySelector('#md-locale-flag-preview-lang');
+    var currFlag = modal.querySelector('#md-locale-flag-preview-curr');
+
+    if (langSelect) {
+      langSelect.innerHTML = '';
+      locales.forEach(function (loc) {
+        var opt = document.createElement('option');
+        opt.value = String(loc);
+        opt.textContent = localeFullName(loc);
+        if (sameLocale(loc, md.locale)) opt.selected = true;
+        langSelect.appendChild(opt);
+      });
+      if (langFlag) setFlagClass(langFlag, localeIso(langSelect.value));
+      if (langGroup) langGroup.style.display = locales.length ? '' : 'none';
+      if (!langSelect._bound) {
+        langSelect._bound = true;
+        langSelect.addEventListener('change', function () {
+          if (langFlag) setFlagClass(langFlag, localeIso(langSelect.value));
+        });
+      }
+    }
+
+    if (currSelect) {
+      currSelect.innerHTML = '';
+      currencies.forEach(function (cur) {
+        var opt = document.createElement('option');
+        opt.value = String(cur);
+        opt.textContent = currencyFullName(cur);
+        if (String(cur).toUpperCase() === String(md.currency || '').toUpperCase()) opt.selected = true;
+        currSelect.appendChild(opt);
+      });
+      if (currFlag) setFlagClass(currFlag, currencyIso(currSelect.value));
+      if (currGroup) currGroup.style.display = currencies.length ? '' : 'none';
+      if (!currSelect._bound) {
+        currSelect._bound = true;
+        currSelect.addEventListener('change', function () {
+          if (currFlag) setFlagClass(currFlag, currencyIso(currSelect.value));
+        });
+      }
+    }
+
+    var submitBtn = modal.querySelector('#md-locale-modal-submit');
+    if (submitBtn && !submitBtn._bound) {
+      submitBtn._bound = true;
+      submitBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        var selectedLang = langSelect ? langSelect.value : '';
+        var selectedCurr = currSelect ? currSelect.value : '';
+
+        var langChanged = selectedLang && !sameLocale(selectedLang, md.locale);
+        var currChanged = selectedCurr && String(selectedCurr).toUpperCase() !== String(md.currency || '').toUpperCase();
+
+        if (!langChanged && !currChanged) {
+          closeLocaleModal();
+          return;
+        }
+
+        submitBtn.classList.add('is-loading');
+        submitBtn.disabled = true;
+
+        try {
+          var url = new URL(window.location.href);
+          if (langChanged) url.searchParams.set('md_locale', selectedLang);
+          if (currChanged) url.searchParams.set('md_currency', selectedCurr);
+          window.location.assign(url.toString());
+        } catch (err) {
+          var search = window.location.search ? window.location.search + '&' : '?';
+          var params = [];
+          if (langChanged) params.push('md_locale=' + encodeURIComponent(selectedLang));
+          if (currChanged) params.push('md_currency=' + encodeURIComponent(selectedCurr));
+          window.location.assign(window.location.pathname + search + params.join('&') + (window.location.hash || ''));
+        }
+      });
+    }
+
+    if (!modal._eventsBound) {
+      modal._eventsBound = true;
+      modal.addEventListener('click', function (e) {
+        if (e.target.closest('[data-md-locale-close]')) {
+          e.preventDefault();
+          closeLocaleModal();
+        }
+      });
+    }
+
+    modal.hidden = false;
+    modal.classList.remove('md-hide');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('md-locale-modal-open');
+
+    document.querySelectorAll('[data-md-locale-trigger]').forEach(function (p) {
+      p.setAttribute('aria-expanded', 'true');
+    });
+  }
+
+  function closeLocaleModal() {
+    var modal = document.getElementById('md-locale-modal');
+    if (!modal) return;
+    modal.classList.add('md-hide');
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('md-locale-modal-open');
+    document.querySelectorAll('[data-md-locale-trigger]').forEach(function (p) {
+      p.setAttribute('aria-expanded', 'false');
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeLocaleModal();
+  });
+
   function updateLocalePill(box) {
     if (!box) return;
     var pill = box.querySelector('[data-md-locale-trigger]');
     if (!pill) return;
-    var locSel = box.querySelector('[data-md-locale-select]');
-    var curSel = box.querySelector('[data-md-currency-select]');
 
-    var locVal = '';
-    if (locSel && !locSel.hidden && locSel.selectedIndex >= 0 && locSel.options.length) {
-      locVal = (locSel.options[locSel.selectedIndex] ? locSel.options[locSel.selectedIndex].text : locSel.value) || '';
-    }
-    var curVal = '';
-    if (curSel && !curSel.hidden && curSel.selectedIndex >= 0 && curSel.options.length) {
-      curVal = (curSel.options[curSel.selectedIndex] ? curSel.options[curSel.selectedIndex].text : curSel.value) || '';
-    }
+    var md = window.Multidrop || {};
+    var locVal = localeLabel(md.locale || 'es');
+    var curVal = currencyLabel(md.currency || 'MXN');
 
-    var flagCode = '';
-    if (curSel && curSel.value) flagCode = normalizeIso(currencyIso(curSel.value));
-    if (!flagCode && locSel && locSel.value) flagCode = normalizeIso(localeIso(locSel.value));
+    var flagCode = normalizeIso(currencyIso(md.currency || '')) || normalizeIso(localeIso(md.locale || ''));
 
     var flagBadge = pill.querySelector('[data-md-locale-active-flag]');
     if (flagBadge) {
@@ -2225,107 +2558,41 @@ function mdHideCheckoutRedirect() {
 
   function setupCompressedLocaleCurrency(box) {
     if (!box) return;
-    if (box.getAttribute('data-md-locale-compressed') === '1') {
-      updateLocalePill(box);
-      return;
+
+    // Clean out any raw selects or child nodes inside box so it never disrupts the header
+    Array.prototype.slice.call(box.children).forEach(function (child) {
+      if (!child.matches('[data-md-locale-trigger]')) {
+        child.style.display = 'none';
+      }
+    });
+
+    var pill = box.querySelector('[data-md-locale-trigger]');
+    if (!pill) {
+      pill = document.createElement('button');
+      pill.type = 'button';
+      pill.className = 'md-locale-currency__pill';
+      pill.setAttribute('data-md-locale-trigger', '');
+      pill.setAttribute('aria-haspopup', 'dialog');
+      pill.setAttribute('aria-expanded', 'false');
+      pill.setAttribute('aria-label', 'Seleccionar idioma y moneda');
+      pill.innerHTML = '<span class="md-locale-currency__flag fi" data-md-locale-active-flag aria-hidden="true"></span>' +
+        '<span class="md-locale-currency__text" data-md-locale-active-text></span>' +
+        '<svg class="md-locale-currency__arrow" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg>';
+      box.appendChild(pill);
     }
 
-    var items = Array.prototype.slice.call(box.querySelectorAll('.md-locale-currency__item'));
-    if (!items.length) return;
-    box.setAttribute('data-md-locale-compressed', '1');
-
-    var pill = document.createElement('button');
-    pill.type = 'button';
-    pill.className = 'md-locale-currency__pill';
-    pill.setAttribute('data-md-locale-trigger', '');
-    pill.setAttribute('aria-haspopup', 'dialog');
-    pill.setAttribute('aria-expanded', 'false');
-    pill.setAttribute('aria-label', 'Seleccionar idioma y moneda');
-    pill.innerHTML = '<span class="md-locale-currency__flag fi" data-md-locale-active-flag aria-hidden="true"></span>' +
-      '<span class="md-locale-currency__text" data-md-locale-active-text></span>' +
-      '<svg class="md-locale-currency__arrow" width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg>';
-
-    var dropdown = document.createElement('div');
-    dropdown.className = 'md-locale-currency__dropdown';
-    dropdown.setAttribute('data-md-locale-dropdown', '');
-    dropdown.setAttribute('role', 'dialog');
-    dropdown.setAttribute('aria-modal', 'true');
-    dropdown.setAttribute('aria-label', 'Idioma y Moneda');
-
-    var header = document.createElement('div');
-    header.className = 'md-locale-currency__dropdown-header';
-    header.innerHTML = '<span class="md-locale-currency__dropdown-title">Idioma y Moneda</span>' +
-      '<button type="button" class="md-locale-currency__dropdown-close" data-md-locale-close aria-label="Cerrar">✕</button>';
-    dropdown.appendChild(header);
-
-    var body = document.createElement('div');
-    body.className = 'md-locale-currency__dropdown-body';
-
-    items.forEach(function (item) {
-      var isCur = item.querySelector('[data-md-currency-select]');
-      var field = document.createElement('div');
-      field.className = 'md-locale-currency__dropdown-field';
-      var label = document.createElement('span');
-      label.className = 'md-locale-currency__field-label';
-      label.textContent = isCur ? 'Moneda' : 'Idioma';
-      field.appendChild(label);
-      field.appendChild(item);
-      body.appendChild(field);
-    });
-    dropdown.appendChild(body);
-
-    var backdrop = document.createElement('div');
-    backdrop.className = 'md-locale-currency__backdrop';
-    backdrop.setAttribute('data-md-locale-backdrop', '');
-
-    box.appendChild(pill);
-    box.appendChild(dropdown);
-    box.appendChild(backdrop);
-
-    pill.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      var isOpen = box.classList.contains('is-open');
-      closeAllLocaleDropdowns();
-      if (!isOpen) {
-        box.classList.add('is-open');
-        pill.setAttribute('aria-expanded', 'true');
-      }
-    });
-
-    dropdown.addEventListener('click', function (e) {
-      if (e.target.closest('[data-md-locale-close]')) {
+    if (!pill._bound) {
+      pill._bound = true;
+      pill.addEventListener('click', function (e) {
         e.preventDefault();
-        box.classList.remove('is-open');
-        pill.setAttribute('aria-expanded', 'false');
-      }
-    });
+        e.stopPropagation();
+        openLocaleModal();
+      });
+    }
 
-    backdrop.addEventListener('click', function (e) {
-      e.preventDefault();
-      box.classList.remove('is-open');
-      pill.setAttribute('aria-expanded', 'false');
-    });
-
+    box.setAttribute('data-md-locale-compressed', '1');
     updateLocalePill(box);
   }
-
-  function closeAllLocaleDropdowns() {
-    document.querySelectorAll('[data-md-locale-currency].is-open').forEach(function (b) {
-      b.classList.remove('is-open');
-      var p = b.querySelector('[data-md-locale-trigger]');
-      if (p) p.setAttribute('aria-expanded', 'false');
-    });
-  }
-
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeAllLocaleDropdowns();
-  });
-  document.addEventListener('click', function (e) {
-    if (!e.target.closest('[data-md-locale-currency]')) {
-      closeAllLocaleDropdowns();
-    }
-  });
 
   function initLocaleCurrency() {
     var md = window.Multidrop || {};
@@ -2370,7 +2637,7 @@ function mdHideCheckoutRedirect() {
     document.querySelectorAll('[data-md-locale-currency]').forEach(function (box) {
       var loc = box.querySelector('[data-md-locale-select]');
       var cur = box.querySelector('[data-md-currency-select]');
-      var any = (loc && !loc.hidden && loc.options.length) || (cur && !cur.hidden && cur.options.length);
+      var any = (locales.length > 0 || currencies.length > 0) || (loc && loc.options && loc.options.length) || (cur && cur.options && cur.options.length);
       box.hidden = !any;
       box.classList.toggle('is-empty', !any);
       if (any) setupCompressedLocaleCurrency(box);

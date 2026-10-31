@@ -2,6 +2,12 @@
 
 Todos los cambios relevantes de Multidrop se documentan aquí.
 
+## 2026-10-31
+
+### Infraestructura · Docker Compose y Exposición Local de Contenedores
+- **Limpieza de variables en compose.local.yml:** se eliminó la inyección redundante de APP_KEY, APP_URL y contraseñas vacías de MySQL que sobrescribían las variables del .env de Laravel con valores nulos al inicializar docker compose, permitiendo que Laravel cargue su configuración nativa sin errores 500.
+- **Mapeo de puertos locales para túneles:** enlaces directos fijados en 127.0.0.1:8083 para la aplicación web (multidrop-app) y 127.0.0.1:3308 para la base de datos (multidrop-db), garantizando compatibilidad con el túnel Cloudflare multidrop2.ceballosleon.com.
+
 ## 2026-10-20
 
 ### Storefront · Modal Global de Idioma y Moneda (`#md-locale-modal`) y Bottom Sheet Móvil
